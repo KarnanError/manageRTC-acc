@@ -1,24 +1,41 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { Calendar } from "primereact/calendar";
 import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
+import { all_routes } from "../router/all_routes";
 import { DatePicker, TimePicker } from "antd";
 import { Nullable } from "primereact/ts-helpers";
-import PredefinedDateRanges from "../../../core/common/datePicker";
+import PredefinedDateRanges from "../../core/common/datePicker";
 import Modal from "react-bootstrap/Modal";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import Footer from "../../../core/common/footer";
+import CollapseHeader from "../../core/common/collapse-header/collapse-header";
+import ImageWithBasePath from "../../core/common/imageWithBasePath";
+import Footer from "../../core/common/footer";
+import { useSocket } from "../../SocketContext";
+import { Socket } from "socket.io-client";
+import { toast, ToastContainer } from "react-toastify";
+import dayjs from "dayjs";
 
 const Calendars = () => {
   const routes = all_routes;
+  const socket = useSocket() as Socket | null;
   const [showAddEventModal, setShowAddEventModal] = useState(false);
   const [showEventDetailsModal, setShowEventDetailsModal] = useState(false);
   const [eventDetails, setEventDetails] = useState<string>("");
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
+  const [formData, setFormData] = useState({
+    eventName: "",
+    eventDate: "",
+    startTime: "",
+    endTime: "",
+    eventLocation: "",
+    description: "",
+  });
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
@@ -43,44 +60,71 @@ const Calendars = () => {
   const handleAddEventClose = () => setShowAddEventModal(false);
   const handleEventDetailsClose = () => setShowEventDetailsModal(false);
 
-  const events = [
-    {
-      title: "Meeting with Team Dev",
-      className: "badge badge-pink-transparent",
-      backgroundColor: "#FFEDF6",
-      textColor: "#FD3995",
-      start: new Date(Date.now() - 168000000).toJSON().slice(0, 10),
-      end: new Date(Date.now() - 168000000).toJSON().slice(0, 10),
-    },
-    {
-      title: "UI/UX Team...",
-      className: "badge badge-secondary-transparent",
-      backgroundColor: "#EDF2F4",
-      textColor: "#0C4B5E",
-      start: new Date(Date.now() + 338000000).toJSON().slice(0, 10),
-    },
-    {
-      title: "Data Update...",
-      className: "badge badge-purple-transparent",
-      backgroundColor: "#F7EEF9",
-      textColor: "#AB47BC",
-      start: new Date(Date.now() - 338000000).toJSON().slice(0, 10),
-    },
-    {
-      title: "Meeting with Team Dev",
-      className: "badge badge-dark-transparent",
-      backgroundColor: "#E8E9EA",
-      textColor: "#212529",
-      start: new Date(Date.now() + 68000000).toJSON().slice(0, 10),
-    },
-    {
-      title: "Design System",
-      className: "badge badge-danger-transparent",
-      backgroundColor: "#FAE7E7",
-      textColor: "#E70D0D",
-      start: new Date(Date.now() + 88000000).toJSON().slice(0, 10),
-    },
-  ];
+  // Fetch events from backend
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleGetEventsResponse = (response: any) => {
+      if (response.done) {
+        setEvents(response.data || []);
+      }
+      setLoading(false);
+    };
+
+    setLoading(true);
+    socket.emit("calendar/get-events");
+    socket.on("calendar/get-events-response", handleGetEventsResponse);
+
+    return () => {
+      socket.off("calendar/get-events-response", handleGetEventsResponse);
+    };
+  }, [socket]);
+
+  // Handle form input changes
+  const handleFormChange = (e: any) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // Handle add event submission
+  const handleAddEventSubmit = (e: any) => {
+    e.preventDefault();
+    if (!socket) {
+      toast.error("Socket connection lost");
+      return;
+    }
+
+    if (!formData.eventName || !formData.eventDate) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    socket.emit("calendar/add-event", formData);
+
+    const handleAddEventResponse = (response: any) => {
+      if (response.done) {
+        toast.success("Event added successfully");
+        setFormData({
+          eventName: "",
+          eventDate: "",
+          startTime: "",
+          endTime: "",
+          eventLocation: "",
+          description: "",
+        });
+        handleAddEventClose();
+        // Refresh events list
+        socket.emit("calendar/get-events");
+      } else {
+        toast.error(response.message || "Failed to add event");
+      }
+    };
+
+    socket.once("calendar/add-event-response", handleAddEventResponse);
+  };
 
   return (
     <>
@@ -282,7 +326,7 @@ const Calendars = () => {
                     </div>
                     {/* /Upcoming Event */}
                     {/* Upgrade Details */}
-                    <div className="bg-dark rounded text-center position-relative p-4">
+                    {/* <div className="bg-dark rounded text-center position-relative p-4">
                       <span className="avatar avatar-lg rounded-circle bg-white mb-2">
                         <i className="ti ti-alert-triangle text-dark" />
                       </span>
@@ -306,7 +350,7 @@ const Calendars = () => {
                           />
                         </span>
                       </div>
-                    </div>
+                    </div> */}
                     {/* /Upgrade Details */}
                   </div>
                 </div>
@@ -397,13 +441,20 @@ const Calendars = () => {
                   <i className="ti ti-x" />
                 </button>
               </div>
-              <form action="calendar.html">
+              <form onSubmit={handleAddEventSubmit}>
                 <div className="modal-body">
                   <div className="row">
                     <div className="col-12">
                       <div className="mb-3">
                         <label className="form-label">Event Name</label>
-                        <input type="text" className="form-control" />
+                        <input
+                          type="text"
+                          className="form-control"
+                          name="eventName"
+                          value={formData.eventName}
+                          onChange={handleFormChange}
+                          required
+                        />
                       </div>
                     </div>
                     <div className="col-12">
@@ -418,6 +469,13 @@ const Calendars = () => {
                             }}
                             getPopupContainer={getModalContainer}
                             placeholder="DD-MM-YYYY"
+                            value={formData.eventDate ? dayjs(formData.eventDate, "DD-MM-YYYY") : null}
+                            onChange={(date) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                eventDate: date ? date.format("DD-MM-YYYY") : "",
+                              }))
+                            }
                           />
                           <span className="input-icon-addon">
                             <i className="ti ti-calendar text-gray-7" />
@@ -435,6 +493,13 @@ const Calendars = () => {
                             placeholder="Choose"
                             format="h:mm A"
                             className="form-control timepicker"
+                            value={formData.startTime ? dayjs(formData.startTime, "h:mm A") : null}
+                            onChange={(time) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                startTime: time ? time.format("h:mm A") : "",
+                              }))
+                            }
                           />
                           <span className="input-icon-addon">
                             <i className="ti ti-clock text-gray-7" />
@@ -452,6 +517,13 @@ const Calendars = () => {
                             placeholder="Choose"
                             format="h:mm A"
                             className="form-control timepicker"
+                            value={formData.endTime ? dayjs(formData.endTime, "h:mm A") : null}
+                            onChange={(time) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                endTime: time ? time.format("h:mm A") : "",
+                              }))
+                            }
                           />
                           <span className="input-icon-addon">
                             <i className="ti ti-clock text-gray-7" />
@@ -462,14 +534,22 @@ const Calendars = () => {
                     <div className="col-12">
                       <div className="mb-3">
                         <label className="form-label">Event Location</label>
-                        <input type="text" className="form-control" />
+                        <input
+                          type="text"
+                          className="form-control"
+                          name="eventLocation"
+                          value={formData.eventLocation}
+                          onChange={handleFormChange}
+                        />
                       </div>
                       <div className="mb-0">
                         <label className="form-label">Descriptions</label>
                         <textarea
                           className="form-control"
                           rows={3}
-                          defaultValue={""}
+                          name="description"
+                          value={formData.description}
+                          onChange={handleFormChange}
                         />
                       </div>
                     </div>
@@ -483,8 +563,8 @@ const Calendars = () => {
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary">
-                    Add Event
+                  <button type="submit" className="btn btn-primary" disabled={loading}>
+                    {loading ? "Adding..." : "Add Event"}
                   </button>
                 </div>
               </form>

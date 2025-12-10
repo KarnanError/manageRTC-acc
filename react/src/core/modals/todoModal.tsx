@@ -25,15 +25,17 @@ interface TodoModalProps {
   onTodoAdded?: () => void;
   selectedTodoToDelete?: string | null;
   onDeleteTodo?: (todoId: string) => void;
+  onDeleteClick?: (todoId: string) => void;
   selectedTodoToEdit?: Todo | null;
   onTodoUpdated?: () => void;
   selectedTodoToView?: Todo | null;
 }
 
-const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete, onDeleteTodo, selectedTodoToEdit, onTodoUpdated, selectedTodoToView }) => {
+const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete, onDeleteTodo, onDeleteClick, selectedTodoToEdit, onTodoUpdated, selectedTodoToView }) => {
   const socket = useSocket() as Socket | null;
   const [isLoading, setIsLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [viewTodoCompleted, setViewTodoCompleted] = useState(false);
   const [tags, setTags] = useState([
     { value: "Internal", label: "Internal" },
     { value: "Projects", label: "Projects" },
@@ -130,6 +132,13 @@ const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete
       resetForm();
     }
   }, [selectedTodoToEdit]);
+
+  // Update local completed state when selectedTodoToView changes
+  useEffect(() => {
+    if (selectedTodoToView) {
+      setViewTodoCompleted(selectedTodoToView.completed);
+    }
+  }, [selectedTodoToView]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -333,6 +342,85 @@ const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete
     document.body.style.marginRight = '';
     resetForm();
   }, []);
+
+  // Handle Edit from View Modal
+  const handleEditFromView = () => {
+    if (!selectedTodoToView) return;
+
+    // Populate edit form with view data
+    setIsEditMode(true);
+    setFormData({
+      title: selectedTodoToView.title || "",
+      tag: selectedTodoToView.tag || "Personal",
+      priority: selectedTodoToView.priority || "Medium",
+      description: selectedTodoToView.description || "",
+      assignee: selectedTodoToView.assignedTo || "Self",
+      status: selectedTodoToView.completed ? "Completed" : "Pending",
+      dueDate: selectedTodoToView.dueDate ? new Date(selectedTodoToView.dueDate).toISOString().split('T')[0] : ""
+    });
+
+    // Close view modal
+    closeModal('view-note-units');
+
+    // Open edit modal
+    setTimeout(() => {
+      const editModal = document.getElementById('edit-note-units');
+      if (editModal) {
+        const bootstrap = (window as any).bootstrap;
+        if (bootstrap && bootstrap.Modal) {
+          const modalInstance = new bootstrap.Modal(editModal);
+          modalInstance.show();
+        }
+      }
+    }, 300);
+  };
+
+  // Handle delete todo - consistent with todo.tsx
+  const handleDeleteTodo = (todoId: string) => {
+    if (socket && todoId) {
+      console.log("Deleting todo:", todoId);
+      (socket as any).emit("admin/dashboard/delete-todo", todoId);
+    } else {
+      console.error("Cannot delete todo - socket or todoId missing");
+    }
+  };
+
+  // Handle delete click with confirmation
+  const handleDeleteClickWithConfirm = (todoId: string) => {
+    console.log("Delete button clicked for todo:", todoId);
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this todo? This action cannot be undone."
+    );
+    if (confirmed) {
+      handleDeleteTodo(todoId);
+      // Close the modal after deletion
+      closeModal("delete_modal");
+      closeModal("view-note-units");
+    }
+  };
+
+  // Handle Mark as Complete toggle
+  const handleToggleComplete = () => {
+    if (!socket || !selectedTodoToView) {
+      console.error("Socket or todo not available");
+      return;
+    }
+
+    // Optimistically update the local state
+    const newCompletedState = !viewTodoCompleted;
+    setViewTodoCompleted(newCompletedState);
+
+    const updateData = {
+      id: selectedTodoToView._id,
+      completed: newCompletedState,
+    };
+
+    socket.emit("admin/dashboard/update-todo", updateData);
+
+    if (onTodoUpdated) {
+      onTodoUpdated();
+    }
+  };
 
   // Handle modal cleanup when closed by Bootstrap
   useEffect(() => {
@@ -664,14 +752,10 @@ const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete
                       data-bs-dismiss="modal"
                       onClick={(e) => {
                         e.preventDefault();
-                        console.log("Delete button in modal clicked");
-                        console.log("selectedTodoToDelete:", selectedTodoToDelete);
-                        console.log("onDeleteTodo function:", !!onDeleteTodo);
-                        if (selectedTodoToDelete && onDeleteTodo) {
-                          console.log("Calling onDeleteTodo with:", selectedTodoToDelete);
-                          onDeleteTodo(selectedTodoToDelete);
+                        if (selectedTodoToDelete) {
+                          handleDeleteClickWithConfirm(selectedTodoToDelete);
                         } else {
-                          console.error("Missing selectedTodoToDelete or onDeleteTodo function");
+                          console.error("No todo selected for deletion");
                         }
                       }}
                     >
@@ -698,16 +782,40 @@ const TodoModal: React.FC<TodoModalProps> = ({ onTodoAdded, selectedTodoToDelete
                     <p>View todo information</p>
                   </div>
                   <div className=" edit-noted-head d-flex align-items-center">
-                    <Link to="#">
-                      <span>
-                        <i data-feather="trash-2" />
-                      </span>
-                    </Link>
-                    <Link to="#" className="me-2">
-                      <span>
-                        <i data-feather="star" />
-                      </span>
-                    </Link>
+                    <div className="form-check me-3">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id="markAsComplete"
+                        checked={viewTodoCompleted}
+                        onChange={handleToggleComplete}
+                      />
+                      <label className="form-check-label" htmlFor="markAsComplete">
+                        Mark as Complete
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary me-2"
+                      onClick={handleEditFromView}
+                      title="Edit Todo"
+                    >
+                      <i className="ti ti-edit" />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger me-2"
+                      data-bs-toggle="modal"
+                      data-bs-target="#delete_modal"
+                      title="Delete Todo"
+                      onClick={() => {
+                        if (selectedTodoToView) {
+                          handleDeleteClickWithConfirm(selectedTodoToView._id);
+                        }
+                      }}
+                    >
+                      <i className="ti ti-trash" />
+                    </button>
                     <button
                       type="button"
                       className="btn-close custom-btn-close"

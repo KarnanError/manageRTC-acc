@@ -156,7 +156,7 @@ import VoiceCall from "../application/call/voiceCall";
 import Videocallss from "../application/call/videocalls";
 import OutgoingCalls from "../application/call/outgingcalls";
 import IncomingCall from "../application/call/incomingcall";
-import Calendars from "../mainMenu/apps/calendar";
+import Calendars from "../application/calendar";
 import SocialFeed from "../application/socialfeed";
 import KanbanView from "../application/kanbanView";
 import Todo from "../application/todo/todo";
