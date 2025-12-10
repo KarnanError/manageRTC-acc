@@ -14,6 +14,7 @@ import { toast, ToastContainer } from "react-toastify";
 import Footer from "../../../core/common/footer";
 
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 
 type PasswordField = "password" | "confirmPassword";
 
@@ -114,9 +115,8 @@ interface AccountInfo {
 
 interface EmergencyContact {
     name: string;
-    relation: string;
-    phone: string;
-    email: string;
+    relationship: string;
+    phone: string[];
 }
 
 interface BankInfo {
@@ -128,28 +128,25 @@ interface BankInfo {
 }
 
 interface FamilyInfo {
-    spouseName: string | null;
-    children: string[];
-    parents: {
-        father: string;
-        mother: string;
-    };
+    Name: string;
+    relationship: string;
+    phone: string;
 }
 
 interface EducationEntry {
     degree: string;
     institution: string;
-    startYear: number;
-    endYear: number;
+    startDate: string;
+    endDate: string;
     grade: string;
 }
 
 interface ExperienceEntry {
-    company: string;
+    previousCompany: string;
     designation: string;
     startDate: string; // ISO date string
     endDate: string; // ISO date string
-    responsibilities: string[];
+    currentlyWorking?: boolean;
 }
 
 interface Asset {
@@ -209,11 +206,11 @@ export interface Employee {
     contact: ContactInfo;
     personal: PersonalInfo;
     account: AccountInfo;
-    emergencyContacts: EmergencyContact[];
+    emergencyContacts: EmergencyContact;
     bank: BankInfo;
     family: FamilyInfo;
-    education: EducationEntry[];
-    experience: ExperienceEntry[];
+    education: EducationEntry;
+    experience: ExperienceEntry;
     assets: Asset[];
     statutory: Statutory;
     updatedBy: string;
@@ -230,14 +227,54 @@ const EmployeeDetails = () => {
     const editEmployeeModalRef = useRef<HTMLButtonElement>(null);
     const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
     const [editFormData, setEditFormData] = useState<Partial<Employee>>({});
-    const [maritalStatus, setMaritalStatus] = useState<string>("");
+    // const [maritalStatus, setMaritalStatus] = useState<string>("");
     const [bankFormData, setBankFormData] = useState({
         bankName: "",
         accountNumber: "",
         ifscCode: "",
         branch: ""
     });
+    const [familyFormData, setFamilyFormData] = useState({
+        familyMemberName: "",
+        relationship: "",
+        phone: ""
+    });
+    const [personalFormData, setPersonalFormData] = useState({
+        passportNo: "",
+        passportExpiryDate: null as any,
+        nationality: "",
+        religion: "",
+        maritalStatus: "Select",
+        employmentOfSpouse: "",
+        noOfChildren: 0
+    });
+    const [educationFormData, setEducationFormData] = useState<{
+        institution: string;
+        course: string;
+        startDate: Dayjs | null;
+        endDate: Dayjs | null;
+    }>({
+        institution: "",
+        course: "",
+        startDate: null,
+        endDate: null,
+    });
+    const [emergencyFormData, setEmergencyFormData] = useState({
+        name: "",
+        relationship: "",
+        phone1: "",
+        phone2: ""
+    }); 
 
+    const [experienceFormData, setExperienceFormData] = useState({
+        company: "",
+        designation: "",
+        startDate: "",
+        endDate: "",
+    });
+    const [aboutFormData, setAboutFormData] = useState({
+        about: "",
+    });
     // Handle Next button click
     const handleNext = () => {
         handleEditSubmit(undefined as any).then(() => {
@@ -362,8 +399,10 @@ const EmployeeDetails = () => {
                 accountHolderName: `${employee.firstName} ${employee.lastName}`
             }
         };
-
         socket.emit("hrm/employees/update-bank", payload);
+        
+        console.log("Socket event emitted successfully");
+        
         toast.success("Bank details update request sent!", {
             position: "top-right",
             autoClose: 3000,
@@ -372,6 +411,329 @@ const EmployeeDetails = () => {
         // Close modal programmatically
         const closeButton = document.querySelector('#edit_bank [data-bs-dismiss="modal"]') as HTMLButtonElement;
         if (closeButton) closeButton.click();
+    };
+    const  resetBankForm = () => {
+        setBankFormData({
+            bankName: employee.bank?.bankName || "",
+            accountNumber: employee.bank?.accountNumber || "",
+            ifscCode: employee.bank?.ifscCode || "",
+            branch: employee.bank?.branch || ""
+        });
+    };
+
+    // handle education form validation and submission
+    const handleEducationFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        // console.log("dateeeeddd",educationFormData.startDate);
+        // return;
+        if(!educationFormData.institution || !educationFormData.course || !educationFormData.startDate || !educationFormData.endDate) {
+            toast.error("All education details fields are required!", { 
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        if(!socket || !employee) {
+            toast.error("Cannot save education details at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+        const payload = {
+            employeeId: employee.employeeId,
+            educationDetails: {
+                institution: educationFormData.institution,
+                course: educationFormData.course,
+                startDate: educationFormData.startDate ? educationFormData.startDate.toISOString() : "",
+                endDate: educationFormData.endDate ? educationFormData.endDate.toISOString() : ""
+            }
+        };
+        socket.emit("hrm/employees/update-education", payload);
+        toast.success("Education details update request sent!", {
+            position: "top-right",
+            autoClose: 3000,
+        });
+        // Close modal programmatically
+        const closeButton = document.querySelector('#edit_education [data-bs-dismiss="modal"]') as HTMLButtonElement;
+        if (closeButton) closeButton.click();
+    };
+
+    const resetEducationForm = () => {
+        setEducationFormData({
+            institution: employee.education?.institution || "",
+            course: employee.education?.degree || "",
+            startDate: employee.education?.startDate ? dayjs(employee.education.startDate) : null,
+            endDate: employee.education?.endDate ? dayjs(employee.education.endDate) : null
+        });
+    };
+
+    // handleFamily form validation and submission
+    const handleFamilyFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Validate all fields are filled
+        if (!familyFormData.familyMemberName || !familyFormData.relationship || !familyFormData.phone) {
+            console.log("Validation failed - missing required fields");
+            toast.error("All family details fields are required!", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        if (!socket || !employee) {
+            toast.error("Cannot save bank details at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        // Submit bank details to backend
+        const payload = {
+            employeeId: employee.employeeId,
+            family: {
+                ...familyFormData
+            }
+        };
+        socket.emit("hrm/employees/update-family", payload);
+        
+        toast.success("Family details update request sent!", {
+            position: "top-right",
+            autoClose: 3000,
+        });
+        
+        // Close modal programmatically
+        const closeButton = document.querySelector('#edit_family [data-bs-dismiss="modal"]') as HTMLButtonElement;
+        if (closeButton) closeButton.click();
+    };
+
+    const resetFamilyForm = () => {
+        setFamilyFormData({
+            familyMemberName: employee.family?.Name || "",
+            relationship: employee.family?.relationship || "",
+            phone: employee.family?.phone || ""
+        });
+    };
+
+    // Handle personal info form validation and submission
+    const handlePersonalFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        
+        // console.log("=== PERSONAL FORM SUBMIT STARTED ===");
+        // console.log("personalFormData:", personalFormData);
+        // console.log("employee:", employee);
+        console.log("socket:", socket);
+        
+        // Validate required fields
+        if (!personalFormData.passportNo || !personalFormData.passportExpiryDate || 
+            !personalFormData.nationality || !personalFormData.religion || personalFormData.maritalStatus === "Select") {
+            console.log("Validation failed - missing required fields");
+            toast.error("Please fill all required fields!", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        if (!socket || !employee) {
+            // console.log("Socket or employee not available");
+            toast.error("Cannot save personal details at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        // Submit personal details to backend
+        const payload = {
+            employeeId: employee.employeeId,
+            personal: {
+                passport: {
+                    number: personalFormData.passportNo,
+                    expiryDate: personalFormData.passportExpiryDate ? dayjs(personalFormData.passportExpiryDate).toISOString() : "",
+                    country: personalFormData.nationality
+                },
+                religion: personalFormData.religion,
+                maritalStatus: personalFormData.maritalStatus,
+                employmentOfSpouse: personalFormData.maritalStatus === "Yes" ? personalFormData.employmentOfSpouse : "",
+                noOfChildren: personalFormData.maritalStatus === "Yes" ? personalFormData.noOfChildren : 0
+            }
+        };
+        
+        
+        socket.emit("hrm/employees/update-personal", payload);
+        
+        toast.success("Personal details update request sent!", {
+            position: "top-right",
+            autoClose: 3000,
+        });
+        
+        // Close modal programmatically
+        const closeButton = document.querySelector('#edit_personal [data-bs-dismiss="modal"]') as HTMLButtonElement;
+        if (closeButton) closeButton.click();
+    };
+    const resetPersonalForm = () => {
+        setPersonalFormData({
+            passportNo: employee.personal?.passport?.number || "",
+            passportExpiryDate: employee.personal?.passport?.expiryDate ? dayjs(employee.personal.passport.expiryDate) : null,
+            nationality: employee.personal?.passport?.country || "",
+            religion: employee.personal?.religion || "",
+            maritalStatus: employee.personal?.maritalStatus || "Select",
+            employmentOfSpouse: employee.personal?.employmentOfSpouse ? "Yes" : "No",
+            noOfChildren: employee.personal?.noOfChildren || 0
+        });
+    };
+    // handleEmergency form validation and submission
+    const handleEmergencyFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+
+        // 1. Validate required fields
+        if (!emergencyFormData.name || !emergencyFormData.relationship || !emergencyFormData.phone1) {
+            console.log("Validation failed - missing required fields");
+            toast.error("Name, Relationship, and Phone No 1 are required!", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return; // STOP here – don't close modal
+        }
+
+        console.log("Validation passed");
+
+        if (!socket || !employee) {
+            toast.error("Cannot save emergency contact at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+
+        // 2. Prepare payload
+        const phones = [emergencyFormData.phone1];
+        if (emergencyFormData.phone2) {
+            phones.push(emergencyFormData.phone2);
+        }
+
+        const payload = {
+            employeeId: employee.employeeId,
+            emergencyContacts: [{
+                name: emergencyFormData.name,
+                relationship: emergencyFormData.relationship,
+                phone: phones
+            }]
+        };
+
+        socket.emit("hrm/employees/update-emergency", payload);
+
+        // toast.success("Emergency contact update request sent!", {
+        //     position: "top-right",
+        //     autoClose: 3000,
+        // });
+
+        // 3. Close modal ONLY after everything passes
+        const closeButton = document.querySelector(
+            '#edit_emergency [data-bs-dismiss="modal"]'
+        ) as HTMLButtonElement | null;
+
+        if (closeButton){
+            closeButton.click();
+        } 
+    };
+    
+    const resetEmergencyModel = () => {
+        setEmergencyFormData({
+            name: employee.emergencyContacts?.name || "",
+            relationship: employee.emergencyContacts?.relationship || "",
+            phone1: employee.emergencyContacts?.phone?.[0] || "",
+            phone2: employee.emergencyContacts?.phone?.[1] || ""
+        });
+    };
+
+    // Handle experience form validation and submission
+    const handleExperienceFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if(!socket || !employee) {
+            toast.error("Cannot save experience details at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+        const payload = {
+            employeeId: employee.employeeId,
+            experienceDetails: {
+                companyName: experienceFormData.company,
+                designation: experienceFormData.designation,
+                startDate: experienceFormData.startDate,
+                endDate: experienceFormData.endDate
+            }
+        };
+        socket.emit("hrm/employees/update-experience", payload);
+        toast.success("Experience details add request sent!", {
+            position: "top-right",
+            autoClose: 3000,
+        });
+        // Close modal programmatically
+        const closeButton = document.querySelector('#add_experience [data-bs-dismiss="modal"]') as HTMLButtonElement;
+        if (closeButton) closeButton.click();
+    };
+
+    const resetExperienceForm = () => {
+        setExperienceFormData({
+            company: employee.experience?.previousCompany || "",
+            designation: employee.experience?.designation || "",
+            startDate: employee.experience?.startDate || "",
+            endDate: employee.experience?.endDate || "",
+        });
+    };
+
+    const handleAboutSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Validate about field
+        if (!aboutFormData.about || aboutFormData.about.trim() === "") {
+            toast.error("About content cannot be empty!", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+        if (!socket || !employee) {
+            toast.error("Cannot update about at this time.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            return;
+        }
+        try {
+            setLoading(true);
+            const payload = {
+                employeeId: employee.employeeId,
+                about: aboutFormData.about,
+            };
+            socket.emit("hrm/employees/update-about", payload);
+            toast.success("Employee about update request sent!", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            // Optionally close modal if present
+            const closeButton = document.querySelector('#edit_about [data-bs-dismiss="modal"]') as HTMLButtonElement;
+            if (closeButton) closeButton.click();
+        } catch (error) {
+            toast.error("Failed to update about", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+            console.error("About update error:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const resetAboutForm = () => {
+        setAboutFormData({
+            about: typeof employee?.about === 'string' ? employee.about : "",
+        });
     };
 
     // Permissions handlers
@@ -511,6 +873,7 @@ const EmployeeDetails = () => {
     useEffect(() => {
         if (employee) {
             setEditingEmployee(employee);
+
             setEditFormData({
                 ...employee,
                 dateOfJoining: employee.dateOfJoining || "",
@@ -536,11 +899,53 @@ const EmployeeDetails = () => {
                 branch: employee.bank?.branch || ""
             });
             
-            // Initialize marital status
-            setMaritalStatus(employee.personal?.maritalStatus || "");
+            // Initialize personal form data
+            setPersonalFormData({
+                passportNo: employee.personal?.passport?.number || "",
+                passportExpiryDate: employee.personal?.passport?.expiryDate ? dayjs(employee.personal.passport.expiryDate) : null,
+                nationality: employee.personal?.passport?.country || "",
+                religion: employee.personal?.religion || "",
+                maritalStatus: employee.personal?.maritalStatus || "Select",
+                employmentOfSpouse: employee.personal?.employmentOfSpouse ? "Yes" : "No",
+                noOfChildren: employee.personal?.noOfChildren || 0
+            });
+
+            setFamilyFormData({
+                familyMemberName: employee.family?.Name || "",
+                relationship: employee.family?.relationship || "",
+                phone: employee.family?.phone || ""
+            });
+
+            // Initialize education form data
+            setEducationFormData({
+                institution: employee.education?.institution || "",
+                course: employee.education?.degree || "",
+                startDate: employee.education?.startDate ? dayjs(employee.education.startDate) : null,
+                endDate: employee.education?.endDate ? dayjs(employee.education.endDate) : null
+            });
+
+            setEmergencyFormData({
+                name: employee.emergencyContacts?.name || "",
+                relationship: employee.emergencyContacts?.relationship || "",
+                phone1: employee.emergencyContacts?.phone?.[0] || "",
+                phone2: employee.emergencyContacts?.phone?.[1] || ""
+            });
+
+            setExperienceFormData({
+                company: employee.experience?.previousCompany || "",
+                designation: employee.experience?.designation || "",
+                startDate: employee.experience?.startDate || "",
+                endDate: employee.experience?.endDate || "",
+            });
+
+            setAboutFormData({
+                about: typeof employee.about === 'string' ? employee.about : "",
+            });
+
         }
     }, [employee]);
 
+    
     // Handle edit form changes
     const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -707,18 +1112,139 @@ const EmployeeDetails = () => {
                 });
             }
         };
+        
+        const handlePersonalUpdateResponse = (response: any) => {
+            if (response.done) {
+                toast.success("Personal details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            } else {
+                toast.error(response.error || "Failed to update personal details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+
+        const handleFamilyUpdateResponse = (response: any) => {
+            if (response.done) {
+                toast.success("Family details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            } else {
+                toast.error(response.error || "Failed to update personal details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+        const handleEducataionUpdateResponse = (response: any) => {
+            if (response.done) {
+                toast.success("Education details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            }
+            else {
+                toast.error(response.error || "Failed to update education details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+
+        const handleEmergencyUpdateResponse = (response: any) => {
+            if (response.done) {
+                toast.success("Emergency contact updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            } else {
+                toast.error(response.error || "Failed to update emergency contact.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+        const handleExperienceResponse = (response: any) => {
+            if (response.done) {
+                toast.success("Experience details added successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            } else {
+                toast.error(response.error || "Failed to add experience details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+
+        const handleAboutResponse = (response: any) => {
+            if (response.done) {
+                toast.success("About information updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                if (socket) {
+                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                }
+            } else {
+                toast.error(response.error || "Failed to update about information.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        };
+
 
         socket.on("hrm/employees/get-details-response", handleDetailsResponse);
         socket.on("hrm/employees/update-response", handleUpdateEmployeeResponse);
         socket.on("hrm/employees/update-bank-response", handleBankUpdateResponse);
+        socket.on("hrm/employees/update-personal-response", handlePersonalUpdateResponse);
+        socket.on("hrm/employees/update-family-response", handleFamilyUpdateResponse);
+        socket.on("hrm/employees/update-education-response", handleEducataionUpdateResponse);
+        socket.on("hrm/employees/update-emergency-response", handleEmergencyUpdateResponse);
+        socket.on("hrm/employees/update-experience-response", handleExperienceResponse);
+        socket.on("hrm/employees/update-about-response", handleAboutResponse);
 
         return () => {
             socket.off("hrm/employees/get-details-response", handleDetailsResponse);
             socket.off("hrm/employees/update-response", handleUpdateEmployeeResponse);
             socket.off("hrm/employees/update-bank-response", handleBankUpdateResponse);
+            socket.off("hrm/employees/update-personal-response", handlePersonalUpdateResponse);
+            socket.off("hrm/employees/update-family-response", handleFamilyUpdateResponse);
+            socket.off("hrm/employees/update-education-response", handleEducataionUpdateResponse);
+            socket.off("hrm/employees/update-emergency-response", handleEmergencyUpdateResponse);
+            socket.off("hrm/employees/update-experience-response", handleExperienceResponse);
+            socket.off("hrm/employees/update-about-response", handleAboutResponse);
             isMounted = false;
             clearTimeout(timeoutId);
         };
+       
     }, [socket, employeeId]);
 
     if (!employeeId) {
@@ -755,12 +1281,23 @@ const EmployeeDetails = () => {
     };
 
     const getModalContainer = () => {
-        const modalElement = document.getElementById('edit_employee') || document.getElementById('modal-datepicker');
-        return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+        const activeModal = document.querySelector('.modal.show');
+        if (activeModal instanceof HTMLElement) {
+            return activeModal;
+        }   
+
+        const fallbackModal = document.getElementById('modal-datepicker');
+        return fallbackModal || document.body;
     };
+
     const getModalContainer2 = () => {
-        const modalElement = document.getElementById('modal_datepicker');
-        return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+        const activeModal = document.querySelector('.modal.show');
+        if (activeModal instanceof HTMLElement) {
+            return activeModal;
+        }
+
+        const fallbackModal = document.getElementById('modal_datepicker');
+        return fallbackModal || document.body;
     };
 
     const data = employeereportDetails;
@@ -1077,7 +1614,7 @@ const EmployeeDetails = () => {
                                                 <i className="ti ti-calendar-x me-2" />
                                                 Passport Exp Date
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.passport?.expiryDate || '-'}</p>
+                                            <p className="text-dark text-end">{formatDate(employee?.personal?.passport?.expiryDate) || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
@@ -1111,6 +1648,7 @@ const EmployeeDetails = () => {
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-baby-bottle me-2" />
                                                 No. of children
+                                                {employee?.bank?.bankName || '-'}
                                             </span>
                                             <p className="text-dark text-end">{employee?.personal?.noOfChildren || '-'}</p>
                                         </div>
@@ -1128,34 +1666,51 @@ const EmployeeDetails = () => {
                                                     <i className="ti ti-edit" />
                                                 </Link>
                                             </div>
-                                            {employee?.emergencyContacts?.map((contact, index) => {
-                                                const label = index === 0 ? "Primary" : "Secondary";
-                                                return (
-                                                    <div key={index} className={index > 0 ? "mt-3" : "mt-2"}>
-                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                            {employee?.emergencyContacts ? (
+                                                <div>
+                                                    <div className="mb-3">
+                                                        <div className="d-flex align-items-center gap-3 mb-2">
                                                             <span className="d-inline-flex align-items-center">
-                                                                <i className="ti ti-user-shield me-2" />
-                                                                {label} Contact Name
+                                                                <i className="ti ti-e-passport me-2" />
+                                                                Name:
                                                             </span>
-                                                            <p className="text-dark text-end">{contact.name || '-'}</p>
-                                                        </div>
-                                                        <div className="d-flex align-items-center justify-content-between mb-2">
-                                                            <span className="d-inline-flex align-items-center">
-                                                                <i className="ti ti-link me-2" />
-                                                                Relationship
-                                                            </span>
-                                                            <p className="text-dark text-end">{contact.relation || '-'}</p>
-                                                        </div>
-                                                        <div className="d-flex align-items-center justify-content-between">
-                                                            <span className="d-inline-flex align-items-center">
-                                                                <i className="ti ti-phone me-2" />
-                                                                Phone Number
-                                                            </span>
-                                                            <p className="text-dark text-end">{contact.phone || '-'}</p>
+
+                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.name || '-'}</p>
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
+                                                    <div className="mb-3">
+                                                        <div className="d-flex align-items-center gap-3 mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                                <i className="ti ti-e-passport me-2" />
+                                                                Relationship:
+                                                            </span>
+
+                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.relationship || '-'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mb-3">
+                                                        <div className="d-flex align-items-center gap-3 mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                                <i className="ti ti-e-passport me-2" />
+                                                                Phone Number1:
+                                                            </span>
+                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.phone?.[0] || '-'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mb-3">
+                                                        <div className="d-flex align-items-center gap-3 mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                                <i className="ti ti-e-passport me-2" />
+                                                                Phone Number2:
+                                                            </span>
+
+                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.phone?.[1] || '-'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-muted">No education records available</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1182,7 +1737,7 @@ const EmployeeDetails = () => {
                                                                 to="#"
                                                                 className="btn btn-sm btn-icon ms-auto"
                                                                 data-bs-toggle="modal" data-inert={true}
-                                                                data-bs-target="#edit_employee"
+                                                                data-bs-target="#edit_about"
                                                             >
                                                                 <i className="ti ti-edit" />
                                                             </Link>
@@ -1206,10 +1761,11 @@ const EmployeeDetails = () => {
                                                     data-bs-parent="#accordionExample"
                                                 >
                                                     <div className="accordion-body mt-2">
-                                                        {employee?.about || '-'}
+                                                        {aboutFormData.about || '-'}
                                                     </div>
                                                 </div>
                                             </div>
+                                             {/* {bank details shown} */}
                                             <div className="accordion-item">
                                                 <div className="accordion-header" id="headingTwo">
                                                     <div className="accordion-button">
@@ -1237,57 +1793,45 @@ const EmployeeDetails = () => {
                                                     </div>
                                                 </div>
                                                 <div
-                                                    id="primaryBorderTwo"
-                                                    className="accordion-collapse collapse border-top"
-                                                    aria-labelledby="headingTwo"
+                                                    id="primaryBorderOne"
+                                                    className="accordion-collapse collapse show border-top "
+                                                    aria-labelledby="headingOne"
                                                     data-bs-parent="#accordionExample"
                                                 >
-                                                    <div className="accordion-body">
-                                                        <div className="row">
-                                                            <div className="col-md-3">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    Bank Name
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.bank?.bankName || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-3">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    Bank Account No
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.bank?.accountNumber || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-3">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    IFSC Code
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.bank?.ifscCode || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-3">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    Branch
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.bank?.branch || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-3 mt-3">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    Account Holder Name
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.bank?.accountHolderName || '-'}
-                                                                </h6>
-                                                            </div>
+                                                    <div className="accordion-body mt-2 ">
+                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                            <i className="ti ti-e-passport me-2" />
+                                                                Bank Name
+                                                            </span>
+                                                            <p className="text-dark">{employee?.bank?.bankName || '-'}</p>
+                                                        </div>
+                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                            <i className="ti ti-id me-2" />
+                                                                Account Number
+                                                            </span>
+                                                            <p className="text-dark">{employee?.bank?.accountNumber || '-'}</p>
+                                                        </div>
+                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                            <i className="ti ti-id me-2" />
+                                                                IFSC Code
+                                                            </span>
+                                                            <p className="text-dark">{employee?.bank?.ifscCode || '-'}</p>
+                                                        </div>
+                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                                            <span className="d-inline-flex align-items-center">
+                                                            <i className="ti ti-map-pin-check me-2" />
+                                                                Branch
+                                                            </span>
+                                                            <p className="text-dark">{employee?.bank?.branch || '-'}</p>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
+                                            {/* {end bank details} */}
+                                            {/* {Family details show} */}
                                             <div className="accordion-item">
                                                 <div className="accordion-header" id="headingThree">
                                                     <div className="accordion-button">
@@ -1298,7 +1842,7 @@ const EmployeeDetails = () => {
                                                                     to="#"
                                                                     className="btn btn-icon btn-sm"
                                                                     data-bs-toggle="modal" data-inert={true}
-                                                                    data-bs-target="#edit_familyinformation"
+                                                                    data-bs-target="#edit_family"
                                                                 >
                                                                     <i className="ti ti-edit" />
                                                                 </Link>
@@ -1318,7 +1862,7 @@ const EmployeeDetails = () => {
                                                 </div>
                                                 <div
                                                     id="primaryBorderThree"
-                                                    className="accordion-collapse collapse border-top"
+                                                    className="accordion-collapse collapse show border-top"
                                                     aria-labelledby="headingThree"
                                                     data-bs-parent="#accordionExample"
                                                 >
@@ -1326,43 +1870,36 @@ const EmployeeDetails = () => {
                                                         <div className="row">
                                                             <div className="col-md-4">
                                                                 <span className="d-inline-flex align-items-center">
-                                                                    Spouse Name
+                                                                    Name
                                                                 </span>
                                                                 <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.spouseName || '-'}
+                                                                    {employee?.family?.Name || '-'}
                                                                 </h6>
                                                             </div>
                                                             <div className="col-md-4">
                                                                 <span className="d-inline-flex align-items-center">
-                                                                    Father's Name
+                                                                   Relationship
                                                                 </span>
                                                                 <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.parents?.father || '-'}
+                                                                    {employee?.family?.relationship || '-'}
                                                                 </h6>
                                                             </div>
                                                             <div className="col-md-4">
                                                                 <span className="d-inline-flex align-items-center">
-                                                                    Mother's Name
+                                                                   Phone
                                                                 </span>
                                                                 <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.parents?.mother || '-'}
+                                                                    {employee?.family?.phone || '-'}
                                                                 </h6>
                                                             </div>
-                                                            {employee?.family?.children && employee.family.children.length > 0 && (
-                                                                <div className="col-md-12 mt-3">
-                                                                    <span className="d-inline-flex align-items-center">
-                                                                        Children
-                                                                    </span>
-                                                                    <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                        {employee.family.children.join(', ')}
-                                                                    </h6>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
+                                            {/* {end Family details show} */}
+                                           
                                             <div className="row">
+                                                 {/* {Education Details shown} */}
                                                 <div className="col-md-6">
                                                     <div className="accordion-item">
                                                         <div className="row">
@@ -1395,40 +1932,63 @@ const EmployeeDetails = () => {
                                                             </div>
                                                             <div
                                                                 id="primaryBorderFour"
-                                                                className="accordion-collapse collapse border-top"
+                                                                className="accordion-collapse collapse show border-top"
                                                                 aria-labelledby="headingFour"
                                                                 data-bs-parent="#accordionExample"
                                                             >
                                                                 <div className="accordion-body">
-                                                                    <div>
-                                                                        {employee?.education && employee.education.length > 0 ? (
-                                                                            employee.education.map((edu, index) => (
-                                                                                <div key={index} className={index < employee.education.length - 1 ? "mb-3" : ""}>
-                                                                                    <div className="d-flex align-items-center justify-content-between">
-                                                                                        <div>
-                                                                                            <span className="d-inline-flex align-items-center fw-normal">
-                                                                                                {edu.institution}
-                                                                                            </span>
-                                                                                            <h6 className="d-flex align-items-center mt-1">
-                                                                                                {edu.degree}
-                                                                                            </h6>
-                                                                                            {edu.grade && (
-                                                                                                <p className="text-muted mb-0">Grade: {edu.grade}</p>
-                                                                                            )}
-                                                                                        </div>
-                                                                                        <p className="text-dark">{edu.startYear} - {edu.endYear}</p>
-                                                                                    </div>
+                                                                    {employee?.education ? (
+                                                                        <div>
+                                                                            <div className="mb-3">
+                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                        Institution Name:
+                                                                                    </span>
+
+                                                                                    <p className="text-dark mb-0">{employee?.education?.institution || '-'}</p>
                                                                                 </div>
-                                                                            ))
-                                                                        ) : (
-                                                                            <p className="text-muted">No education records available</p>
-                                                                        )}
-                                                                    </div>
+                                                                            </div>
+                                                                            <div className="mb-3">
+                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                        Course Name:
+                                                                                    </span>
+
+                                                                                    <p className="text-dark mb-0">{employee?.education?.degree || '-'}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="mb-3">
+                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                        Start Date:
+                                                                                    </span>
+                                                                                    <p className="text-dark mb-0">{formatDate(employee?.education?.startDate) || '-'}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="mb-3">
+                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                        End Date:
+                                                                                    </span>
+
+                                                                                    <p className="text-dark mb-0">{formatDate(employee?.education?.endDate) || '-'}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <p className="text-muted">No education records available</p>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </div>
+                                                {/* {End Education Details} */}
+                                                {/* {Experience shown} */}
                                                 <div className="col-md-6">
                                                     <div className="accordion-item">
                                                         <div className="row">
@@ -1441,7 +2001,7 @@ const EmployeeDetails = () => {
                                                                                 to="#"
                                                                                 className="btn btn-icon btn-sm"
                                                                                 data-bs-toggle="modal" data-inert={true}
-                                                                                data-bs-target="#edit_experience"
+                                                                                data-bs-target="#add_experience"
                                                                             >
                                                                                 <i className="ti ti-edit" />
                                                                             </Link>
@@ -1461,38 +2021,53 @@ const EmployeeDetails = () => {
                                                             </div>
                                                             <div
                                                                 id="primaryBorderFive"
-                                                                className="accordion-collapse collapse border-top"
+                                                                className="accordion-collapse collapse show border-top"
                                                                 aria-labelledby="headingFive"
                                                                 data-bs-parent="#accordionExample"
                                                             >
                                                                 <div className="accordion-body">
                                                                     <div>
-                                                                        {employee?.experience && employee.experience.length > 0 ? (
-                                                                            employee.experience.map((exp, index) => (
-                                                                                <div key={index} className={index < employee.experience.length - 1 ? "mb-3" : ""}>
-                                                                                    <div className="d-flex align-items-center justify-content-between">
-                                                                                        <div>
-                                                                                            <h6 className="d-inline-flex align-items-center fw-medium">
-                                                                                                {exp.company}
-                                                                                            </h6>
-                                                                                            <span className="d-flex align-items-center badge bg-secondary-transparent mt-1">
-                                                                                                <i className="ti ti-point-filled me-1" />
-                                                                                                {exp.designation}
-                                                                                            </span>
-                                                                                            {exp.responsibilities && exp.responsibilities.length > 0 && (
-                                                                                                <ul className="mt-2 ps-3">
-                                                                                                    {exp.responsibilities.map((resp, idx) => (
-                                                                                                        <li key={idx} className="text-muted small">{resp}</li>
-                                                                                                    ))}
-                                                                                                </ul>
-                                                                                            )}
-                                                                                        </div>
-                                                                                        <p className="text-dark">
-                                                                                            {formatDate(exp.startDate)} - {exp.endDate ? formatDate(exp.endDate) : 'Present'}
-                                                                                        </p>
+                                                                        {employee?.experience ? (
+                                                                            <div>
+                                                                                <div className="mb-3">
+                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                        <span className="d-inline-flex align-items-center">
+                                                                                            <i className="ti ti-e-passport me-2" />
+                                                                                            Company Name:
+                                                                                        </span>
+
+                                                                                        <p className="text-dark mb-0">{employee?.experience?.previousCompany || '-'}</p>
                                                                                     </div>
                                                                                 </div>
-                                                                            ))
+                                                                                <div className="mb-3">
+                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                        <span className="d-inline-flex align-items-center">
+                                                                                            <i className="ti ti-e-passport me-2" />
+                                                                                            Role:
+                                                                                        </span>
+
+                                                                                        <p className="text-dark mb-0">{employee?.experience?.designation || '-'}</p> 
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="mb-3">
+                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                        <span className="d-inline-flex align-items-center">
+                                                                                            <i className="ti ti-e-passport me-2" />
+                                                                                            Start Date:
+                                                                                        </span>
+                                                                                        <p className="text-dark mb-0">{formatDate(employee?.experience?.startDate) || '-'}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="mb-3">
+                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                        <span className="d-inline-flex align-items-center">
+                                                                                            <i className="ti ti-e-passport me-2" />
+                                                                                            End Date:
+                                                                                        </span>
+                                                                                        <p className="text-dark mb-0">{formatDate(employee?.experience?.endDate) || '-'}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
                                                                         ) : (
                                                                             <p className="text-muted">No experience records available</p>
                                                                         )}
@@ -1502,6 +2077,7 @@ const EmployeeDetails = () => {
                                                         </div>
                                                     </div>
                                                 </div>
+                                                {/* {End Experience Details} */}
                                             </div>
                                             <div className="card">
                                                 <div className="card-body">
@@ -1794,541 +2370,434 @@ const EmployeeDetails = () => {
                 </div>
                 <Footer />
             </div>
+            <ToastContainer />
             {/* /Page Wrapper */}
-                  {/* /Page Wrapper */}
             {/* Edit Employee */}
-            <div className="modal fade" id="edit_employee">
-                <div className="modal-dialog modal-dialog-centered modal-lg">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <div className="d-flex align-items-center">
-                                <h4 className="modal-title me-2">Edit Employee</h4>
-                                <span>Employee ID : {editFormData?.employeeId || employee?.employeeId}</span>
+                <div className="modal fade" id="edit_employee">
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                        <div className="modal-content">
+                            <div className="modal-header">
+                                <div className="d-flex align-items-center">
+                                    <h4 className="modal-title me-2">Edit Employee</h4>
+                                    <span>Employee ID : {editFormData?.employeeId || employee?.employeeId}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-close custom-btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"
+                                >
+                                    <i className="ti ti-x" />
+                                </button>
                             </div>
+                            {/* Hidden button for programmatic modal close */}
                             <button
                                 type="button"
-                                className="btn-close custom-btn-close"
+                                ref={editEmployeeModalRef}
                                 data-bs-dismiss="modal"
-                                aria-label="Close"
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        {/* Hidden button for programmatic modal close */}
-                        <button
-                            type="button"
-                            ref={editEmployeeModalRef}
-                            data-bs-dismiss="modal"
-                            style={{ display: "none" }}
-                        />
-                        <form onSubmit={handleEditSubmit}>
-                            <div className="contact-grids-tab">
-                                <ul className="nav nav-underline" id="myTab2" role="tablist">
-                                    <li className="nav-item" role="presentation">
-                                        <button
-                                            className="nav-link active"
-                                            id="info-tab3"
-                                            data-bs-toggle="tab"
-                                            data-bs-target="#basic-info3"
-                                            type="button"
-                                            role="tab"
-                                            aria-selected="true"
-                                        >
-                                            Basic Information
-                                        </button>
-                                    </li>
-                                    <li className="nav-item" role="presentation">
-                                        <button
-                                            className="nav-link"
-                                            id="address-tab3"
-                                            data-bs-toggle="tab"
-                                            data-bs-target="#address3"
-                                            type="button"
-                                            role="tab"
-                                            aria-selected="false"
-                                        >
-                                            Permissions
-                                        </button>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div className="tab-content" id="myTabContent2">
-                                <div
-                                    className="tab-pane fade show active"
-                                    id="basic-info3"
-                                    role="tabpanel"
-                                    aria-labelledby="info-tab3"
-                                    tabIndex={0}
-                                >
-                                    <div className="modal-body pb-0">
-                                        <div className="row">
+                                style={{ display: "none" }}
+                            />
+                            <form onSubmit={handleEditSubmit}>
+                                <div className="contact-grids-tab">
+                                    <ul className="nav nav-underline" id="myTab2" role="tablist">
+                                        <li className="nav-item" role="presentation">
+                                            <button
+                                                className="nav-link active"
+                                                id="info-tab3"
+                                                data-bs-toggle="tab"
+                                                data-bs-target="#basic-info3"
+                                                type="button"
+                                                role="tab"
+                                                aria-selected="true"
+                                            >
+                                                Basic Information
+                                            </button>
+                                        </li>
+                                        <li className="nav-item" role="presentation">
+                                            <button
+                                                className="nav-link"
+                                                id="address-tab3"
+                                                data-bs-toggle="tab"
+                                                data-bs-target="#address3"
+                                                type="button"
+                                                role="tab"
+                                                aria-selected="false"
+                                            >
+                                                Permissions
+                                            </button>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div className="tab-content" id="myTabContent2">
+                                    <div
+                                        className="tab-pane fade show active"
+                                        id="basic-info3"
+                                        role="tabpanel"
+                                        aria-labelledby="info-tab3"
+                                        tabIndex={0}
+                                    >
+                                        <div className="modal-body pb-0">
+                                            <div className="row">
 
-                                            <div className="col-md-12">
-                                                <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                                                    {editFormData.avatarUrl ? (
-                                                        <img
-                                                            src={editFormData.avatarUrl}
-                                                            alt="Profile"
-                                                            className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
-                                                        />
-                                                    ) : (
-                                                        <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
-                                                            <i className="ti ti-photo text-gray-2 fs-16" />
-                                                        </div>
-                                                    )}
-                                                    <div className="profile-upload">
-                                                        <div className="mb-2">
-                                                            <h6 className="mb-1">Edit Profile Image</h6>
-                                                            <p className="fs-12">Image should be below 4 mb</p>
-                                                        </div>
-                                                        <div className="profile-uploader d-flex align-items-center">
-                                                            <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-                                                                {loading ? "Uploading..." : "Upload"}
-                                                                <input
-                                                                    type="file"
-                                                                    className="form-control image-sign"
-                                                                    accept=".png,.jpeg,.jpg,.ico"
-                                                                    ref={fileInputRef}
-                                                                    onChange={handleImageUpload}
+                                                <div className="col-md-12">
+                                                    <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
+                                                        {editFormData.avatarUrl ? (
+                                                            <img
+                                                                src={editFormData.avatarUrl}
+                                                                alt="Profile"
+                                                                className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
+                                                            />
+                                                        ) : (
+                                                            <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
+                                                                <i className="ti ti-photo text-gray-2 fs-16" />
+                                                            </div>
+                                                        )}
+                                                        <div className="profile-upload">
+                                                            <div className="mb-2">
+                                                                <h6 className="mb-1">Edit Profile Image</h6>
+                                                                <p className="fs-12">Image should be below 4 mb</p>
+                                                            </div>
+                                                            <div className="profile-uploader d-flex align-items-center">
+                                                                <div className="drag-upload-btn btn btn-sm btn-primary me-2">
+                                                                    {loading ? "Uploading..." : "Upload"}
+                                                                    <input
+                                                                        type="file"
+                                                                        className="form-control image-sign"
+                                                                        accept=".png,.jpeg,.jpg,.ico"
+                                                                        ref={fileInputRef}
+                                                                        onChange={handleImageUpload}
+                                                                        disabled={loading}
+                                                                        style={{
+                                                                            cursor: loading ? "not-allowed" : "pointer",
+                                                                            opacity: 0,
+                                                                            position: "absolute",
+                                                                            top: 0,
+                                                                            left: 0,
+                                                                            width: "100%",
+                                                                            height: "100%",
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-light btn-sm"
+                                                                    onClick={removeLogo}
                                                                     disabled={loading}
-                                                                    style={{
-                                                                        cursor: loading ? "not-allowed" : "pointer",
-                                                                        opacity: 0,
-                                                                        position: "absolute",
-                                                                        top: 0,
-                                                                        left: 0,
-                                                                        width: "100%",
-                                                                        height: "100%",
-                                                                    }}
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            First Name <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="firstName"
+                                                            value={editFormData.firstName || ""}
+                                                            onChange={handleEditFormChange}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">Last Name</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="lastName"
+                                                            value={editFormData.lastName || ""}
+                                                            onChange={handleEditFormChange}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Employee ID <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="employeeId"
+                                                            value={editFormData.employeeId || ""}
+                                                            readOnly
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Date of Joining <span className="text-danger">*</span>
+                                                        </label>
+                                                        <div className="input-icon-end position-relative">
+                                                            <DatePicker
+                                                                className="form-control datetimepicker"
+                                                                format="DD-MM-YYYY"
+                                                                getPopupContainer={getModalContainer}
+                                                                placeholder="DD-MM-YYYY"
+                                                                value={editFormData.dateOfJoining ? dayjs(editFormData.dateOfJoining) : null}
+                                                                onChange={(date) => setEditFormData(prev => ({
+                                                                    ...prev,
+                                                                    dateOfJoining: date ? date.format('YYYY-MM-DD') : null
+                                                                }))}
+                                                            />
+                                                            <span className="input-icon-addon">
+                                                                <i className="ti ti-calendar text-gray-7" />
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Username <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="account.userName"
+                                                            value={editFormData.account?.userName || ""}
+                                                            onChange={handleEditFormChange}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Email <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="email"
+                                                            className="form-control"
+                                                            name="contact.email"
+                                                            value={editFormData.contact?.email || ""}
+                                                            onChange={handleEditFormChange}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Gender <span className="text-danger">*</span>
+                                                        </label>
+                                                        <select
+                                                            className="form-control"
+                                                            name="personal.gender"
+                                                            value={editFormData.personal?.gender || ""}
+                                                            onChange={handleEditFormChange}
+                                                        >
+                                                            <option value="">Select Gender</option>
+                                                            <option value="male">Male</option>
+                                                            <option value="female">Female</option>
+                                                            <option value="other">Other</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Birthday <span className="text-danger">*</span>
+                                                        </label>
+                                                        <div className="input-icon-end position-relative">
+                                                            <DatePicker
+                                                                className="form-control datetimepicker"
+                                                                format="DD-MM-YYYY"
+                                                                getPopupContainer={getModalContainer}
+                                                                placeholder="DD-MM-YYYY"
+                                                                value={editFormData.personal?.birthday ? dayjs(editFormData.personal.birthday) : null}
+                                                                onChange={(date) => setEditFormData(prev => ({
+                                                                    ...prev,
+                                                                    personal: {
+                                                                        ...prev.personal,
+                                                                        birthday: date ? date.format('YYYY-MM-DD') : null
+                                                                    }
+                                                                }))}
+                                                            />
+                                                            <span className="input-icon-addon">
+                                                                <i className="ti ti-calendar text-gray-7" />
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="col-md-12">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">Address</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            placeholder="Street"
+                                                            name="personal.address.street"
+                                                            value={editFormData.personal?.address?.street || ""}
+                                                            onChange={handleEditFormChange}
+                                                        />
+                                                        <div className="row mt-3">
+                                                            <div className="col-md-6">
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    placeholder="City"
+                                                                    name="personal.address.city"
+                                                                    value={editFormData.personal?.address?.city || ""}
+                                                                    onChange={handleEditFormChange}
                                                                 />
                                                             </div>
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-light btn-sm"
-                                                                onClick={removeLogo}
-                                                                disabled={loading}
-                                                            >
-                                                                Cancel
-                                                            </button>
+                                                            <div className="col-md-6">
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    placeholder="State"
+                                                                    name="personal.address.state"
+                                                                    value={editFormData.personal?.address?.state || ""}
+                                                                    onChange={handleEditFormChange}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div className="row mt-3">
+                                                            <div className="col-md-6">
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    placeholder="Postal Code"
+                                                                    name="personal.address.postalCode"
+                                                                    value={editFormData.personal?.address?.postalCode || ""}
+                                                                    onChange={handleEditFormChange}
+                                                                />
+                                                            </div>
+                                                            <div className="col-md-6">
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    placeholder="Country"
+                                                                    name="personal.address.country"
+                                                                    value={editFormData.personal?.address?.country || ""}
+                                                                    onChange={handleEditFormChange}
+                                                                />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        First Name <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="firstName"
-                                                        value={editFormData.firstName || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">Last Name</label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="lastName"
-                                                        value={editFormData.lastName || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Employee ID <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="employeeId"
-                                                        value={editFormData.employeeId || ""}
-                                                        readOnly
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Date of Joining <span className="text-danger">*</span>
-                                                    </label>
-                                                    <div className="input-icon-end position-relative">
-                                                        <DatePicker
-                                                            className="form-control datetimepicker"
-                                                            format="DD-MM-YYYY"
-                                                            getPopupContainer={getModalContainer}
-                                                            placeholder="DD-MM-YYYY"
-                                                            value={editFormData.dateOfJoining ? dayjs(editFormData.dateOfJoining) : null}
-                                                            onChange={(date) => setEditFormData(prev => ({
-                                                                ...prev,
-                                                                dateOfJoining: date ? date.format('YYYY-MM-DD') : null
-                                                            }))}
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Phone Number <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="contact.phone"
+                                                            value={editFormData.contact?.phone || ""}
+                                                            onChange={handleEditFormChange}
                                                         />
-                                                        <span className="input-icon-addon">
-                                                            <i className="ti ti-calendar text-gray-7" />
-                                                        </span>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Username <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="account.userName"
-                                                        value={editFormData.account?.userName || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Email <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="email"
-                                                        className="form-control"
-                                                        name="contact.email"
-                                                        value={editFormData.contact?.email || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Gender <span className="text-danger">*</span>
-                                                    </label>
-                                                    <select
-                                                        className="form-control"
-                                                        name="personal.gender"
-                                                        value={editFormData.personal?.gender || ""}
-                                                        onChange={handleEditFormChange}
-                                                    >
-                                                        <option value="">Select Gender</option>
-                                                        <option value="male">Male</option>
-                                                        <option value="female">Female</option>
-                                                        <option value="other">Other</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Birthday <span className="text-danger">*</span>
-                                                    </label>
-                                                    <div className="input-icon-end position-relative">
-                                                        <DatePicker
-                                                            className="form-control datetimepicker"
-                                                            format="DD-MM-YYYY"
-                                                            getPopupContainer={getModalContainer}
-                                                            placeholder="DD-MM-YYYY"
-                                                            value={editFormData.personal?.birthday ? dayjs(editFormData.personal.birthday) : null}
-                                                            onChange={(date) => setEditFormData(prev => ({
-                                                                ...prev,
-                                                                personal: {
-                                                                    ...prev.personal,
-                                                                    birthday: date ? date.format('YYYY-MM-DD') : null
-                                                                }
-                                                            }))}
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Company <span className="text-danger">*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            name="companyName"
+                                                            value={editFormData.companyName || ""}
+                                                            onChange={handleEditFormChange}
                                                         />
-                                                        <span className="input-icon-addon">
-                                                            <i className="ti ti-calendar text-gray-7" />
-                                                        </span>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div className="col-md-12">
-                                                <div className="mb-3">
-                                                    <label className="form-label">Address</label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        placeholder="Street"
-                                                        name="personal.address.street"
-                                                        value={editFormData.personal?.address?.street || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                    <div className="row mt-3">
-                                                        <div className="col-md-6">
-                                                            <input
-                                                                type="text"
-                                                                className="form-control"
-                                                                placeholder="City"
-                                                                name="personal.address.city"
-                                                                value={editFormData.personal?.address?.city || ""}
-                                                                onChange={handleEditFormChange}
-                                                            />
-                                                        </div>
-                                                        <div className="col-md-6">
-                                                            <input
-                                                                type="text"
-                                                                className="form-control"
-                                                                placeholder="State"
-                                                                name="personal.address.state"
-                                                                value={editFormData.personal?.address?.state || ""}
-                                                                onChange={handleEditFormChange}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="row mt-3">
-                                                        <div className="col-md-6">
-                                                            <input
-                                                                type="text"
-                                                                className="form-control"
-                                                                placeholder="Postal Code"
-                                                                name="personal.address.postalCode"
-                                                                value={editFormData.personal?.address?.postalCode || ""}
-                                                                onChange={handleEditFormChange}
-                                                            />
-                                                        </div>
-                                                        <div className="col-md-6">
-                                                            <input
-                                                                type="text"
-                                                                className="form-control"
-                                                                placeholder="Country"
-                                                                name="personal.address.country"
-                                                                value={editFormData.personal?.address?.country || ""}
-                                                                onChange={handleEditFormChange}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Phone Number <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="contact.phone"
-                                                        value={editFormData.contact?.phone || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Company <span className="text-danger">*</span>
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        className="form-control"
-                                                        name="companyName"
-                                                        value={editFormData.companyName || ""}
-                                                        onChange={handleEditFormChange}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">Department</label>
-                                                    <CommonSelect
-                                                        className='select'
-                                                        options={departmentChoose}
-                                                        value={departmentChoose.find(opt => opt.value === editFormData.departmentId) || departmentChoose[0]}
-                                                        onChange={option => {
-                                                            if (option) {
-                                                                setEditFormData(prev => ({
-                                                                    ...prev,
-                                                                    departmentId: option.value
-                                                                }));
-                                                                if (socket) {
-                                                                    socket.emit("hrm/designations/get", { departmentId: option.value });
-                                                                }
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">Designation</label>
-                                                    <CommonSelect
-                                                        className='select'
-                                                        options={designationChoose}
-                                                        value={designationChoose.find(opt => opt.value === editFormData.designationId) || designationChoose[0]}
-                                                        onChange={option => {
-                                                            if (option) {
-                                                                setEditFormData(prev => ({
-                                                                    ...prev,
-                                                                    designationId: option.value
-                                                                }));
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        Status <span className="text-danger">*</span>
-                                                    </label>
-                                                    <div className="d-flex align-items-center">
-                                                        <div className="form-check form-switch">
-                                                            <input
-                                                                className="form-check-input"
-                                                                type="checkbox"
-                                                                role="switch"
-                                                                id="editStatusSwitch"
-                                                                checked={editFormData.status === "Active"}
-                                                                onChange={(e) =>
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">Department</label>
+                                                        <CommonSelect
+                                                            className='select'
+                                                            options={departmentChoose}
+                                                            value={departmentChoose.find(opt => opt.value === editFormData.departmentId) || departmentChoose[0]}
+                                                            onChange={option => {
+                                                                if (option) {
                                                                     setEditFormData(prev => ({
                                                                         ...prev,
-                                                                        status: e.target.checked ? "Active" : "Inactive"
-                                                                    }))
+                                                                        departmentId: option.value
+                                                                    }));
+                                                                    if (socket) {
+                                                                        socket.emit("hrm/designations/get", { departmentId: option.value });
+                                                                    }
                                                                 }
-                                                            />
-                                                            <label className="form-check-label" htmlFor="editStatusSwitch">
-                                                                <span
-                                                                    className={`badge ${editFormData.status === "Active"
-                                                                        ? "badge-success"
-                                                                        : "badge-danger"
-                                                                        } d-inline-flex align-items-center`}
-                                                                >
-                                                                    <i className="ti ti-point-filled me-1" />
-                                                                    {editFormData.status || "Active"}
-                                                                </span>
-                                                            </label>
-                                                        </div>
+                                                            }}
+                                                        />
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div className="col-md-12">
-                                                <div className="mb-3">
-                                                    <label className="form-label">
-                                                        About <span className="text-danger">*</span>
-                                                    </label>
-                                                    <textarea
-                                                        className="form-control"
-                                                        rows={4}
-                                                        name="about"
-                                                        value={editFormData.about || ""}
-                                                        onChange={handleEditFormChange}
-                                                        placeholder="Write something about the employee..."
-                                                    />
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">Designation</label>
+                                                        <CommonSelect
+                                                            className='select'
+                                                            options={designationChoose}
+                                                            value={designationChoose.find(opt => opt.value === editFormData.designationId) || designationChoose[0]}
+                                                            onChange={option => {
+                                                                if (option) {
+                                                                    setEditFormData(prev => ({
+                                                                        ...prev,
+                                                                        designationId: option.value
+                                                                    }));
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="modal-footer">
-                                        <button
-                                            type="button"
-                                            className="btn btn-outline-light border me-2"
-                                            data-bs-dismiss="modal"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button 
-                                            type="button" 
-                                            className="btn btn-primary" 
-                                            disabled={loading}
-                                            onClick={handleNext}
-                                        >
-                                            {loading ? "Saving..." : "Save & Next"}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div
-                                    className="tab-pane fade"
-                                    id="address3"
-                                    role="tabpanel"
-                                    aria-labelledby="address-tab3"
-                                    tabIndex={0}
-                                >
-                                    <div className="modal-body pb-0">
-                                        <div className="card">
-                                            <div className="card-body">
-                                                <div className="d-flex align-items-center justify-content-between pb-3 border-bottom">
-                                                    <h6 className="mb-0">Enable Modules</h6>
-                                                    <div className="d-flex align-items-center">
-                                                        <div className="form-check form-switch me-3">
-                                                            <label className="form-check-label">
+                                                <div className="col-md-6">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            Status <span className="text-danger">*</span>
+                                                        </label>
+                                                        <div className="d-flex align-items-center">
+                                                            <div className="form-check form-switch">
                                                                 <input
                                                                     className="form-check-input"
                                                                     type="checkbox"
                                                                     role="switch"
-                                                                    checked={Object.values(permissions.enabledModules).every(Boolean)}
-                                                                    onChange={(e) => toggleAllModules(e.target.checked)}
+                                                                    id="editStatusSwitch"
+                                                                    checked={editFormData.status === "Active"}
+                                                                    onChange={(e) =>
+                                                                        setEditFormData(prev => ({
+                                                                            ...prev,
+                                                                            status: e.target.checked ? "Active" : "Inactive"
+                                                                        }))
+                                                                    }
                                                                 />
-                                                                <span className="text-dark">Enable All</span>
-                                                            </label>
-                                                        </div>
-                                                        <div className="form-check form-switch">
-                                                            <label className="form-check-label">
-                                                                <input
-                                                                    className="form-check-input"
-                                                                    type="checkbox"
-                                                                    role="switch"
-                                                                    checked={allPermissionsSelected()}
-                                                                    onChange={(e) => toggleGlobalSelectAll(e.target.checked)}
-                                                                />
-                                                                <span className="text-dark">Select All</span>
-                                                            </label>
+                                                                <label className="form-check-label" htmlFor="editStatusSwitch">
+                                                                    <span
+                                                                        className={`badge ${editFormData.status === "Active"
+                                                                            ? "badge-success"
+                                                                            : "badge-danger"
+                                                                            } d-inline-flex align-items-center`}
+                                                                    >
+                                                                        <i className="ti ti-point-filled me-1" />
+                                                                        {editFormData.status || "Active"}
+                                                                    </span>
+                                                                </label>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="table-responsive border rounded mt-3">
-                                                    <table className="table">
-                                                        <tbody>
-                                                            {MODULES.map((module) => (
-                                                                <tr key={module}>
-                                                                    <td>
-                                                                        <div className="form-check form-switch me-2">
-                                                                            <label className="form-check-label mt-0">
-                                                                                <input
-                                                                                    className="form-check-input me-2"
-                                                                                    type="checkbox"
-                                                                                    role="switch"
-                                                                                    checked={permissions.enabledModules[module]}
-                                                                                    onChange={() => toggleModule(module)}
-                                                                                />
-                                                                                {module.charAt(0).toUpperCase() + module.slice(1)}
-                                                                            </label>
-                                                                        </div>
-                                                                    </td>
-
-                                                                    {ACTIONS.map((action) => (
-                                                                        <td key={action}>
-                                                                            <div className="form-check d-flex align-items-center">
-                                                                                <label className="form-check-label mt-0">
-                                                                                    <input
-                                                                                        className="form-check-input"
-                                                                                        type="checkbox"
-                                                                                        checked={permissions.permissions[module][action]}
-                                                                                        onChange={(e) =>
-                                                                                            handlePermissionChange(
-                                                                                                module,
-                                                                                                action,
-                                                                                                e.target.checked
-                                                                                            )
-                                                                                        }
-                                                                                        disabled={!permissions.enabledModules[module]}
-                                                                                    />
-                                                                                    {action.charAt(0).toUpperCase() + action.slice(1)}
-                                                                                </label>
-                                                                            </div>
-                                                                        </td>
-                                                                    ))}
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                <div className="col-md-12">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            About <span className="text-danger">*</span>
+                                                        </label>
+                                                        <textarea
+                                                            className="form-control"
+                                                            rows={4}
+                                                            name="about"
+                                                            value={typeof editFormData.about === 'string' ? editFormData.about : ""}
+                                                            onChange={handleEditFormChange}
+                                                            placeholder="Write something about the employee..."
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2342,23 +2811,199 @@ const EmployeeDetails = () => {
                                             </button>
                                             <button 
                                                 type="button" 
-                                                className="btn btn-primary"
-                                                data-bs-toggle="modal"
-                                                data-inert={true}
-                                                data-bs-target="#success_modal"
-                                                onClick={handlePermissionUpdateSubmit}
+                                                className="btn btn-primary" 
                                                 disabled={loading}
+                                                onClick={handleNext}
                                             >
-                                                {loading ? "Saving..." : "Save"}
+                                                {loading ? "Saving..." : "Save & Next"}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div
+                                        className="tab-pane fade"
+                                        id="address3"
+                                        role="tabpanel"
+                                        aria-labelledby="address-tab3"
+                                        tabIndex={0}
+                                    >
+                                        <div className="modal-body pb-0">
+                                            <div className="card">
+                                                <div className="card-body">
+                                                    <div className="d-flex align-items-center justify-content-between pb-3 border-bottom">
+                                                        <h6 className="mb-0">Enable Modules</h6>
+                                                        <div className="d-flex align-items-center">
+                                                            <div className="form-check form-switch me-3">
+                                                                <label className="form-check-label">
+                                                                    <input
+                                                                        className="form-check-input"
+                                                                        type="checkbox"
+                                                                        role="switch"
+                                                                        checked={Object.values(permissions.enabledModules).every(Boolean)}
+                                                                        onChange={(e) => toggleAllModules(e.target.checked)}
+                                                                    />
+                                                                    <span className="text-dark">Enable All</span>
+                                                                </label>
+                                                            </div>
+                                                            <div className="form-check form-switch">
+                                                                <label className="form-check-label">
+                                                                    <input
+                                                                        className="form-check-input"
+                                                                        type="checkbox"
+                                                                        role="switch"
+                                                                        checked={allPermissionsSelected()}
+                                                                        onChange={(e) => toggleGlobalSelectAll(e.target.checked)}
+                                                                    />
+                                                                    <span className="text-dark">Select All</span>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="table-responsive border rounded mt-3">
+                                                        <table className="table">
+                                                            <tbody>
+                                                                {MODULES.map((module) => (
+                                                                    <tr key={module}>
+                                                                        <td>
+                                                                            <div className="form-check form-switch me-2">
+                                                                                <label className="form-check-label mt-0">
+                                                                                    <input
+                                                                                        className="form-check-input me-2"
+                                                                                        type="checkbox"
+                                                                                        role="switch"
+                                                                                        checked={permissions.enabledModules[module]}
+                                                                                        onChange={() => toggleModule(module)}
+                                                                                    />
+                                                                                    {module.charAt(0).toUpperCase() + module.slice(1)}
+                                                                                </label>
+                                                                            </div>
+                                                                        </td>
+
+                                                                        {ACTIONS.map((action) => (
+                                                                            <td key={action}>
+                                                                                <div className="form-check d-flex align-items-center">
+                                                                                    <label className="form-check-label mt-0">
+                                                                                        <input
+                                                                                            className="form-check-input"
+                                                                                            type="checkbox"
+                                                                                            checked={permissions.permissions[module][action]}
+                                                                                            onChange={(e) =>
+                                                                                                handlePermissionChange(
+                                                                                                    module,
+                                                                                                    action,
+                                                                                                    e.target.checked
+                                                                                                )
+                                                                                            }
+                                                                                            disabled={!permissions.enabledModules[module]}
+                                                                                        />
+                                                                                        {action.charAt(0).toUpperCase() + action.slice(1)}
+                                                                                    </label>
+                                                                                </div>
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="modal-footer">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-outline-light border me-2"
+                                                    data-bs-dismiss="modal"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button 
+                                                    type="button" 
+                                                    className="btn btn-primary"
+                                                    data-bs-toggle="modal"
+                                                    data-inert={true}
+                                                    data-bs-target="#success_modal"
+                                                    onClick={handlePermissionUpdateSubmit}
+                                                    disabled={loading}
+                                                >
+                                                    {loading ? "Saving..." : "Save"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {/* /Edit Employee */}
+            {/* Edit about */}
+                <div className="modal fade" id="edit_about">
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                        <div className="modal-content">
+                            <div className="modal-header">
+                                <h4 className="modal-title">Edit Personal Info</h4>
+                                <button
+                                    type="button"
+                                    className="btn-close custom-btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"
+                                    onClick={resetAboutForm}
+                                >
+                                    <i className="ti ti-x" />
+                                </button>
+                            </div>
+                            <form onSubmit={handleAboutSubmit}>
+                                <div className="tab-content" id="myTabContent2">
+                                    <div
+                                        className="tab-pane fade show active"
+                                        id="basic-info3"
+                                        role="tabpanel"
+                                        aria-labelledby="info-tab3"
+                                        tabIndex={0}
+                                    >
+                                        <div className="modal-body pb-0">
+                                            <div className="row">
+                                                <div className="col-md-12">
+                                                    <div className="mb-3">
+                                                        <label className="form-label">
+                                                            About <span className="text-danger">*</span>
+                                                        </label>
+                                                        
+                                                        <textarea
+                                                            className="form-control"
+                                                            rows={4}
+                                                            name="about"
+                                                            value={aboutFormData.about || ""}
+                                                            required
+                                                            onChange={(e) => setAboutFormData({ about: e.target.value })}
+                                                            placeholder="Write something about the employee..."
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="modal-footer">
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-light border me-2"
+                                                data-bs-dismiss="modal"
+                                                onClick={resetAboutForm}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button 
+                                                type="submit" 
+                                                className="btn btn-primary" 
+                                            >
+                                                Save
                                             </button>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
                 </div>
-            </div>
             {/* /Edit Employee */}
             {/* Edit Personal */}
             <div className="modal fade" id="edit_personal">
@@ -2371,11 +3016,12 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetPersonalForm}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
+                        <form onSubmit={handlePersonalFormSubmit}>
                             <div className="modal-body pb-0">
                                 <div className="row">
                                     <div className="col-md-6">
@@ -2383,7 +3029,13 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Passport No <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input 
+                                                type="text" 
+                                                className="form-control"
+                                                value={personalFormData.passportNo}
+                                                onChange={(e) => setPersonalFormData(prev => ({ ...prev, passportNo: e.target.value }))}
+                                                required
+                                            />
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -2397,6 +3049,9 @@ const EmployeeDetails = () => {
                                                     format="DD-MM-YYYY"
                                                     getPopupContainer={() => document.getElementById('edit_personal') || document.body}
                                                     placeholder="DD-MM-YYYY"
+                                                    value={personalFormData.passportExpiryDate}
+                                                    onChange={(date) => setPersonalFormData(prev => ({ ...prev, passportExpiryDate: date }))}
+                                                    required
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -2409,13 +3064,25 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Nationality <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input 
+                                                type="text" 
+                                                className="form-control"
+                                                value={personalFormData.nationality}
+                                                onChange={(e) => setPersonalFormData(prev => ({ ...prev, nationality: e.target.value }))}
+                                                required
+                                            />
                                         </div>
                                     </div>
                                     <div className="col-md-6">
                                         <div className="mb-3">
                                             <label className="form-label">Religion</label>
-                                            <input type="text" className="form-control" />
+                                            <input 
+                                                type="text" 
+                                                className="form-control"
+                                                value={personalFormData.religion}
+                                                onChange={(e) => setPersonalFormData(prev => ({ ...prev, religion: e.target.value }))}
+                                                required
+                                            />
                                         </div>
                                     </div>
                                     <div className="col-md-12">
@@ -2426,27 +3093,39 @@ const EmployeeDetails = () => {
                                             <CommonSelect
                                                 className='select'
                                                 options={martialstatus}
-                                                defaultValue={martialstatus[0]}
+                                                value={martialstatus.find(opt => opt.value === personalFormData.maritalStatus) || martialstatus[0]}
                                                 onChange={(option) => {
                                                     if (option) {
-                                                        setMaritalStatus(option.value);
+                                                        setPersonalFormData(prev => ({ ...prev, maritalStatus: option.value }));
                                                     }
                                                 }}
                                             />
                                         </div>
                                     </div>
-                                    {maritalStatus === "Yes" && (
+                                    {personalFormData.maritalStatus === "Yes" && (
                                         <>
                                             <div className="col-md-6">
                                                 <div className="mb-3">
                                                     <label className="form-label">Employment spouse</label>
-                                                    <input type="text" className="form-control" />
+                                                    <input 
+                                                        type="text" 
+                                                        className="form-control"
+                                                        value={personalFormData.employmentOfSpouse}
+                                                        onChange={(e) => setPersonalFormData(prev => ({ ...prev, employmentOfSpouse: e.target.value }))}
+                                                        required
+                                                    />
                                                 </div>
                                             </div>
                                             <div className="col-md-6">
                                                 <div className="mb-3">
                                                     <label className="form-label">No. of children</label>
-                                                    <input type="text" className="form-control" />
+                                                    <input 
+                                                        type="number" 
+                                                        className="form-control"
+                                                        value={personalFormData.noOfChildren}
+                                                        onChange={(e) => setPersonalFormData(prev => ({ ...prev, noOfChildren: parseInt(e.target.value) || 0 }))}
+                                                        required
+                                                    />
                                                 </div>
                                             </div>
                                         </>
@@ -2458,10 +3137,11 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
+                                    onClick={resetPersonalForm}
                                 >
                                     Cancel
                                 </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary">
                                     Save
                                 </button>
                             </div>
@@ -2481,11 +3161,12 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetEmergencyModel}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
+                        <form onSubmit={handleEmergencyFormSubmit}>
                             <div className="modal-body pb-0">
                                 <div className="border-bottom mb-3 ">
                                     <div className="row">
@@ -2495,13 +3176,21 @@ const EmployeeDetails = () => {
                                                 <label className="form-label">
                                                     Name <span className="text-danger"> *</span>
                                                 </label>
-                                                <input type="text" className="form-control" />
+                                                <input type="text" className="form-control" 
+                                                value={emergencyFormData.name}
+                                                required
+                                                onChange={(e)=> setEmergencyFormData({...emergencyFormData, name: e.target.value})}/>
                                             </div>
                                         </div>
                                         <div className="col-md-6">
                                             <div className="mb-3">
-                                                <label className="form-label">Relationship </label>
-                                                <input type="text" className="form-control" />
+                                                <label className="form-label">
+                                                    Relationship <span className="text-danger"> *</span>
+                                                </label>
+                                                <input type="text" className="form-control" 
+                                                value={emergencyFormData.relationship}
+                                                required
+                                                onChange={(e)=> setEmergencyFormData({...emergencyFormData, relationship: e.target.value})}/>
                                             </div>
                                         </div>
                                         <div className="col-md-6">
@@ -2509,45 +3198,21 @@ const EmployeeDetails = () => {
                                                 <label className="form-label">
                                                     Phone No 1 <span className="text-danger"> *</span>
                                                 </label>
-                                                <input type="text" className="form-control" />
+                                                <input type="text" className="form-control" 
+                                                value={emergencyFormData.phone1}
+                                                required
+                                                onChange={(e)=> setEmergencyFormData({...emergencyFormData, phone1: e.target.value})}/>
                                             </div>
                                         </div>
                                         <div className="col-md-6">
                                             <div className="mb-3">
-                                                <label className="form-label">Phone No 2 </label>
-                                                <input type="text" className="form-control" />
+                                                <label className="form-label">
+                                                    Phone No 2   
+                                                </label>
+                                                <input type="text" className="form-control" 
+                                                value={emergencyFormData.phone2}
+                                                onChange={(e)=> setEmergencyFormData({...emergencyFormData, phone2: e.target.value})}/>
                                             </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="row">
-                                    <h5 className="mb-3">Secondary Contact Details</h5>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                Name <span className="text-danger"> *</span>
-                                            </label>
-                                            <input type="text" className="form-control" />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Relationship </label>
-                                            <input type="text" className="form-control" />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                Phone No 1 <span className="text-danger"> *</span>
-                                            </label>
-                                            <input type="text" className="form-control" />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Phone No 2 </label>
-                                            <input type="text" className="form-control" />
                                         </div>
                                     </div>
                                 </div>
@@ -2557,10 +3222,11 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
+                                    onClick={resetEmergencyModel}
                                 >
                                     Cancel
                                 </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary">
                                     Save
                                 </button>
                             </div>
@@ -2580,6 +3246,7 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetBankForm}
                             >
                                 <i className="ti ti-x" />
                             </button>
@@ -2650,7 +3317,7 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
-                                    onClick={() => setBankFormData({ bankName: "", accountNumber: "", ifscCode: "", branch: "" })}
+                                    onClick={resetBankForm}
                                 >
                                     Cancel
                                 </button>
@@ -2664,7 +3331,7 @@ const EmployeeDetails = () => {
             </div>
             {/* /Edit Bank */}
             {/* Add Family */}
-            <div className="modal fade" id="edit_familyinformation">
+            <div className="modal fade" id="edit_family">
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
                         <div className="modal-header">
@@ -2674,11 +3341,12 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetFamilyForm}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
+                        <form onSubmit={handleFamilyFormSubmit}>
                             <div className="modal-body pb-0">
                                 <div className="row">
                                     <div className="col-md-12">
@@ -2686,19 +3354,28 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Name <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" 
+                                            value={familyFormData.familyMemberName}
+                                            required
+                                            onChange={(e) => setFamilyFormData(prev => ({ ...prev, familyMemberName: e.target.value }))}/>
                                         </div>
                                     </div>
                                     <div className="col-md-12">
                                         <div className="mb-3">
                                             <label className="form-label">Relationship </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" 
+                                            value={familyFormData.relationship}
+                                            required
+                                            onChange={(e) => setFamilyFormData(prev => ({ ...prev, relationship: e.target.value }))}/>
                                         </div>
                                     </div>
                                     <div className="col-md-12">
                                         <div className="mb-3">
                                             <label className="form-label">Phone </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" 
+                                            value={familyFormData.phone}
+                                            required
+                                            onChange={(e) => setFamilyFormData(prev => ({ ...prev, phone: e.target.value }))}/>
                                         </div>
                                     </div>
                                 </div>
@@ -2708,10 +3385,11 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
+                                    onClick={resetFamilyForm}
                                 >
                                     Cancel
                                 </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary">
                                     Save
                                 </button>
                             </div>
@@ -2731,11 +3409,12 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetEducationForm}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
+                        <form onSubmit={handleEducationFormSubmit}>
                             <div className="modal-body pb-0">
                                 <div className="row">
                                     <div className="col-md-6">
@@ -2743,7 +3422,12 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Institution Name <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" 
+                                            value={educationFormData.institution}
+                                            required
+                                            onChange={(e) => {
+                                                setEducationFormData(prev => ({ ...prev, institution: e.target.value }));
+                                            }}/>
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -2751,7 +3435,12 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Course <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" 
+                                            value={educationFormData.course}
+                                            required
+                                            onChange={(e) => {
+                                                setEducationFormData(prev => ({ ...prev, course: e.target.value }));
+                                            }}/>
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -2762,12 +3451,14 @@ const EmployeeDetails = () => {
                                             <div className="input-icon-end position-relative">
                                                 <DatePicker
                                                     className="form-control datetimepicker"
-                                                    format={{
-                                                        format: "DD-MM-YYYY",
-                                                        type: "mask",
-                                                    }}
+                                                    format="DD-MM-YYYY"
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
+                                                    value={educationFormData.startDate}
+                                                    onChange={(date) => setEducationFormData(prev => ({
+                                                        ...prev,
+                                                        startDate: date || null
+                                                    }))}
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -2787,8 +3478,13 @@ const EmployeeDetails = () => {
                                                         format: "DD-MM-YYYY",
                                                         type: "mask",
                                                     }}
+                                                    required
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
+                                                    value={educationFormData.endDate}
+                                                    onChange={(date) => {
+                                                        setEducationFormData(prev => ({ ...prev, endDate: date || null }));
+                                                    }}
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -2803,10 +3499,11 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
+                                    onClick={resetEducationForm}
                                 >
                                     Cancel
                                 </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary">
                                     Save
                                 </button>
                             </div>
@@ -2816,7 +3513,7 @@ const EmployeeDetails = () => {
             </div>
             {/* /Add Education */}
             {/* Add Experience */}
-            <div className="modal fade" id="edit_experience">
+            <div className="modal fade" id="add_experience">
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
                         <div className="modal-header">
@@ -2826,11 +3523,12 @@ const EmployeeDetails = () => {
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={resetExperienceForm}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
+                        <form onSubmit={handleExperienceFormSubmit}>
                             <div className="modal-body pb-0">
                                 <div className="row">
                                     <div className="col-md-6">
@@ -2839,7 +3537,13 @@ const EmployeeDetails = () => {
                                                 Previous Company Name{" "}
                                                 <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={experienceFormData.company}
+                                                required
+                                                onChange={(e) => setExperienceFormData({...experienceFormData, company: e.target.value})}
+                                            />
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -2847,7 +3551,13 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Designation <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={experienceFormData.designation}
+                                                required
+                                                onChange={(e) => setExperienceFormData({...experienceFormData, designation: e.target.value})}
+                                            />
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -2864,6 +3574,9 @@ const EmployeeDetails = () => {
                                                     }}
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
+                                                    required
+                                                    value={experienceFormData.startDate ? dayjs(experienceFormData.startDate) : null}
+                                                    onChange={(date) => setExperienceFormData({...experienceFormData, startDate: date ? date.toISOString() : ""})}
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -2885,6 +3598,9 @@ const EmployeeDetails = () => {
                                                     }}
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
+                                                    required
+                                                    value={experienceFormData.endDate ? dayjs(experienceFormData.endDate) : null}
+                                                    onChange={(date) => setExperienceFormData({...experienceFormData, endDate: date ? date.toISOString() : ""})}
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -2913,10 +3629,11 @@ const EmployeeDetails = () => {
                                     type="button"
                                     className="btn btn-white border me-2"
                                     data-bs-dismiss="modal"
+                                    onClick={resetExperienceForm}
                                 >
                                     Cancel
                                 </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary">
                                     Save
                                 </button>
                             </div>
@@ -2936,7 +3653,7 @@ const EmployeeDetails = () => {
                                 </span>
                                 <h5 className="mb-2">Employee Added Successfully</h5>
                                 <p className="mb-3">
-                                    Stephan Peralt has been added with Employee ID :{employee?.employeeId || '-'}
+                                    Stephan Peralt has been added with Employee ID :
                                     <span className="text-primary">{employee?.employeeId || '-'}</span>
                                 </p>
                                 <div>
@@ -3001,6 +3718,7 @@ const EmployeeDetails = () => {
                                                     type="text"
                                                     className="form-control"
                                                     defaultValue="$"
+                                                    required
                                                 />
                                             </div>
                                         </div>
@@ -3034,13 +3752,13 @@ const EmployeeDetails = () => {
                                         <div className="col-md-4">
                                             <div className="mb-3">
                                                 <label className="form-label">PF No</label>
-                                                <input type="text" className="form-control" />
+                                                <input type="text" className="form-control" required />
                                             </div>
                                         </div>
                                         <div className="col-md-4">
                                             <div className="mb-3">
                                                 <label className="form-label">Employee PF rate</label>
-                                                <input type="text" className="form-control" />
+                                                <input type="text" className="form-control" required />
                                             </div>
                                         </div>
                                         <div className="col-md-6">
@@ -3056,7 +3774,7 @@ const EmployeeDetails = () => {
                                         <div className="col-md-6">
                                             <div className="mb-3">
                                                 <label className="form-label">Total rate</label>
-                                                <input type="text" className="form-control" />
+                                                <input type="text" className="form-control" required />
                                             </div>
                                         </div>
                                     </div>
@@ -3078,7 +3796,7 @@ const EmployeeDetails = () => {
                                     <div className="col-md-4">
                                         <div className="mb-3">
                                             <label className="form-label">ESI Number</label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" required />
                                         </div>
                                     </div>
                                     <div className="col-md-4">
@@ -3086,7 +3804,7 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Employee ESI rate<span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" required />
                                         </div>
                                     </div>
                                     <div className="col-md-6">
@@ -3102,7 +3820,7 @@ const EmployeeDetails = () => {
                                     <div className="col-md-6">
                                         <div className="mb-3">
                                             <label className="form-label">Total rate</label>
-                                            <input type="text" className="form-control" />
+                                            <input type="text" className="form-control" required />
                                         </div>
                                     </div>
                                 </div>
@@ -3140,7 +3858,7 @@ const EmployeeDetails = () => {
                             </button>
                         </div>
                         <div className="modal-body">
-                            <div className="bg-light p-3 rounded d-flex align-items-center mb-3">
+                            <div className="bg-light p-3 rounded show d-flex align-items-center mb-3">
                                 <span className="avatar avatar-lg flex-shrink-0 me-2">
                                     <ImageWithBasePath
                                         src="assets/img/laptop.jpg"

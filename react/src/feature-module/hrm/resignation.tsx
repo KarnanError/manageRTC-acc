@@ -15,6 +15,7 @@ import dayjs from "dayjs";
 
 type ResignationRow = {
   employeeName: string;
+  employeeId: string;
   department: string;
   reason: string;
   noticeDate: string;
@@ -25,17 +26,14 @@ type ResignationRow = {
 type Stats = {
   totalResignations: string;
   recentResignations: string;
-};
-
-type DepartmentRow = {
-  department: string;
 }
 
 const Resignation = () => {
   const socket = useSocket() as Socket | null;
 
   const [rows, setRows] = useState<ResignationRow[]>([]);
-  const [rowsDepartments, setRowsDepartments] = useState<DepartmentRow[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
+    const [employeeOptions, setEmployeeOptions] = useState<{ value: string; label: string }[]>([]);
   const [stats, setStats] = useState<Stats>({
     totalResignations: "0",
     recentResignations: "0",
@@ -52,7 +50,9 @@ const Resignation = () => {
   // Controlled edit form data
   const [editForm, setEditForm] = useState({
     employeeName: "",
+    employeeId: "",
     department: "",
+    departmentId: "",
     noticeDate: "", // "DD-MM-YYYY" shown in modal
     reason: "",
     resignationDate: "", // "DD-MM-YYYY" shown in modal
@@ -65,10 +65,33 @@ const Resignation = () => {
     return isNaN(d.getTime()) ? "" : format(d, "yyyy-MM-dd");
   };
 
+  // Define fetchers early so they can be used in openEditModal
+  const fetchStats = useCallback(() => {
+    if (!socket) return;
+    socket.emit("hr/resignation/resignation-details");
+  }, [socket]);
+
+  const fetchDepartments = useCallback(() => {
+    if (!socket) return;
+    socket.emit("hr/resignation/departmentlist");
+  }, [socket]);
+
+  const fetchEmployeesByDepartment = useCallback((departmentId: string) => {
+    if (!socket || !departmentId) {
+      console.log("fetchEmployeesByDepartment - socket or departmentId missing", { socket: !!socket, departmentId });
+      setEmployeeOptions([]);
+      return;
+    }
+    console.log("emit employees-by-department with departmentId:", departmentId, "type:", typeof departmentId);
+    socket.emit("hr/resignation/employees-by-department", departmentId);
+  }, [socket]);
+
   const openEditModal = (row: any) => {
     setEditForm({
       employeeName: row.employeeName || "",
+      employeeId: row.employeeId || "",
       department: row.department || "",
+      departmentId: row.departmentId || "",
       noticeDate: row.noticeDate
         ? format(parse(row.noticeDate, "yyyy-MM-dd", new Date()), "dd-MM-yyyy")
         : "",
@@ -81,6 +104,10 @@ const Resignation = () => {
         : "",
       resignationId: row.resignationId,
     });
+    // Fetch employees for the selected department
+    if (row.departmentId) {
+      fetchEmployeesByDepartment(row.departmentId);
+    }
   };
 
   const getModalContainer = () => {
@@ -99,7 +126,9 @@ const Resignation = () => {
   // state near top of component
   const [addForm, setAddForm] = useState({
     employeeName: "",
+    employeeId: "",
     department: "",
+    departmentId: "",
     reason: "",
     noticeDate: "", // YYYY-MM-DD from DatePicker
     resignationDate: "",
@@ -169,14 +198,35 @@ const Resignation = () => {
   }, []);
 
   const onDepartmentsListResponse = useCallback((res: any) => {
+    console.log("departments list response", res?.data);
     if (res?.done) {
-      setRowsDepartments(res.data || []);
+      const opts = (res.data || []).map((dept: any) => ({
+        value: dept._id,
+        label: dept.department,
+      }));
+      setDepartmentOptions(opts);
     } else {
-      setRowsDepartments([]);
-      // optionally toast error
-      // toast.error(res?.message || "Failed to fetch resignations");
+      setDepartmentOptions([]);
     }
-    setLoading(false);
+  }, []);
+
+  const onEmployeesByDepartmentResponse = useCallback((res: any) => {
+    console.log("employees-by-dept response:", res?.data, "done:", res?.done, "message:", res?.message);
+    if (res?.done) {
+
+      const opts = (res.data || []).map((emp: any) => {
+        console.log("Employee _id:", emp._id, "employeeId:", emp.employeeId, "employeeName:", emp.employeeName);
+        return {
+          value: emp.employeeId,
+          label: `${emp.employeeId} - ${emp.employeeName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim()}`,
+        };
+      });
+      console.log("Mapped employee options:", opts);
+      setEmployeeOptions(opts);
+    } else {
+      console.log("Response not done or empty data");
+      setEmployeeOptions([]);
+    }
   }, []);
 
   const onStatsResponse = useCallback((res: any) => {
@@ -214,6 +264,7 @@ const Resignation = () => {
 
     socket.on("hr/resignation/resignationlist-response", onListResponse);
     socket.on("hr/resignation/departmentlist-response", onDepartmentsListResponse);
+    socket.on("hr/resignation/employees-by-department-response", onEmployeesByDepartmentResponse);
     socket.on("hr/resignation/resignation-details-response", onStatsResponse);
     socket.on("hr/resignation/add-resignation-response", onAddResponse);
     socket.on("hr/resignation/update-resignation-response", onUpdateResponse);
@@ -222,6 +273,7 @@ const Resignation = () => {
     return () => {
       socket.off("hr/resignation/resignationlist-response", onListResponse);
       socket.off("hr/resignation/departmentlist-response", onDepartmentsListResponse);
+      socket.off("hr/resignation/employees-by-department-response", onEmployeesByDepartmentResponse);
       socket.off(
         "hr/resignation/resignation-details-response",
         onStatsResponse
@@ -240,6 +292,7 @@ const Resignation = () => {
     socket,
     onListResponse,
     onDepartmentsListResponse,
+    onEmployeesByDepartmentResponse,
     onStatsResponse,
     onAddResponse,
     onUpdateResponse,
@@ -261,14 +314,6 @@ const Resignation = () => {
     [socket]
   );
 
-    const fetchDepartmentsList = useCallback(() => {
-        if (!socket) return;
-        setLoading(true);
-        socket.emit("hr/resignation/departmentlist");
-      },
-      [socket]
-    );
-
   const toIsoFromDDMMYYYY = (s: string) => {
     // s like "13-09-2025"
     const [dd, mm, yyyy] = s.split("-").map(Number);
@@ -283,6 +328,7 @@ const Resignation = () => {
 
     // basic validation
     if (
+      !addForm.employeeId ||
       !addForm.employeeName ||
       !addForm.noticeDate ||
       !addForm.reason ||
@@ -303,9 +349,11 @@ const Resignation = () => {
 
     const payload = {
       employeeName: addForm.employeeName,
+      employeeId: addForm.employeeId,
       noticeDate: noticeIso,
       reason: addForm.reason,
       department: addForm.department,
+      departmentId: addForm.departmentId,
       resignationDate: resIso,
     };
 
@@ -313,7 +361,9 @@ const Resignation = () => {
     // modal has data-bs-dismiss; optional: reset form
     setAddForm({
       employeeName: "",
+      employeeId: "",
       department: "",
+      departmentId: "",
       reason: "",
       noticeDate: "", // YYYY-MM-DD from DatePicker
       resignationDate: "",
@@ -327,9 +377,10 @@ const Resignation = () => {
 
     // basic validation
     if (
+      !editForm.employeeId ||
       !editForm.employeeName ||
-      !editForm.noticeDate ||
       !editForm.reason ||
+      !editForm.noticeDate ||
       !editForm.department ||
       !editForm.resignationDate
     ) {
@@ -347,9 +398,11 @@ const Resignation = () => {
 
     const payload = {
       employeeName: editForm.employeeName,
+      employeeId: editForm.employeeId,
       noticeDate: noticeIso,
       reason: editForm.reason,
       department: editForm.department,
+      departmentId: editForm.departmentId,
       resignationDate: resIso,
       resignationId: editForm.resignationId,
     };
@@ -358,7 +411,9 @@ const Resignation = () => {
     // modal has data-bs-dismiss; optional: reset form
     setEditForm({
       employeeName: "",
+      employeeId: "",
       department: "",
+      departmentId: "",
       reason: "",
       noticeDate: "", // YYYY-MM-DD from DatePicker
       resignationDate: "",
@@ -368,18 +423,13 @@ const Resignation = () => {
     socket.emit("hr/resignation/resignation-details");
   };
 
-  const fetchStats = useCallback(() => {
-    if (!socket) return;
-    socket.emit("hr/resignation/resignation-details");
-  }, [socket]);
-
   // initial + reactive fetch
   useEffect(() => {
     if (!socket) return;
     fetchList(filterType, customRange);
-    fetchDepartmentsList();
+    fetchDepartments();
     fetchStats();
-  }, [socket, fetchList, fetchDepartmentsList, fetchStats, filterType, customRange]);
+  }, [socket, fetchList, fetchDepartments, fetchStats, filterType, customRange]);
 
   // ui events
   type Option = { value: string; label: string };
@@ -415,25 +465,40 @@ const Resignation = () => {
     setSelectedKeys(keys as string[]);
   };
 
-  type OptionDepartments = { value: string; label: string };
+  const handleAddDepartmentChange = (opt: any) => {
+    console.log("Add department selected - _id:", opt?.value);
+    setAddForm({
+      ...addForm,
+      department: opt?.label || "",
+      departmentId: opt?.value || "",
+      employeeName: "",
+      employeeId: "",
+    });
+    if (opt?.value) {
+      fetchEmployeesByDepartment(opt.value);
+    }
+  };
 
-    const departmentsOptions: OptionDepartments[] = (rowsDepartments as any[]).map((t: any) => ({
-      value: t.department,
-      label: t.department,
-    }));
-
-    // Helper to find option object from string value
-    const toOption = (val: string | undefined) =>
-      val ? departmentsOptions.find(o => o.value === val) : undefined;
+  const handleEditDepartmentChange = (opt: any) => {
+    console.log("Edit department selected - _id:", opt?.value);
+    setEditForm({
+      ...editForm,
+      department: opt?.label || "",
+      departmentId: opt?.value || "",
+      employeeName: "",
+      employeeId: "",
+    });
+    if (opt?.value) {
+      fetchEmployeesByDepartment(opt.value);
+    }
+  };
 
   // table columns (preserved look, wired to backend fields)
   const columns: any[] = [
     {
       title: "Resigning Employee",
       dataIndex: "employeeName",
-
-      sorter: (a: ResignationRow, b: ResignationRow) =>
-        a.employeeName.localeCompare(b.employeeName),
+      value: (row: ResignationRow) => row.employeeId,
     },
     {
       title: "Department",
@@ -613,29 +678,30 @@ const Resignation = () => {
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Resigning Employee</label>
-                      <textarea
-                        className="form-control"
-                        rows={1}
-                        defaultValue={addForm.employeeName}
-                        onChange={(e) =>
-                          setAddForm({
-                            ...addForm,
-                            employeeName: e.target.value,
-                          })
-                        }
+                      <label className="form-label">Department</label>
+                      <CommonSelect
+                        className="select"
+                        options={departmentOptions}
+                        value={departmentOptions.find(opt => opt.value === addForm.departmentId) || null}
+                        onChange={handleAddDepartmentChange}
                       />
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Department</label>
+                      <label className="form-label">Resigning Employee</label>
                       <CommonSelect
-                              className="select"
-                              defaultValue={toOption(addForm.department)} 
-                              onChange={(opt: OptionDepartments | null) =>setAddForm({ ...addForm, department: typeof opt === "string" ? opt : (opt?.value ?? "") })}
-                              options={departmentsOptions}
-                            />
+                        className="select"
+                        options={employeeOptions}
+                        value={employeeOptions.find(opt => opt.value === addForm.employeeId) || null}
+                        onChange={(opt: any) =>
+                          setAddForm({
+                            ...addForm,
+                            employeeId: opt?.value || "",
+                            employeeName: opt?.label || "",
+                          })
+                        }
+                      />
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -745,31 +811,32 @@ const Resignation = () => {
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">
-                        Resigning Employee&nbsp;
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        defaultValue={editForm.employeeName}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            employeeName: e.target.value,
-                          })
-                        }
+                      <label className="form-label">Department</label>
+                      <CommonSelect
+                        className="select"
+                        options={departmentOptions}
+                        value={departmentOptions.find(opt => opt.value === editForm.departmentId) || null}
+                        onChange={handleEditDepartmentChange}
                       />
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Department</label>
+                      <label className="form-label">
+                        Resigning Employee&nbsp;
+                      </label>
                       <CommonSelect
-                              className="select"
-                              defaultValue={toOption(editForm.department)} 
-                              onChange={(opt: OptionDepartments | null) =>setEditForm({ ...editForm, department: typeof opt === "string" ? opt : (opt?.value ?? "") })}
-                              options={departmentsOptions}
-                            />
+                        className="select"
+                        options={employeeOptions}
+                        value={employeeOptions.find(opt => opt.value === editForm.employeeId) || null}
+                        onChange={(opt: any) =>
+                          setEditForm({
+                            ...editForm,
+                            employeeId: opt?.value || "",
+                            employeeName: opt?.label || "",
+                          })
+                        }
+                      />
                     </div>
                   </div>
                   <div className="col-md-12">

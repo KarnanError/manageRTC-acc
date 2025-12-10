@@ -37,6 +37,14 @@ const Tickets = () => {
   });
   const [exportLoading, setExportLoading] = useState(false);
 
+  // State for categories
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+
+  // State for IT Support agents sidebar
+  const [supportAgents, setSupportAgents] = useState([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+
   // Fetch tickets statistics
   useEffect(() => {
     if (socket) {
@@ -55,6 +63,46 @@ const Tickets = () => {
     }
   }, [socket]);
 
+  // Fetch ticket categories with counts
+  useEffect(() => {
+    if (socket) {
+      setLoadingCategories(true);
+      socket.emit('tickets/categories/get-categories');
+      
+      socket.on('tickets/categories/get-categories-response', (response) => {
+        if (response.done) {
+          setCategories(response.data);
+        }
+        setLoadingCategories(false);
+      });
+
+      return () => {
+        socket.off('tickets/categories/get-categories-response');
+      };
+    }
+  }, [socket]);
+
+  // Fetch IT Support employees for sidebar
+  useEffect(() => {
+    if (socket) {
+      setLoadingAgents(true);
+      socket.emit('tickets/employees/get-list');
+
+      const handleAgentsResponse = (response: any) => {
+        if (response.done) {
+          setSupportAgents(response.data || []);
+        }
+        setLoadingAgents(false);
+      };
+
+      socket.on('tickets/employees/get-list-response', handleAgentsResponse);
+
+      return () => {
+        socket.off('tickets/employees/get-list-response', handleAgentsResponse);
+      };
+    }
+  }, [socket]);
+
   // Listen for real-time updates
   useEffect(() => {
     if (socket) {
@@ -63,6 +111,7 @@ const Tickets = () => {
       socket.on('tickets/ticket-created', (data) => {
         console.log('🔄 TICKETS: Ticket created event received:', data);
         socket.emit('tickets/dashboard/get-stats');
+        socket.emit('tickets/categories/get-categories'); // Refresh categories with new counts
         fetchTicketsList(); // Refresh the ticket list
       });
 
@@ -75,7 +124,23 @@ const Tickets = () => {
       socket.on('tickets/ticket-deleted', (data) => {
         console.log('🔄 TICKETS: Ticket deleted event received:', data);
         socket.emit('tickets/dashboard/get-stats');
+        socket.emit('tickets/categories/get-categories'); // Refresh categories with new counts
         fetchTicketsList(); // Refresh the ticket list
+      });
+
+      socket.on('tickets/category-created', (data) => {
+        console.log('🔄 TICKETS: Category created event received:', data);
+        socket.emit('tickets/categories/get-categories'); // Refresh categories list
+      });
+
+      socket.on('tickets/category-updated', (data) => {
+        console.log('🔄 TICKETS: Category updated event received:', data);
+        socket.emit('tickets/categories/get-categories'); // Refresh categories list
+      });
+
+      socket.on('tickets/category-deleted', (data) => {
+        console.log('🔄 TICKETS: Category deleted event received:', data);
+        socket.emit('tickets/categories/get-categories'); // Refresh categories list
       });
 
       return () => {
@@ -83,6 +148,9 @@ const Tickets = () => {
         socket.off('tickets/ticket-created');
         socket.off('tickets/ticket-updated');
         socket.off('tickets/ticket-deleted');
+        socket.off('tickets/category-created');
+        socket.off('tickets/category-updated');
+        socket.off('tickets/category-deleted');
       };
     }
   }, [socket]);
@@ -988,11 +1056,11 @@ const Tickets = () => {
                     </div>
                     <div className="col-6 text-end d-flex">
                       <div className="d-flex flex-column justify-content-between align-items-end">
-                        <span className="badge bg-transparent-purple d-inline-flex align-items-center mb-3">
+                        {/* <span className="badge bg-transparent-purple d-inline-flex align-items-center mb-3">
                           <i className="ti ti-arrow-wave-right-down me-1" />
                           {loading ? '...' : `+${ticketsStats.percentageChange}%`}
-                        </span>
-                        <ReactApexChart
+                        </span> */}
+                        {/* <ReactApexChart
                           options={{
                             ...Areachart,
                             series: [{
@@ -1006,7 +1074,7 @@ const Tickets = () => {
                           }]}
                           type="bar"
                           height={70}
-                        />
+                        /> */}
                       </div>
                     </div>
                   </div>
@@ -1030,7 +1098,7 @@ const Tickets = () => {
                     </div>
                     <div className="col-6 text-end d-flex">
                       <div className="d-flex flex-column justify-content-between align-items-end">
-                        <span className="badge bg-transparent-dark text-dark d-inline-flex align-items-center mb-3">
+                        {/* <span className="badge bg-transparent-dark text-dark d-inline-flex align-items-center mb-3">
                           <i className="ti ti-arrow-wave-right-down me-1" />
                           {loading ? '...' : `+${ticketsStats.percentageChange}%`}
                         </span>
@@ -1048,7 +1116,7 @@ const Tickets = () => {
                           }]}
                           type="bar"
                           height={70}
-                        />
+                        /> */}
                       </div>
                     </div>
                   </div>
@@ -1072,7 +1140,7 @@ const Tickets = () => {
                     </div>
                     <div className="col-6 text-end d-flex">
                       <div className="d-flex flex-column justify-content-between align-items-end">
-                        <span className="badge bg-info-transparent d-inline-flex align-items-center mb-3">
+                        {/* <span className="badge bg-info-transparent d-inline-flex align-items-center mb-3">
                           <i className="ti ti-arrow-wave-right-down me-1" />
                           {loading ? '...' : `+${ticketsStats.percentageChange}%`}
                         </span>
@@ -1090,7 +1158,7 @@ const Tickets = () => {
                           }]}
                           type="bar"
                           height={70}
-                        />
+                        /> */}
                       </div>
                     </div>
                   </div>
@@ -1114,7 +1182,7 @@ const Tickets = () => {
                     </div>
                     <div className="col-6 text-end d-flex">
                       <div className="d-flex flex-column justify-content-between align-items-end">
-                        <span className="badge bg-secondary-transparent d-inline-flex align-items-center mb-3">
+                        {/* <span className="badge bg-secondary-transparent d-inline-flex align-items-center mb-3">
                           <i className="ti ti-arrow-wave-right-down me-1" />
                           {loading ? '...' : `+${ticketsStats.percentageChange}%`}
                         </span>
@@ -1132,7 +1200,7 @@ const Tickets = () => {
                           }]}
                           type="bar"
                           height={70}
-                        />
+                        /> */}
                       </div>
                     </div>
                   </div>
@@ -1444,52 +1512,48 @@ const Tickets = () => {
             </div>
             <div className="col-xl-3 col-md-4">
               <div className="card">
-                <div className="card-header">
+                <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
                   <h4>Ticket Categories</h4>
+                  <Link
+                    to="#"
+                    data-bs-toggle="modal"
+                    data-bs-target="#add_category"
+                    className="btn btn-primary d-flex align-items-center"
+                  >
+                    <i className="ti ti-circle-plus me-2" />
+                    Add
+                  </Link>
                 </div>
                 <div className="card-body p-0">
-                  <div className="d-flex flex-column">
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <Link to="#">Internet Issue</Link>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          0
-                        </span>
+                  {loadingCategories ? (
+                    <div className="d-flex align-items-center justify-content-center p-3">
+                      <div className="spinner-border spinner-border-sm" role="status">
+                        <span className="visually-hidden">Loading...</span>
                       </div>
                     </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <Link to="#">Computer</Link>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          1
-                        </span>
-                      </div>
+                  ) : categories && categories.length > 0 ? (
+                    <div className="d-flex flex-column">
+                      {categories.map((category, index) => (
+                        <div
+                          key={category._id || index}
+                          className={`d-flex align-items-center justify-content-between p-3 ${
+                            index < categories.length - 1 ? 'border-bottom' : ''
+                          }`}
+                        >
+                          <Link to="#">{category.name}</Link>
+                          <div className="d-flex align-items-center">
+                            <span className="badge badge-xs bg-dark rounded-circle">
+                              {category.ticketCount || 0}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <Link to="#">Redistribute</Link>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          0
-                        </span>
-                      </div>
+                  ) : (
+                    <div className="d-flex align-items-center justify-content-center p-3 text-muted">
+                      <p className="mb-0">No categories available</p>
                     </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <Link to="#">Payment</Link>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          2
-                        </span>
-                      </div>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between p-3">
-                      <Link to="#">Complaint</Link>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          1
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
               <div className="card">
@@ -1498,66 +1562,40 @@ const Tickets = () => {
                 </div>
                 <div className="card-body p-0">
                   <div className="d-flex flex-column">
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <span className="d-flex align-items-center">
-                        <ImageWithBasePath
-                          src="assets/img/profiles/avatar-01.jpg"
-                          className="avatar avatar-xs rounded-circle me-2"
-                          alt="img"
-                        />
-                        Edgar Hansel
-                      </span>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          0
-                        </span>
+                    {loadingAgents ? (
+                      <div className="d-flex align-items-center justify-content-center p-3">
+                        <div className="spinner-border spinner-border-sm" role="status">
+                          <span className="visually-hidden">Loading...</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <span className="d-flex align-items-center">
-                        <ImageWithBasePath
-                          src="assets/img/profiles/avatar-02.jpg"
-                          className="avatar avatar-xs rounded-circle me-2"
-                          alt="img"
-                        />
-                        Ann Lynch
-                      </span>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          1
-                        </span>
+                    ) : supportAgents.length > 0 ? (
+                      supportAgents.map((agent: any, index: number) => (
+                        <div
+                          key={agent._id || index}
+                          className={`d-flex align-items-center justify-content-between p-3 ${
+                            index < supportAgents.length - 1 ? 'border-bottom' : ''
+                          }`}
+                        >
+                          <span className="d-flex align-items-center">
+                            <ImageWithBasePath
+                              src={agent.avatar || 'assets/img/profiles/avatar-01.jpg'}
+                              className="avatar avatar-xs rounded-circle me-2"
+                              alt="img"
+                            />
+                            {agent.firstName || agent.lastName
+                              ? `${agent.firstName || ''} ${agent.lastName || ''}`.trim()
+                              : agent.employeeId || 'Unknown'}
+                          </span>
+                          <div className="d-flex align-items-center">
+                            <span className="badge badge-xs bg-dark rounded-circle">{agent.ticketCount || 0}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="d-flex align-items-center justify-content-center p-3 text-muted">
+                        <p className="mb-0">No IT Support employees found</p>
                       </div>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <span className="d-flex align-items-center">
-                        <ImageWithBasePath
-                          src="assets/img/profiles/avatar-03.jpg"
-                          className="avatar avatar-xs rounded-circle me-2"
-                          alt="img"
-                        />
-                        Juan Hermann
-                      </span>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          0
-                        </span>
-                      </div>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between p-3">
-                      <span className="d-flex align-items-center">
-                        <ImageWithBasePath
-                          src="assets/img/profiles/avatar-04.jpg"
-                          className="avatar avatar-xs rounded-circle me-2"
-                          alt="img"
-                        />
-                        Jessie Otero
-                      </span>
-                      <div className="d-flex align-items-center">
-                        <span className="badge badge-xs bg-dark rounded-circle">
-                          2
-                        </span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>

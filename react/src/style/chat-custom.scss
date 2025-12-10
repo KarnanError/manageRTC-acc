@@ -2,7 +2,7 @@
 
 .chat-wrapper {
   display: grid;
-  grid-template-columns: 400px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 0;
 
   .chat-list {
@@ -169,13 +169,13 @@
     border-right: 1px solid #e9ecef;
     height: calc(100vh - 170px);
     overflow: hidden;
-    width: 400px; // keep sidebar width in sync with grid
-    max-width: 400px;
-    min-width: 400px;
+    width: 320px; // keep sidebar width in sync with grid
+    max-width: 320px;
+    min-width: 320px;
     position: relative;
 
     &.show {
-      transform: none;
+      transform: none; // no transform on desktop
     }
   }
 
@@ -397,20 +397,3 @@
   padding: 20px !important;
 }
 
-// Highlighted message animation
-@keyframes highlightFade {
-  0% {
-    background-color: #fff3cd;
-  }
-  100% {
-    background-color: transparent;
-  }
-}
-
-.message-highlighted {
-  animation: highlightFade 3s ease-in-out;
-  
-  .chat-content {
-    position: relative;
-  }
-}

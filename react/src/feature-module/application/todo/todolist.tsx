@@ -10,6 +10,7 @@ import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
 import Footer from "../../../core/common/footer";
 
+
 const { RangePicker } = DatePicker;
 
 interface Todo {
@@ -26,34 +27,17 @@ interface Todo {
   assignedTo?: string;
 }
 
-interface TodoStats {
-  total: number;
-  completed: number;
-  pending: number;
-  byPriority: {
-    high: number;
-    medium: number;
-    low: number;
-  };
-}
-
-const Todo = () => {
+const TodoList = () => {
   const socket = useSocket() as Socket | null;
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [todoStats, setTodoStats] = useState<TodoStats>({
-    total: 0,
-    completed: 0,
-    pending: 0,
-    byPriority: { high: 0, medium: 0, low: 0 },
-  });
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("all");
-  const [selectedPriority, setSelectedPriority] = useState("all");
   const [selectedTag, setSelectedTag] = useState("all");
   const [selectedAssignee, setSelectedAssignee] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
-  const [sortBy, setSortBy] = useState("createdDate");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("last7days");
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [availableAssignees, setAvailableAssignees] = useState<string[]>([]);
   const [dateRangeFilter, setDateRangeFilter] = useState("all");
   const [dueDateFilter, setDueDateFilter] = useState<string | null>(null);
   const [customDateRange, setCustomDateRange] = useState<{
@@ -61,8 +45,6 @@ const Todo = () => {
     end: string;
   } | null>(null);
   const [showCustomRange, setShowCustomRange] = useState(false);
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [availableAssignees, setAvailableAssignees] = useState<string[]>([]);
   const [selectedTodoToDelete, setSelectedTodoToDelete] = useState<
     string | null
   >(null);
@@ -72,7 +54,6 @@ const Todo = () => {
   const [selectedTodoToView, setSelectedTodoToView] = useState<Todo | null>(
     null
   );
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const toggleTodo = async (todoId: string, currentCompleted: boolean) => {
     if (!socket) {
@@ -92,16 +73,19 @@ const Todo = () => {
         console.log("Update todo response received:", response);
         if (response.done) {
           console.log("Todo completion status updated successfully");
+          // The todos will be updated via the broadcast from the backend
         } else {
           console.error("Failed to update todo:", response.error);
+          // Revert the change in UI if update failed
           setTodos((prevTodos) =>
             prevTodos.map((todo) =>
               todo._id === todoId
-                ? { ...todo, completed: currentCompleted }
+                ? { ...todo, completed: currentCompleted } // Revert to original state
                 : todo
             )
           );
         }
+        // Remove the specific listener after handling the response
         if (socket) {
           socket.off("admin/dashboard/update-todo-response", handleResponse);
         }
@@ -119,11 +103,13 @@ const Todo = () => {
         socket.emit("admin/dashboard/update-todo", updateData);
       }
 
+      // Add timeout to prevent infinite loading
       setTimeout(() => {
         console.error("Update todo request timed out");
         if (socket) {
           socket.off("admin/dashboard/update-todo-response", handleResponse);
         }
+        // Revert the change if timeout
         setTodos((prevTodos) =>
           prevTodos.map((todo) =>
             todo._id === todoId
@@ -131,9 +117,10 @@ const Todo = () => {
               : todo
           )
         );
-      }, 10000);
+      }, 10000); // 10 second timeout
     } catch (error) {
       console.error("Error updating todo completion status:", error);
+      // Revert the change in UI if error occurred
       setTodos((prevTodos) =>
         prevTodos.map((todo) =>
           todo._id === todoId ? { ...todo, completed: currentCompleted } : todo
@@ -142,151 +129,37 @@ const Todo = () => {
     }
   };
 
-  // Fetch todos and statistics
-  useEffect(() => {
-    if (socket) {
-      (socket as any).emit("admin/dashboard/get-todos", {
-        filter: activeFilter,
-      });
-      (socket as any).on(
-        "admin/dashboard/get-todos-response",
-        (response: any) => {
-          if (response.done) {
-            const todosData = response.data || [];
-            setTodos(todosData);
-
-            // Extract unique tags
-            const tags = Array.from(
-              new Set(todosData.map((todo: Todo) => todo.tag).filter(Boolean))
-            ) as string[];
-            setAvailableTags(tags);
-
-            // Extract unique assignees
-            const assignees = Array.from(
-              new Set(
-                todosData
-                  .map((todo: Todo) => todo.assignedTo || todo.userId)
-                  .filter(Boolean)
-              )
-            ) as string[];
-            setAvailableAssignees(assignees);
-          }
-          setLoading(false);
-        }
-      );
-
-      // Fetch statistics
-      (socket as any).emit("admin/dashboard/get-todo-statistics", {
-        filter: activeFilter,
-      });
-      (socket as any).on(
-        "admin/dashboard/get-todo-statistics-response",
-        (response: any) => {
-          console.log("Statistics response:", response);
-          if (response.done) {
-            setTodoStats(
-              response.data || {
-                total: 0,
-                completed: 0,
-                pending: 0,
-                byPriority: { high: 0, medium: 0, low: 0 },
-              }
-            );
-          } else {
-            console.error("Statistics error:", response.error);
-            setTodoStats({
-              total: 0,
-              completed: 0,
-              pending: 0,
-              byPriority: { high: 0, medium: 0, low: 0 },
-            });
-          }
-        }
-      );
-
-      (socket as any).on(
-        "admin/dashboard/delete-todo-response",
-        (response: any) => {
-          if (response.done) {
-            console.log("Todo deleted successfully");
-            (socket as any).emit("admin/dashboard/get-todos", {
-              filter: activeFilter,
-            });
-            (socket as any).emit("admin/dashboard/get-todo-statistics", {
-              filter: activeFilter,
-            });
-          } else {
-            console.error("Delete failed:", response.error);
-          }
-        }
-      );
-
-      (socket as any).on(
-        "admin/dashboard/add-todo-response",
-        (response: any) => {
-          if (response.done) {
-            (socket as any).emit("admin/dashboard/get-todos", {
-              filter: activeFilter,
-            });
-          }
-        }
-      );
-
-      (socket as any).on(
-        "admin/dashboard/update-todo-response",
-        (response: any) => {
-          if (response.done) {
-            (socket as any).emit("admin/dashboard/get-todos", {
-              filter: activeFilter,
-            });
-          }
-        }
-      );
-
-      return () => {
-        (socket as any).off("admin/dashboard/get-todos-response");
-        (socket as any).off("admin/dashboard/get-todo-statistics-response");
-        (socket as any).off("admin/dashboard/delete-todo-response");
-        (socket as any).off("admin/dashboard/add-todo-response");
-        (socket as any).off("admin/dashboard/update-todo-response");
-      };
-    }
-  }, [socket, activeFilter]);
-
-  // Handle filter change
-  const handleFilterChange = (filter: string) => {
-    setActiveFilter(filter);
-    setLoading(true);
-  };
-
-  const handlePriorityChange = (priority: string) => {
-    setSelectedPriority(priority);
-  };
-
+  // Handle tag filter change
   const handleTagChange = (tag: string) => {
     setSelectedTag(tag);
   };
 
+  // Handle assignee filter change
   const handleAssigneeChange = (assignee: string) => {
     setSelectedAssignee(assignee);
   };
 
+  // Handle status filter change
   const handleStatusChange = (status: string) => {
     setSelectedStatus(status);
   };
 
+  // Handle sort change
   const handleSortChange = (sort: string) => {
     setSortBy(sort);
   };
 
+  // Handle date range filter change
   const handleDateRangeChange = (range: string) => {
     setDateRangeFilter(range);
   };
 
+  // Handle due date filter change
   const handleDueDateChange = (date: string | null) => {
     setDueDateFilter(date);
   };
 
+  // Handle custom date range change
   const handleCustomDateRangeChange = (dates: any) => {
     if (dates && dates.length === 2) {
       const startDate = dates[0].format("YYYY-MM-DD");
@@ -294,27 +167,41 @@ const Todo = () => {
       console.log("Custom range changed:", { startDate, endDate });
       setCustomDateRange({ start: startDate, end: endDate });
       setDateRangeFilter("custom");
-      setShowCustomRange(false);
+      setShowCustomRange(false); // Close the picker after selection
     } else {
       setCustomDateRange(null);
       setDateRangeFilter("all");
     }
   };
 
+  // Handle custom range click
   const handleCustomRangeClick = () => {
     setShowCustomRange(!showCustomRange);
   };
 
+  // Handle new todo creation
+  const handleNewTodo = () => {
+    // This function can be called when a new todo is successfully created
+    // to refresh the todo list
+    if (socket) {
+      (socket as any).emit("admin/dashboard/get-todos", {
+        filter: activeFilter,
+      });
+    }
+  };
+
+  // Handle todo deletion
   const handleDeleteTodo = (todoId: string) => {
     if (socket && todoId) {
       console.log("Deleting todo:", todoId);
       (socket as any).emit("admin/dashboard/delete-todo", todoId);
-      setSelectedTodoToDelete(null);
+      setSelectedTodoToDelete(null); // Reset the selected todo
     } else {
       console.error("Cannot delete todo - socket or todoId missing");
     }
   };
 
+  // Handle delete button click
   const handleDeleteClick = (todoId: string) => {
     console.log("Delete button clicked for todo:", todoId);
     const confirmed = window.confirm(
@@ -325,22 +212,22 @@ const Todo = () => {
     }
   };
 
+  // Handle edit button click
   const handleEditClick = (todo: Todo) => {
     setSelectedTodoToEdit(todo);
     console.log("Edit todo clicked:", todo);
   };
 
+  // Handle view button click
   const handleViewClick = (todo: Todo) => {
     setSelectedTodoToView(todo);
     console.log("View todo clicked:", todo);
   };
 
+  // Handle todo refresh
   const handleTodoRefresh = () => {
     if (socket) {
       socket.emit("admin/dashboard/get-todos", { filter: activeFilter });
-      socket.emit("admin/dashboard/get-todo-statistics", {
-        filter: activeFilter,
-      });
     }
   };
 
@@ -367,29 +254,35 @@ const Todo = () => {
           end: new Date(today.getTime() + 24 * 60 * 60 * 1000),
         };
       case "last30days":
+        // Last 30 days from today (rolling 30 days)
         return {
           start: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000),
           end: new Date(today.getTime() + 24 * 60 * 60 * 1000),
         };
       case "thismonth":
+        // Current calendar month (1st to last day of current month)
         return {
           start: new Date(now.getFullYear(), now.getMonth(), 1),
           end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
         };
       case "lastmonth":
+        // Previous calendar month
         return {
           start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
           end: new Date(now.getFullYear(), now.getMonth(), 1),
         };
       case "thisyear":
+        // Current year
         return {
           start: new Date(now.getFullYear(), 0, 1),
           end: new Date(now.getFullYear() + 1, 0, 1),
         };
       case "custom":
+        // Custom date range
         if (customDateRange && customDateRange.start && customDateRange.end) {
           const startDate = new Date(customDateRange.start);
           const endDate = new Date(customDateRange.end);
+          // Add 1 day to end date to include the full end day
           endDate.setDate(endDate.getDate() + 1);
           console.log("Custom range applied:", {
             start: startDate,
@@ -402,24 +295,13 @@ const Todo = () => {
         }
         return null;
       default:
-        return null;
+        return null; // All time
     }
   };
 
-  // Get filtered todos based on current filters
+  // Get filtered and sorted todos
   const getFilteredTodos = () => {
     let filteredTodos = todos.filter((todo) => {
-      // Search filter
-      const searchMatch =
-        !searchQuery ||
-        todo.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (todo.description && todo.description.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      // Priority filter
-      const priorityMatch =
-        selectedPriority === "all" ||
-        todo.priority?.toLowerCase() === selectedPriority.toLowerCase();
-
       const tagMatch =
         selectedTag === "all" ||
         todo.tag?.toLowerCase() === selectedTag.toLowerCase();
@@ -437,15 +319,17 @@ const Todo = () => {
             statusMatch = todo.completed === false;
             break;
           case "inprogress":
+            // For now, treat as pending since we don't have inprogress status in data
             statusMatch = todo.completed === false;
             break;
           case "onhold":
+            // For now, treat as pending since we don't have onhold status in data
             statusMatch = todo.completed === false;
             break;
         }
       }
 
-      // Date range filter
+      // Date range filter (based on createdAt)
       let dateRangeMatch = true;
       if (dateRangeFilter !== "all") {
         const dateRange = getDateRange(dateRangeFilter);
@@ -465,7 +349,7 @@ const Todo = () => {
         }
       }
 
-      // Due date filter
+      // Due date filter (based on dueDate)
       let dueDateMatch = true;
       if (dueDateFilter) {
         if (todo.dueDate) {
@@ -474,13 +358,11 @@ const Todo = () => {
           dueDateMatch =
             todoDueDate.toDateString() === filterDate.toDateString();
         } else {
-          dueDateMatch = false;
+          dueDateMatch = false; // If filtering by due date but todo has no due date
         }
       }
 
       return (
-        searchMatch &&
-        priorityMatch &&
         tagMatch &&
         assigneeMatch &&
         statusMatch &&
@@ -489,25 +371,21 @@ const Todo = () => {
       );
     });
 
-    // Sort todos
+    // Sort todos based on sortBy
     filteredTodos.sort((a, b) => {
       switch (sortBy) {
-        case "priority":
-          const priorityOrder = { high: 3, medium: 2, low: 1 };
+        case "last7days":
           return (
-            (priorityOrder[
-              b.priority?.toLowerCase() as keyof typeof priorityOrder
-            ] || 0) -
-            (priorityOrder[
-              a.priority?.toLowerCase() as keyof typeof priorityOrder
-            ] || 0)
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
-        case "dueDate":
-          if (!a.dueDate && !b.dueDate) return 0;
-          if (!a.dueDate) return 1;
-          if (!b.dueDate) return -1;
-          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-        case "createdDate":
+        case "last1month":
+          return (
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+        case "last1year":
+          return (
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
         default:
           return (
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -518,45 +396,102 @@ const Todo = () => {
     return filteredTodos;
   };
 
-  // Get todos by priority with additional filtering and sorting
-  const getTodosByPriority = (priority: string) => {
-    return getFilteredTodos().filter(
-      (todo) => todo.priority?.toLowerCase() === priority.toLowerCase()
-    );
-  };
+  // Fetch todos
+  useEffect(() => {
+    if (socket) {
+      (socket as any).emit("admin/dashboard/get-todos", {
+        filter: activeFilter,
+      });
+      (socket as any).on(
+        "admin/dashboard/get-todos-response",
+        (response: any) => {
+          if (response.done) {
+            const todosData = response.data || [];
+            setTodos(todosData);
 
-  // Calculate statistics from filtered todos
-  const calculateStats = () => {
-    const filteredTodos = getFilteredTodos();
-    const total = filteredTodos.length;
-    const completed = filteredTodos.filter((todo) => todo.completed).length;
-    const pending = total - completed;
+            // Extract unique tags
+            const tags = Array.from(
+              new Set(todosData.map((todo: Todo) => todo.tag).filter(Boolean))
+            ) as string[];
+            setAvailableTags(tags);
 
-    const byPriority = {
-      high: filteredTodos.filter(
-        (todo) => todo.priority?.toLowerCase() === "high"
-      ).length,
-      medium: filteredTodos.filter(
-        (todo) => todo.priority?.toLowerCase() === "medium"
-      ).length,
-      low: filteredTodos.filter(
-        (todo) => todo.priority?.toLowerCase() === "low"
-      ).length,
-    };
+            // Extract unique assignees (using userId for now, can be enhanced with actual user names)
+            const assignees = Array.from(
+              new Set(
+                todosData
+                  .map((todo: Todo) => todo.assignedTo || todo.userId)
+                  .filter(Boolean)
+              )
+            ) as string[];
+            setAvailableAssignees(assignees);
+          }
+          setLoading(false);
+        }
+      );
 
-    return { total, completed, pending, byPriority };
-  };
+      // Listen for todo creation success
+      (socket as any).on(
+        "admin/dashboard/add-todo-response",
+        (response: any) => {
+          if (response.done) {
+            // Refresh the todo list after successful creation
+            (socket as any).emit("admin/dashboard/get-todos", {
+              filter: activeFilter,
+            });
+          }
+        }
+      );
 
+      // Listen for todo update success
+      (socket as any).on(
+        "admin/dashboard/update-todo-response",
+        (response: any) => {
+          if (response.done) {
+            // Refresh the todo list after successful update
+            (socket as any).emit("admin/dashboard/get-todos", {
+              filter: activeFilter,
+            });
+          }
+        }
+      );
+
+      // Listen for todo deletion success
+      (socket as any).on(
+        "admin/dashboard/delete-todo-response",
+        (response: any) => {
+          if (response.done) {
+            console.log("Todo deleted successfully");
+            // Refresh the todo list after successful deletion
+            (socket as any).emit("admin/dashboard/get-todos", {
+              filter: activeFilter,
+            });
+          } else {
+            console.error("Delete failed:", response.error);
+          }
+        }
+      );
+
+      return () => {
+        (socket as any).off("admin/dashboard/get-todos-response");
+        (socket as any).off("admin/dashboard/add-todo-response");
+        (socket as any).off("admin/dashboard/update-todo-response");
+        (socket as any).off("admin/dashboard/delete-todo-response");
+      };
+    }
+  }, [socket, activeFilter]);
+
+  // Format date
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     const date = new Date(dateString);
     return date.toLocaleDateString("en-GB", {
       day: "2-digit",
-      month: "short",
+      month: "2-digit",
       year: "numeric",
     });
   };
 
+  // Get priority color
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
       case "high":
@@ -570,12 +505,14 @@ const Todo = () => {
     }
   };
 
+  // Get status badge class
   const getStatusBadgeClass = (completed: boolean) => {
     return completed
       ? "badge badge-soft-success d-inline-flex align-items-center"
       : "badge badge-soft-secondary d-inline-flex align-items-center";
   };
 
+  // Get tag badge class
   const getTagBadgeClass = (tag: string) => {
     const tagColors: { [key: string]: string } = {
       projects: "badge-success",
@@ -592,10 +529,12 @@ const Todo = () => {
     return tagColors[tag?.toLowerCase()] || "badge-secondary";
   };
 
+  // Get progress percentage (mock calculation)
   const getProgressPercentage = (todo: Todo) => {
     return todo.completed ? 100 : Math.floor(Math.random() * 90) + 10;
   };
 
+  // Get progress bar color
   const getProgressBarColor = (percentage: number) => {
     if (percentage >= 100) return "bg-success";
     if (percentage >= 70) return "bg-purple";
@@ -603,19 +542,12 @@ const Todo = () => {
     return "bg-danger";
   };
 
-  const getPriorityIcon = (priority: string) => {
-    switch (priority?.toLowerCase()) {
-      case "high":
-        return "ti ti-alert-circle";
-      case "medium":
-        return "ti ti-alert-triangle";
-      case "low":
-        return "ti ti-info-circle";
-      default:
-        return "ti ti-circle";
-    }
-  };
-
+  const options = [
+    { value: "bulk-actions", label: "Bulk Actions" },
+    { value: "delete-marked", label: "Delete Marked" },
+    { value: "unmark-all", label: "Unmark All" },
+    { value: "mark-all", label: "Mark All" },
+  ];
   return (
     <>
       <>
@@ -642,26 +574,15 @@ const Todo = () => {
               </div>
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap ">
                 <div className="d-flex align-items-center border rounded p-1 me-2">
-                  <button
-                    className={`btn btn-icon btn-sm ${
-                      viewMode === "list"
-                        ? "active bg-primary text-white"
-                        : ""
-                    }`}
-                    onClick={() => setViewMode("list")}
+                  <Link
+                    to={all_routes.TodoList}
+                    className="btn btn-icon btn-sm active bg-primary text-white"
                   >
                     <i className="ti ti-list-tree" />
-                  </button>
-                  <button
-                    className={`btn btn-icon btn-sm ${
-                      viewMode === "grid"
-                        ? "active bg-primary text-white"
-                        : ""
-                    }`}
-                    onClick={() => setViewMode("grid")}
-                  >
+                  </Link>
+                  <Link to={all_routes.todo} className="btn btn-icon btn-sm">
                     <i className="ti ti-table" />
-                  </button>
+                  </Link>
                 </div>
                 <div className="">
                   <Link
@@ -680,72 +601,6 @@ const Todo = () => {
                 </div>
               </div>
             </div>
-
-            {/* Statistics Cards */}
-            <div className="row">
-              <div className="col-xl-3 col-lg-6 col-md-6">
-                <div className="card">
-                  <div className="card-body">
-                    <div className="d-flex align-items-center justify-content-between">
-                      <div className="flex-fill">
-                        <p className="text-muted mb-1">Total Tasks</p>
-                        <h4 className="mb-0">{calculateStats().total}</h4>
-                      </div>
-                      <div className="avatar avatar-lg bg-primary-light rounded flex-shrink-0">
-                        <i className="ti ti-checkbox fs-24 text-primary" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="col-xl-3 col-lg-6 col-md-6">
-                <div className="card">
-                  <div className="card-body">
-                    <div className="d-flex align-items-center justify-content-between">
-                      <div className="flex-fill">
-                        <p className="text-muted mb-1">Pending</p>
-                        <h4 className="mb-0">{calculateStats().pending}</h4>
-                      </div>
-                      <div className="avatar avatar-lg bg-warning-light rounded flex-shrink-0">
-                        <i className="ti ti-clock fs-24 text-warning" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="col-xl-3 col-lg-6 col-md-6">
-                <div className="card">
-                  <div className="card-body">
-                    <div className="d-flex align-items-center justify-content-between">
-                      <div className="flex-fill">
-                        <p className="text-muted mb-1">Completed</p>
-                        <h4 className="mb-0">{calculateStats().completed}</h4>
-                      </div>
-                      <div className="avatar avatar-lg bg-success-light rounded flex-shrink-0">
-                        <i className="ti ti-check fs-24 text-success" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="col-xl-3 col-lg-6 col-md-6">
-                <div className="card">
-                  <div className="card-body">
-                    <div className="d-flex align-items-center justify-content-between">
-                      <div className="flex-fill">
-                        <p className="text-muted mb-1">High Priority</p>
-                        <h4 className="mb-0">{calculateStats().byPriority.high}</h4>
-                      </div>
-                      <div className="avatar avatar-lg bg-purple-light rounded flex-shrink-0">
-                        <i className="ti ti-alert-circle fs-24 text-purple" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Unified Card Structure for both Grid and List */}
             <div className="card">
               <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
                 <h5 className="d-flex align-items-center">
@@ -754,24 +609,7 @@ const Todo = () => {
                     {getFilteredTodos().length} Todos
                   </span>
                 </h5>
-                
-                {/* Searchbar */}
-                <div className="input-icon-start position-relative">
-                  <span className="input-icon-addon">
-                    <i className="ti ti-search" />
-                  </span>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Search Todo..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-
-                {/* Filters */}
                 <div className="d-flex align-items-center flex-wrap row-gap-3">
-                  {/* Date Range Filter */}
                   <div className="dropdown me-3">
                     <Link
                       to="#"
@@ -966,8 +804,6 @@ const Todo = () => {
                       </div>
                     </div>
                   )}
-
-                  {/* Due Date Filter */}
                   <div className="input-icon position-relative w-120 me-2 d-flex align-items-center">
                     <span className="input-icon-addon">
                       <i className="ti ti-calendar" />
@@ -979,6 +815,7 @@ const Todo = () => {
                       value={dueDateFilter ? dayjs(dueDateFilter) : null}
                       onChange={(date: any) => {
                         if (date) {
+                          // Convert to YYYY-MM-DD format for filtering
                           const formattedDate = date.format("YYYY-MM-DD");
                           handleDueDateChange(formattedDate);
                         } else {
@@ -1022,79 +859,6 @@ const Todo = () => {
                       </button>
                     )}
                   </div>
-
-                  {/* Priority Filter - Hidden in Grid View */}
-                  {viewMode === "list" && (
-                  <div className="dropdown me-2">
-                    <Link
-                      to="#"
-                      className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
-                      data-bs-toggle="dropdown"
-                    >
-                      {selectedPriority === "all" ? "Priority" : selectedPriority}
-                    </Link>
-                    <ul className="dropdown-menu dropdown-menu-end p-3">
-                      <li>
-                        <Link
-                          to="#"
-                          className={`dropdown-item rounded-1 ${
-                            selectedPriority === "all" ? "active" : ""
-                          }`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handlePriorityChange("all");
-                          }}
-                        >
-                          All Priority
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          to="#"
-                          className={`dropdown-item rounded-1 ${
-                            selectedPriority === "high" ? "active" : ""
-                          }`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handlePriorityChange("high");
-                          }}
-                        >
-                          High
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          to="#"
-                          className={`dropdown-item rounded-1 ${
-                            selectedPriority === "medium" ? "active" : ""
-                          }`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handlePriorityChange("medium");
-                          }}
-                        >
-                          Medium
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          to="#"
-                          className={`dropdown-item rounded-1 ${
-                            selectedPriority === "low" ? "active" : ""
-                          }`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handlePriorityChange("low");
-                          }}
-                        >
-                          Low
-                        </Link>
-                      </li>
-                    </ul>
-                  </div>
-                  )}
-
-                  {/* Tags Filter */}
                   <div className="dropdown me-2">
                     <Link
                       to="#"
@@ -1136,8 +900,6 @@ const Todo = () => {
                       ))}
                     </ul>
                   </div>
-
-                  {/* Assignee Filter */}
                   <div className="dropdown me-2">
                     <Link
                       to="#"
@@ -1181,8 +943,6 @@ const Todo = () => {
                       ))}
                     </ul>
                   </div>
-
-                  {/* Status Filter */}
                   <div className="dropdown me-2">
                     <Link
                       to="#"
@@ -1266,8 +1026,6 @@ const Todo = () => {
                       </li>
                     </ul>
                   </div>
-
-                  {/* Sort By */}
                   <div className="dropdown">
                     <Link
                       to="#"
@@ -1277,460 +1035,241 @@ const Todo = () => {
                       <span className="fs-12 d-inline-flex me-1">
                         Sort By :{" "}
                       </span>
-                      {sortBy === "createdDate"
-                        ? "Date Created"
-                        : sortBy === "dueDate"
-                        ? "Due Date"
-                        : sortBy === "priority"
-                        ? "Priority"
-                        : "Date Created"}
+                      {sortBy === "last7days"
+                        ? "Last 7 Days"
+                        : sortBy === "last1month"
+                        ? "Last 1 month"
+                        : sortBy === "last1year"
+                        ? "Last 1 year"
+                        : "Last 7 Days"}
                     </Link>
                     <ul className="dropdown-menu dropdown-menu-end p-3">
                       <li>
                         <Link
                           to="#"
                           className={`dropdown-item rounded-1 ${
-                            sortBy === "createdDate" ? "active" : ""
+                            sortBy === "last7days" ? "active" : ""
                           }`}
                           onClick={(e) => {
                             e.preventDefault();
-                            handleSortChange("createdDate");
+                            handleSortChange("last7days");
                           }}
                         >
-                          Date Created
+                          Last 7 Days
                         </Link>
                       </li>
                       <li>
                         <Link
                           to="#"
                           className={`dropdown-item rounded-1 ${
-                            sortBy === "dueDate" ? "active" : ""
+                            sortBy === "last1month" ? "active" : ""
                           }`}
                           onClick={(e) => {
                             e.preventDefault();
-                            handleSortChange("dueDate");
+                            handleSortChange("last1month");
                           }}
                         >
-                          Due Date
+                          Last 1 month
                         </Link>
                       </li>
                       <li>
                         <Link
                           to="#"
                           className={`dropdown-item rounded-1 ${
-                            sortBy === "priority" ? "active" : ""
+                            sortBy === "last1year" ? "active" : ""
                           }`}
                           onClick={(e) => {
                             e.preventDefault();
-                            handleSortChange("priority");
+                            handleSortChange("last1year");
                           }}
                         >
-                          Priority
+                          Last 1 year
                         </Link>
                       </li>
                     </ul>
                   </div>
                 </div>
               </div>
-
-              {/* Card Body - Conditional Grid/List View */}
-              <div className="card-body">
-                {viewMode === "grid" ? (
-                  // Grid View - 3 Columns by Priority
-                  loading ? (
-                    <div className="text-center py-4">
-                      <div className="spinner-border" role="status">
-                        <span className="visually-hidden">Loading...</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="row">
-                      {["high", "medium", "low"].map((priority) => {
-                        const priorityTodos = getTodosByPriority(priority);
-                        return (
-                          <div key={priority} className="col-lg-4 col-md-6">
-                            <div className="mb-3">
-                              <div className="d-flex align-items-center mb-3">
-                                <span>
-                                  <i
-                                    className={`${getPriorityIcon(priority)} ${getPriorityColor(
-                                      priority
-                                    )} me-2 fs-20`}
-                                  />
-                                </span>
-                                <h5 className="fw-semibold text-capitalize mb-0">
-                                  {priority}
-                                </h5>
-                                <span className="badge bg-light rounded-pill ms-2">
-                                  {priorityTodos.length}
-                                </span>
-                              </div>
-                              <div className="todo-grid-list">
-                                {priorityTodos.length === 0 ? (
-                                  <div className="text-center py-4 text-muted">
-                                    No {priority} priority todos
-                                  </div>
-                                ) : (
-                                  priorityTodos.map((todo) => (
-                                    <div
-                                      key={todo._id}
-                                      className="card shadow-sm mb-3"
-                                    >
-                                      <div className="card-body">
-                                        <div className="d-flex align-items-start justify-content-between mb-2">
-                                          <div className="d-flex align-items-center flex-grow-1">
-                                            <div 
-                                              className="form-check form-check-md me-2"
-                                            >
-                                              <input
-                                                className="form-check-input"
-                                                type="checkbox"
-                                                checked={todo.completed}
-                                                onChange={() =>
-                                                  toggleTodo(todo._id, todo.completed)
-                                                }
-                                              />
-                                            </div>
-                                            <i
-                                              className={`${getPriorityIcon(
-                                                todo.priority
-                                              )} ${getPriorityColor(
-                                                todo.priority
-                                              )} me-2`}
-                                            />
-                                          </div>
-                                          <div 
-                                            className="dropdown"
-                                          >
-                                            <Link
-                                              to="#"
-                                              className="d-inline-flex align-items-center"
-                                              data-bs-toggle="dropdown"
-                                              onClick={(e) => e.preventDefault()}
-                                            >
-                                              <i className="ti ti-dots-vertical" />
-                                            </Link>
-                                            <ul className="dropdown-menu dropdown-menu-end p-3">
-                                              <li>
-                                                <Link
-                                                  to="#"
-                                                  className="dropdown-item rounded-1"
-                                                  data-bs-toggle="modal"
-                                                  data-bs-target="#edit-note-units"
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    handleEditClick(todo);
-                                                  }}
-                                                >
-                                                  <i className="ti ti-edit me-2" />
-                                                  Edit
-                                                </Link>
-                                              </li>
-                                              <li>
-                                                <button
-                                                  type="button"
-                                                  className="dropdown-item rounded-1 border-0 bg-transparent w-100 text-start"
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    handleDeleteClick(todo._id);
-                                                  }}
-                                                >
-                                                  <i className="ti ti-trash me-2" />
-                                                  Delete
-                                                </button>
-                                              </li>
-                                              <li>
-                                                <Link
-                                                  to="#"
-                                                  className="dropdown-item rounded-1"
-                                                  data-bs-toggle="modal"
-                                                  data-bs-target="#view-note-units"
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    handleViewClick(todo);
-                                                  }}
-                                                >
-                                                  <i className="ti ti-eye me-2" />
-                                                  View
-                                                </Link>
-                                              </li>
-                                            </ul>
-                                          </div>
-                                        </div>
-                                        <h6 
-                                          className={`mb-2 ${todo.completed ? "text-decoration-line-through text-muted" : ""}`}
-                                          style={{ cursor: "pointer" }}
-                                          data-bs-toggle="modal"
-                                          data-bs-target="#view-note-units"
-                                          onClick={() => handleViewClick(todo)}
-                                        >
-                                          {todo.title}
-                                        </h6>
-                                        {todo.description && (
-                                          <p className="text-muted small mb-2">
-                                            {todo.description.length > 100
-                                              ? todo.description.substring(0, 100) + "..."
-                                              : todo.description}
-                                          </p>
-                                        )}
-                                        <div className="d-flex align-items-center justify-content-between flex-wrap mb-2">
-                                          {todo.tag && (
-                                            <span
-                                              className={`badge ${getTagBadgeClass(
-                                                todo.tag
-                                              )} me-2`}
-                                            >
-                                              {todo.tag}
-                                            </span>
-                                          )}
-                                          {todo.dueDate && (
-                                            <span className="badge bg-transparent-dark text-dark rounded-pill">
-                                              <i className="ti ti-calendar me-1" />
-                                              {formatDate(todo.dueDate)}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="d-flex align-items-center justify-content-between">
-                                          <span
-                                            className={`${getStatusBadgeClass(
-                                              todo.completed
-                                            )}`}
-                                          >
-                                            <i className="fas fa-circle fs-6 me-1" />
-                                            {todo.completed ? "Completed" : "Pending"}
-                                          </span>
-                                          <div className="avatar-list-stacked avatar-group-sm">
-                                            <span className="avatar avatar-rounded">
-                                              <ImageWithBasePath
-                                                className="border border-white"
-                                                src="assets/img/profiles/avatar-13.jpg"
-                                                alt="img"
-                                              />
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
+              <div className="card-body p-0">
+                {/* Student List */}
+                <div className="custom-datatable-filter table-responsive">
+                  <table className="table datatable">
+                    <thead className="thead-light">
+                      <tr>
+                        <th className="no-sort">
+                          <div className="form-check form-check-md">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id="select-all"
+                            />
                           </div>
-                        );
-                      })}
-                    </div>
-                  )
-                ) : (
-                  // List View - Table
-                  <div className="custom-datatable-filter table-responsive">
-                    <table className="table datatable">
-                      <thead className="thead-light">
+                        </th>
+                        <th>Company Name</th>
+                        <th>Tags</th>
+                        <th>Assignee</th>
+                        <th>Created On</th>
+                        <th>Progress</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                        <th className="no-sort">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
                         <tr>
-                          <th className="no-sort">
-                            <div className="form-check form-check-md">
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                id="select-all"
-                              />
+                          <td colSpan={9} className="text-center py-4">
+                            <div className="spinner-border" role="status">
+                              <span className="visually-hidden">
+                                Loading...
+                              </span>
                             </div>
-                          </th>
-                          <th style={{ width: "250px" }}>To Do</th>
-                          <th>Tags</th>
-                          <th>Assignee</th>
-                          <th>Created On</th>
-                          <th>Progress</th>
-                          <th>Due Date</th>
-                          <th>Status</th>
-                          <th className="no-sort">Action</th>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {loading ? (
-                          <tr>
-                            <td colSpan={9} className="text-center py-4">
-                              <div className="spinner-border" role="status">
-                                <span className="visually-hidden">
-                                  Loading...
-                                </span>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : getFilteredTodos().length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={9}
-                              className="text-center py-4 text-muted"
-                            >
-                              No todos found.
-                            </td>
-                          </tr>
-                        ) : (
-                          getFilteredTodos().map((todo: Todo, index: number) => {
-                            const progressPercentage =
-                              getProgressPercentage(todo);
-                            return (
-                              <tr 
-                                key={todo._id}
-                              >
-                                <td>
-                                  <div className="d-flex align-items-center">
-                                    <div className="form-check form-check-md">
-                                      <input
-                                        className="form-check-input"
-                                        type="checkbox"
-                                        checked={todo.completed}
-                                        onChange={() =>
-                                          toggleTodo(todo._id, todo.completed)
-                                        }
-                                      />
-                                    </div>
-                                    <span className="mx-2 d-flex align-items-center">
-                                      <i
-                                        className={`${getPriorityIcon(
-                                          todo.priority
-                                        )} ${getPriorityColor(
-                                          todo.priority
-                                        )}`}
-                                      />
-                                    </span>
+                      ) : getFilteredTodos().length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            className="text-center py-4 text-muted"
+                          >
+                            No todos found.
+                          </td>
+                        </tr>
+                      ) : (
+                        getFilteredTodos().map((todo: Todo, index: number) => {
+                          const progressPercentage =
+                            getProgressPercentage(todo);
+                          return (
+                            <tr key={todo._id}>
+                              <td>
+                                <div className="d-flex align-items-center">
+                                  <div className="form-check form-check-md">
+                                    <input
+                                      className="form-check-input"
+                                      type="checkbox"
+                                      checked={todo.completed}
+                                      onChange={() =>
+                                        toggleTodo(todo._id, todo.completed)
+                                      }
+                                    />
                                   </div>
-                                </td>
-                                <td style={{ maxWidth: "250px" }}>
-                                  <p 
-                                    className="fw-medium text-dark text-truncate mb-0" 
-                                    style={{ maxWidth: "250px", cursor: "pointer" }}
+                                  <span className="mx-2 d-flex align-items-center rating-select">
+                                    <i
+                                      className={`ti ti-star${
+                                        todo.completed ? "-filled filled" : ""
+                                      }`}
+                                    />
+                                  </span>
+                                  <span className="d-flex align-items-center">
+                                    <i
+                                      className={`ti ti-square-rounded ${getPriorityColor(
+                                        todo.priority
+                                      )} me-2`}
+                                    />
+                                  </span>
+                                </div>
+                              </td>
+                              <td>
+                                <p className="fw-medium text-dark">
+                                  {todo.title}
+                                </p>
+                              </td>
+                              <td>
+                                {todo.tag && (
+                                  <span
+                                    className={`badge ${getTagBadgeClass(
+                                      todo.tag
+                                    )}`}
+                                  >
+                                    {todo.tag}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <div className="avatar-list-stacked avatar-group-sm">
+                                  <span className="avatar avatar-rounded">
+                                    <ImageWithBasePath
+                                      className="border border-white"
+                                      src="assets/img/profiles/avatar-19.jpg"
+                                      alt="img"
+                                    />
+                                  </span>
+                                </div>
+                              </td>
+                              <td>{formatDate(todo.createdAt)}</td>
+                              <td>
+                                <span className="d-block mb-1">
+                                  Progress : {progressPercentage}%
+                                </span>
+                                <div
+                                  className="progress progress-xs flex-grow-1 mb-2"
+                                  style={{ width: 190 }}
+                                >
+                                  <div
+                                    className={`progress-bar ${getProgressBarColor(
+                                      progressPercentage
+                                    )} rounded`}
+                                    role="progressbar"
+                                    style={{ width: `${progressPercentage}%` }}
+                                    aria-valuenow={progressPercentage}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                  />
+                                </div>
+                              </td>
+                              <td>
+                                {todo.dueDate ? formatDate(todo.dueDate) : "-"}
+                              </td>
+                              <td>
+                                <span
+                                  className={`${getStatusBadgeClass(
+                                    todo.completed
+                                  )}`}
+                                >
+                                  <i className="ti ti-circle-filled fs-5 me-1" />
+                                  {todo.completed ? "Completed" : "Pending"}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="d-flex align-items-center">
+                                  <Link
+                                    to="#"
+                                    className="btn btn-sm btn-icon"
                                     data-bs-toggle="modal"
                                     data-bs-target="#view-note-units"
                                     onClick={() => handleViewClick(todo)}
+                                    title="View todo"
                                   >
-                                    {todo.title}
-                                  </p>
-                                </td>
-                                <td>
-                                  {todo.tag && (
-                                    <span
-                                      className={`badge ${getTagBadgeClass(
-                                        todo.tag
-                                      )}`}
-                                    >
-                                      {todo.tag}
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <div className="avatar-list-stacked avatar-group-sm">
-                                    <span className="avatar avatar-rounded">
-                                      <ImageWithBasePath
-                                        className="border border-white"
-                                        src="assets/img/profiles/avatar-19.jpg"
-                                        alt="img"
-                                      />
-                                    </span>
-                                  </div>
-                                </td>
-                                <td>{formatDate(todo.createdAt)}</td>
-                                <td>
-                                  <span className="d-block mb-1">
-                                    Progress : {progressPercentage}%
-                                  </span>
-                                  <div
-                                    className="progress progress-xs flex-grow-1 mb-2"
-                                    style={{ width: 190 }}
+                                    <i className="ti ti-eye" />
+                                  </Link>
+                                  <Link
+                                    to="#"
+                                    className="btn btn-sm btn-icon"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#edit-note-units"
+                                    onClick={() => handleEditClick(todo)}
+                                    title="Edit todo"
                                   >
-                                    <div
-                                      className={`progress-bar ${getProgressBarColor(
-                                        progressPercentage
-                                      )} rounded`}
-                                      role="progressbar"
-                                      style={{ width: `${progressPercentage}%` }}
-                                      aria-valuenow={progressPercentage}
-                                      aria-valuemin={0}
-                                      aria-valuemax={100}
-                                    />
-                                  </div>
-                                </td>
-                                <td>
-                                  {todo.dueDate ? formatDate(todo.dueDate) : "-"}
-                                </td>
-                                <td>
-                                  <span
-                                    className={`${getStatusBadgeClass(
-                                      todo.completed
-                                    )}`}
+                                    <i className="ti ti-edit" />
+                                  </Link>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-icon"
+                                    onClick={() => handleDeleteClick(todo._id)}
+                                    title="Delete todo"
                                   >
-                                    <i className="ti ti-circle-filled fs-5 me-1" />
-                                    {todo.completed ? "Completed" : "Pending"}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="dropdown">
-                                    <Link
-                                      to="#"
-                                      className="d-inline-flex align-items-center"
-                                      data-bs-toggle="dropdown"
-                                      onClick={(e) => e.preventDefault()}
-                                    >
-                                      <i className="ti ti-dots-vertical" />
-                                    </Link>
-                                    <ul className="dropdown-menu dropdown-menu-end p-3">
-                                      <li>
-                                        <Link
-                                          to="#"
-                                          className="dropdown-item rounded-1"
-                                          data-bs-toggle="modal"
-                                          data-bs-target="#edit-note-units"
-                                          onClick={(e) => {
-                                            e.preventDefault();
-                                            handleEditClick(todo);
-                                          }}
-                                          title="Edit todo"
-                                        >
-                                          <i className="ti ti-edit me-2" />
-                                          Edit
-                                        </Link>
-                                      </li>
-                                      <li>
-                                        <button
-                                          type="button"
-                                          className="dropdown-item rounded-1 border-0 bg-transparent w-100 text-start"
-                                          onClick={(e) => {
-                                            e.preventDefault();
-                                            handleDeleteClick(todo._id);
-                                          }}
-                                          title="Delete todo"
-                                        >
-                                          <i className="ti ti-trash me-2" />
-                                          Delete
-                                        </button>
-                                      </li>
-                                      <li>
-                                        <Link
-                                          to="#"
-                                          className="dropdown-item rounded-1"
-                                          data-bs-toggle="modal"
-                                          data-bs-target="#view-note-units"
-                                          onClick={(e) => {
-                                            e.preventDefault();
-                                            handleViewClick(todo);
-                                          }}
-                                          title="View todo"
-                                        >
-                                          <i className="ti ti-eye me-2" />
-                                          View
-                                        </Link>
-                                      </li>
-                                    </ul>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                                    <i className="ti ti-trash" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* /Student List */}
               </div>
             </div>
           </div>
@@ -1751,4 +1290,4 @@ const Todo = () => {
   );
 };
 
-export default Todo;
+export default TodoList;

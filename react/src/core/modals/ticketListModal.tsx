@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import CommonSelect from "../common/commonSelect";
-import CommonTagsInput from "../common/Taginput";
 import { useSocket } from "../../SocketContext";
 
 const TicketListModal = () => {
@@ -15,14 +14,17 @@ const TicketListModal = () => {
     description: '',
     priority: '',
     status: '',
-    assignedTo: []
+    assignedTo: null as any
   });
   const [loading, setLoading] = useState(false);
-  const [tags, setTags] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [categoryMessage, setCategoryMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const categoryModalRef = useRef<HTMLDivElement>(null);
 
   // Default categories - will be replaced with dynamic data
   const defaultCategories = [
@@ -37,6 +39,15 @@ const TicketListModal = () => {
 
   // Use dynamic categories if available, otherwise use default
   const eventCategory = categories.length > 0 ? categories : defaultCategories;
+
+  const assigneeOptions = [
+    { value: 'Select', label: 'Select' },
+    ...users.map((u) => ({
+      value: u.employeeId || u._id,
+      label: `${u.employeeId || 'N/A'} - ${(u.firstName || '' + ' ' + (u.lastName || '')).trim() || 'Unnamed'}`,
+      data: u,
+    })),
+  ];
   
   const priority = [
     { value: "Select", label: "Select" },
@@ -120,23 +131,29 @@ const TicketListModal = () => {
   // Fetch dynamic data
   const fetchDynamicData = () => {
     if (socket) {
-      // Fetch categories from existing tickets
-      socket.emit('tickets/list/get-tickets', {
-        page: 1,
-        limit: 1000,
-        sortBy: 'createdAt',
-        sortOrder: 'desc'
-      });
+      // Fetch categories from backend
+      socket.emit('tickets/categories/get-categories', {});
 
-      socket.on('tickets/list/get-tickets-response', (response) => {
+      // Fetch IT Support employees for assignment
+      socket.emit('tickets/employees/get-list');
+
+      socket.on('tickets/categories/get-categories-response', (response) => {
         if (response.done && response.data) {
-          // Extract unique categories from tickets
-          const uniqueCategories = Array.from(new Set(response.data.map((ticket: any) => ticket.category)));
           const categoryOptions = [
             { value: "Select", label: "Select" },
-            ...uniqueCategories.map((cat: string) => ({ value: cat, label: cat }))
+            ...response.data.map((cat: any) => ({ 
+              value: cat.name, 
+              label: cat.name,
+              _id: cat._id 
+            }))
           ];
           setCategories(categoryOptions);
+        }
+      });
+
+      socket.on('tickets/employees/get-list-response', (response) => {
+        if (response.done && response.data) {
+          setUsers(response.data);
         }
       });
     }
@@ -159,11 +176,18 @@ const TicketListModal = () => {
       return;
     }
 
+    if (!formData.assignedTo || formData.assignedTo.value === 'Select') {
+      setMessage({type: 'error', text: 'Please select an assignee from IT Support'});
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
 
     try {
       // Prepare ticket data
+      const selectedAssignee = formData.assignedTo?.data || {};
+
       const ticketData = {
         title: formData.title,
         description: formData.description,
@@ -172,22 +196,16 @@ const TicketListModal = () => {
         status: formData.status,
         subject: formData.subject,
         assignedTo: {
-          _id: "507f1f77bcf86cd799439011", // Default user ID
-          firstName: tags[0]?.split(' ')[0] || "Support",
-          lastName: tags[0]?.split(' ')[1] || "Agent",
-          email: "support@company.com",
-          role: "IT Support Specialist"
+          _id: selectedAssignee._id || '',
+          employeeId: selectedAssignee.employeeId || '',
+          firstName: selectedAssignee.firstName || '',
+          lastName: selectedAssignee.lastName || '',
+          email: selectedAssignee.email || '',
+          avatar: selectedAssignee.avatar || 'assets/img/profiles/avatar-01.jpg',
+          role: 'IT Support Specialist',
         },
-        createdBy: {
-          _id: "507f1f77bcf86cd799439012", // Current user ID
-          firstName: "Current",
-          lastName: "User",
-          email: "user@company.com",
-          department: "General"
-        },
-        tags: tags,
-        department: "IT Support",
-        location: "Office"
+        department: 'IT Support',
+        location: 'Office',
       };
 
       console.log('Sending ticket data:', ticketData);
@@ -215,9 +233,54 @@ const TicketListModal = () => {
     }
   };
 
+  // Handle add category submission
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate category name
+    if (!newCategoryName || !newCategoryName.trim()) {
+      setCategoryMessage({type: 'error', text: 'Category name is required'});
+      return;
+    }
+
+    setCategoryLoading(true);
+    setCategoryMessage(null);
+
+    try {
+      const categoryData = {
+        name: newCategoryName.trim()
+      };
+
+      console.log('Adding category:', categoryData);
+      socket?.emit('tickets/categories/add-category', categoryData);
+
+      // Set a timeout
+      const timeout = setTimeout(() => {
+        if (categoryLoading) {
+          setCategoryMessage({type: 'error', text: 'Request timeout. Please try again.'});
+          setCategoryLoading(false);
+        }
+      }, 10000);
+
+      (window as any).categoryCreateTimeout = timeout;
+
+    } catch (error) {
+      console.error('Error adding category:', error);
+      setCategoryMessage({type: 'error', text: 'Error adding category. Please try again.'});
+      setCategoryLoading(false);
+    }
+  };
+
   // Fetch dynamic data on component mount
   useEffect(() => {
     fetchDynamicData();
+
+    return () => {
+      if (socket) {
+        socket.off('tickets/categories/get-categories-response');
+        socket.off('tickets/employees/get-list-response');
+      }
+    };
   }, [socket]);
 
   // Set up socket listener for create ticket response
@@ -242,9 +305,8 @@ const TicketListModal = () => {
             description: '',
             priority: '',
             status: '',
-            assignedTo: []
+            assignedTo: null
           });
-          setTags([]);
           // Close modal after a short delay
           setTimeout(() => {
             closeModal();
@@ -256,10 +318,39 @@ const TicketListModal = () => {
         setLoading(false);
       };
 
+      const handleAddCategoryResponse = (response: any) => {
+        console.log('Add category response:', response);
+        
+        // Clear the timeout
+        if ((window as any).categoryCreateTimeout) {
+          clearTimeout((window as any).categoryCreateTimeout);
+          (window as any).categoryCreateTimeout = null;
+        }
+        
+        if (response.done) {
+          setCategoryMessage({type: 'success', text: 'Category added successfully!'});
+          // Reset form
+          setNewCategoryName('');
+          // Refresh categories list
+          fetchDynamicData();
+          // Close modal after a short delay
+          setTimeout(() => {
+            const closeBtn = categoryModalRef.current?.querySelector('[data-bs-dismiss="modal"]') as HTMLButtonElement;
+            if (closeBtn) closeBtn.click();
+            setCategoryMessage(null);
+          }, 1500);
+        } else {
+          setCategoryMessage({type: 'error', text: response.error || 'Error adding category'});
+        }
+        setCategoryLoading(false);
+      };
+
       socket.on('tickets/create-ticket-response', handleCreateTicketResponse);
+      socket.on('tickets/categories/add-category-response', handleAddCategoryResponse);
 
       return () => {
         socket.off('tickets/create-ticket-response', handleCreateTicketResponse);
+        socket.off('tickets/categories/add-category-response', handleAddCategoryResponse);
       };
     }
   }, [socket]);
@@ -276,9 +367,8 @@ const TicketListModal = () => {
           description: '',
           priority: '',
           status: '',
-          assignedTo: []
+            assignedTo: null
         });
-        setTags([]);
         setLoading(false);
         setMessage(null);
       };
@@ -360,12 +450,12 @@ const TicketListModal = () => {
                       />
                     </div>
                     <div className="mb-3">
-                      <label className="form-label">Assign To</label>
-                      <CommonTagsInput
-                        value={tags}
-                        onChange={setTags}
-                        placeholder="Add assignee name"
-                        className="custom-input-class"
+                      <label className="form-label">Assign To <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className="select"
+                        options={assigneeOptions}
+                        value={assigneeOptions.find(opt => opt.value === (formData.assignedTo?.value || 'Select')) || assigneeOptions[0]}
+                        onChange={(option: any) => handleInputChange('assignedTo', option)}
                       />
                     </div>
                     <div className="mb-3">
@@ -388,7 +478,7 @@ const TicketListModal = () => {
                         onChange={(option: any) => handleInputChange('priority', option?.value || '')}
                       />
                     </div>
-                    <div className="mb-0">
+                    {/* <div className="mb-0">
                       <label className="form-label">Status <span className="text-danger">*</span></label>
                       <CommonSelect
                         className="select"
@@ -396,7 +486,7 @@ const TicketListModal = () => {
                         value={status.find(opt => opt.value === formData.status) || status[0]}
                         onChange={(option: any) => handleInputChange('status', option?.value || '')}
                       />
-                    </div>
+                    </div> */}
                   </div>
                 </div>
               </div>
@@ -429,6 +519,70 @@ const TicketListModal = () => {
         </div>
       </div>
       {/* /Add Ticket */}
+      {/* Add Category */}
+      <div className="modal fade" id="add_category" ref={categoryModalRef}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Add Category</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <form onSubmit={handleAddCategory}>
+              <div className="modal-body">
+                {categoryMessage && (
+                  <div className={`alert ${categoryMessage.type === 'success' ? 'alert-success' : 'alert-danger'} alert-dismissible fade show`} role="alert">
+                    {categoryMessage.text}
+                    <button type="button" className="btn-close" onClick={() => setCategoryMessage(null)}></button>
+                  </div>
+                )}
+                <div className="mb-3">
+                  <label className="form-label">Category Name <span className="text-danger">*</span></label>
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    placeholder="Enter Category Name"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-light me-2"
+                  data-bs-dismiss="modal"
+                  disabled={categoryLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={categoryLoading}
+                >
+                  {categoryLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Adding...
+                    </>
+                  ) : (
+                    'Add Category'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {/* /Add Category */}
     </>
   );
 };
