@@ -1266,13 +1266,19 @@ const createLead = async (companyId, leadData) => {
       throw new Error('Lead name and company are required');
     }
     
+    // Validate value is not negative
+    const leadValue = leadData.value || 0;
+    if (leadValue < 0) {
+      throw new Error('Lead value cannot be less than 0');
+    }
+    
     // Prepare lead document
     const newLead = {
       name: leadData.name || '',
       company: leadData.company || '',
       email: leadData.email || '',
       phone: leadData.phone || '',
-      value: leadData.value || 0,
+      value: leadValue,
       stage: leadData.stage || 'Not Contacted',
       source: leadData.source || 'Unknown',
       country: leadData.country || 'Unknown',
@@ -1319,6 +1325,13 @@ const updateLead = async (companyId, leadId, updateData) => {
     // Validate lead ID
     if (!leadId) {
       throw new Error('Lead ID is required');
+    }
+    
+    // Validate value is not negative if it's being updated
+    if (updateData.value !== undefined && updateData.value !== null) {
+      if (updateData.value < 0) {
+        throw new Error('Lead value cannot be less than 0');
+      }
     }
     
     // Prepare update document

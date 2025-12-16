@@ -264,6 +264,7 @@ import DealsGrid from "../crm/deals/dealsGrid";
 import DealsList from "../crm/deals/dealsList";
 import DealsDetails from "../crm/deals/dealsDetails";
 import Pipeline from "../crm/pipeline/pipeline";
+import EditPipeline from "../crm/pipeline/editPipeline";
 import Analytics from "../crm/analytics/analytics";
 import Holidays from "../hrm/holidays";
 import PerformanceReview from "../performance/performanceReview";
@@ -1895,6 +1896,12 @@ export const publicRoutes = [
   {
     path: routes.pipeline,
     element: <Pipeline />,
+    route: Route,
+    roles: ["public"],
+  },
+  {
+    path: routes.editPipeline,
+    element: <EditPipeline />,
     route: Route,
     roles: ["public"],
   },

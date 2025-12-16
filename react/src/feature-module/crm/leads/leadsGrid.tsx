@@ -317,6 +317,24 @@ const LeadsGrid = () => {
     });
   };
 
+  // Handle add lead from column header
+  const handleAddLeadFromColumn = (stage: string) => {
+    setFormData({
+      name: '',
+      company: '',
+      email: '',
+      phone: '',
+      value: 0,
+      stage: stage,
+      source: 'Unknown',
+      country: 'Unknown',
+      address: '',
+      owner: 'Unknown',
+      priority: 'Medium'
+    });
+    setAddModalVisible(true);
+  };
+
   // Handle edit lead
   const handleEditLead = (lead: any) => {
     console.log("[LeadsGrid] Opening edit modal for lead:", lead);
@@ -1145,7 +1163,13 @@ const LeadsGrid = () => {
                     </div>
                     <div className="d-flex align-items-center">
                       <div className="action-icon d-inline-flex">
-                        <Link to="#">
+                        <Link
+                          to="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleAddLeadFromColumn('Contacted');
+                          }}
+                        >
                           <i className="ti ti-circle-plus" />
                         </Link>
                         <Link
@@ -1222,7 +1246,13 @@ const LeadsGrid = () => {
                     </div>
                     <div className="d-flex align-items-center">
                       <div className="action-icon d-inline-flex">
-                        <Link to="#">
+                        <Link
+                          to="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleAddLeadFromColumn('Not Contacted');
+                          }}
+                        >
                           <i className="ti ti-circle-plus" />
                         </Link>
                         <Link
@@ -1275,7 +1305,13 @@ const LeadsGrid = () => {
                     </div>
                     <div className="d-flex align-items-center">
                       <div className="action-icon d-inline-flex">
-                        <Link to="#">
+                        <Link
+                          to="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleAddLeadFromColumn('Closed');
+                          }}
+                        >
                           <i className="ti ti-circle-plus" />
                         </Link>
                         <Link
@@ -1328,7 +1364,13 @@ const LeadsGrid = () => {
                     </div>
                     <div className="d-flex align-items-center">
                       <div className="action-icon d-inline-flex">
-                        <Link to="#">
+                        <Link
+                          to="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleAddLeadFromColumn('Lost');
+                          }}
+                        >
                           <i className="ti ti-circle-plus" />
                         </Link>
                         <Link
@@ -1431,8 +1473,12 @@ const LeadsGrid = () => {
                     <input
                       type="number"
                       className="form-control"
+                      min="0"
                       value={formData.value}
-                      onChange={(e) => handleFormChange('value', parseInt(e.target.value) || 0)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        handleFormChange('value', val < 0 ? 0 : val);
+                      }}
                     />
                   </div>
                   <div className="col-md-6 mb-3">
@@ -1586,8 +1632,12 @@ const LeadsGrid = () => {
                     <input
                       type="number"
                       className="form-control"
+                      min="0"
                       value={formData.value}
-                      onChange={(e) => handleFormChange('value', parseInt(e.target.value) || 0)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        handleFormChange('value', val < 0 ? 0 : val);
+                      }}
                     />
                   </div>
                   <div className="col-md-6 mb-3">

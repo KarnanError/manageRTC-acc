@@ -1,10 +1,11 @@
 import { DatePicker } from 'antd';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
 import dayjs, { Dayjs } from 'dayjs';
-import { Select } from 'antd';
 import { toast } from 'react-toastify';
+import { Link } from 'react-router-dom';
+import AddStage from './add_stage';
 
 const DEFAULT_STAGE_OPTIONS = [
   'Won',
@@ -24,8 +25,6 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
   const [pipelineName, setPipelineName] = useState('');
   const [stage, setStage] = useState('');
   const [stageOptions, setStageOptions] = useState<string[]>([...DEFAULT_STAGE_OPTIONS]);
-  const [showStageModal, setShowStageModal] = useState(false);
-  const [newStage, setNewStage] = useState('');
   const [totalDealValue, setTotalDealValue] = useState<number | ''>('');
   const [noOfDeals, setNoOfDeals] = useState<number | ''>('');
   const [createdDate, setCreatedDate] = useState<Dayjs | null>(null);
@@ -39,6 +38,7 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
   // Only keep the dropdown for selecting a stage, and the Add New link/modal if present
   const [localStages, setLocalStages] = useState<string[]>([...DEFAULT_STAGE_OPTIONS]);
   const [showEditStagesModal, setShowEditStagesModal] = useState(false);
+  const modalOpenedRef = useRef<string | null>(null);
 
   // When pipeline changes, pre-fill form fields
   useEffect(() => {
@@ -70,7 +70,43 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
     }
   }, [pipeline]);
 
-  // Fetch stages from backend on modal open
+  // Open modal when pipeline is set
+  useEffect(() => {
+    if (pipeline && pipeline._id) {
+      // Prevent opening if we already opened for this pipeline
+      if (modalOpenedRef.current === pipeline._id.toString()) {
+        return;
+      }
+      
+      const modal = document.getElementById('edit_pipeline');
+      if (modal) {
+        // Check if modal is already open to prevent duplicate opens
+        const isOpen = modal.classList.contains('show');
+        if (!isOpen) {
+          // Mark that we're opening this pipeline
+          modalOpenedRef.current = pipeline._id.toString();
+          
+          // Small delay to ensure form fields are pre-filled
+          setTimeout(() => {
+            try {
+              const bootstrapModal = (window as any).bootstrap?.Modal?.getOrCreateInstance(modal);
+              if (bootstrapModal) {
+                bootstrapModal.show();
+              }
+            } catch (error) {
+              console.error('Error opening edit pipeline modal:', error);
+              modalOpenedRef.current = null; // Reset on error
+            }
+          }, 100);
+        }
+      }
+    } else {
+      // Reset ref when pipeline is cleared
+      modalOpenedRef.current = null;
+    }
+  }, [pipeline]);
+
+  // Fetch stages from backend on modal open and when stages change elsewhere
   useEffect(() => {
     const modal = document.getElementById('edit_pipeline');
     if (!modal) return;
@@ -88,23 +124,19 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
         });
       }
     };
+    const handleModalHidden = () => {
+      // Reset ref when modal is hidden
+      modalOpenedRef.current = null;
+    };
     modal.addEventListener('show.bs.modal', fetchStages);
+    modal.addEventListener('hidden.bs.modal', handleModalHidden);
+    window.addEventListener('stage-added', fetchStages);
     return () => {
       modal.removeEventListener('show.bs.modal', fetchStages);
+      modal.removeEventListener('hidden.bs.modal', handleModalHidden);
+      window.removeEventListener('stage-added', fetchStages);
     };
   }, [socket, companyId]);
-
-  // Handle add new stage
-  const handleAddStage = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = newStage.trim();
-    if (trimmed && !stageOptions.includes(trimmed)) {
-      setStageOptions([...stageOptions, trimmed]);
-      setStage(trimmed);
-    }
-    setNewStage('');
-    setShowStageModal(false);
-  };
 
   // Helper to close modal (matches add_pipeline.tsx)
   const closeModal = () => {
@@ -124,6 +156,8 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
         document.body.style.overflow = '';
         document.body.style.paddingRight = '';
       }
+      // Reset the ref when modal is closed
+      modalOpenedRef.current = null;
     }
   };
 
@@ -166,7 +200,6 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
       noOfDeals: noOfDeals === '' ? 0 : Number(noOfDeals),
       createdDate: createdDate ? createdDate.toISOString() : new Date().toISOString(),
       status,
-      stages: localStages, // Use localStages for the update payload
     };
     
     console.log('Emitting pipeline:update', { pipelineId: pipeline._id, update });
@@ -179,6 +212,7 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
       if (res.done) {
         setSuccess(true);
         console.log('Pipeline updated successfully');
+        toast.success('Pipeline updated successfully!');
         
         // Show success message briefly before closing
         setTimeout(() => {
@@ -209,6 +243,7 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
       } else {
         console.error('Pipeline update failed:', res.error);
         setError(res.error || 'Failed to update pipeline');
+        toast.error(res.error || 'Failed to update pipeline');
       }
     });
   };
@@ -268,14 +303,26 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
                           <label className="form-label">
                             Pipeline Stages <span className="text-danger"> *</span>
                           </label>
-                          <a
-                            href="#"
-                            className="add-new text-primary"
-                            onClick={e => { e.preventDefault(); setShowEditStagesModal(true); }}
-                          >
-                            <i className="ti ti-edit text-primary me-1" />
-                            Edit
-                          </a>
+                          <div>
+                            <Link
+                              to="#"
+                              className="add-new text-primary me-3"
+                              data-bs-toggle="modal"
+                              data-bs-target="#add_stage"
+                              onClick={e => e.preventDefault()}
+                            >
+                              <i className="ti ti-plus text-primary me-1" />
+                              Add New
+                            </Link>
+                            <a
+                              href="#"
+                              className="add-new text-primary"
+                              onClick={e => { e.preventDefault(); setShowEditStagesModal(true); }}
+                            >
+                              <i className="ti ti-edit text-primary me-1" />
+                              Edit
+                            </a>
+                          </div>
                         </div>
                         <select
                           className="form-select mt-2"
@@ -381,35 +428,7 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
         </div>
       </div>
       {/* /Edit Pipeline */}
-      {/* Add Stage Modal */}
-      {showStageModal && (
-        <div className="modal fade show" style={{ display: 'block', background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Add New Stage</h5>
-                <button type="button" className="btn-close" onClick={() => { setShowStageModal(false); setNewStage(''); }} />
-              </div>
-              <form onSubmit={handleAddStage}>
-                <div className="modal-body">
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Enter new stage name"
-                    value={newStage}
-                    onChange={e => setNewStage(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="modal-footer">
-                  <button type="button" className="btn btn-light" onClick={() => { setShowStageModal(false); setNewStage(''); }}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Add Stage</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddStage />
       {showEditStagesModal && (
         <EditStagesModal
           key={stageOptions.join(',')}

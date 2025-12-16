@@ -330,6 +330,7 @@ export const all_routes = {
   leadsGrid: "/leads-grid",
   leadsDetails: "/leads-details",
   pipeline: "/pipeline",
+  editPipeline: "/pipeline/edit/:pipelineId",
   analytics: "/analytics",
   activities: "/",
 

@@ -8,7 +8,6 @@ import Table from "../../../core/common/dataTable/index";
 import CrmsModal from "../../../core/modals/crms_modal";
 import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
-import EditPipeline from "../../../core/modals/edit_pipeline";
 import DeletePipeline from "../../../core/modals/delete_pipeline";
 import { message } from "antd";
 import AddPipeline from "../../../core/modals/add_pipeline";
@@ -36,7 +35,6 @@ const Pipeline = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const socket = useSocket() as Socket | null;
-  const [editPipeline, setEditPipeline] = useState<any | null>(null);
   const [deletePipeline, setDeletePipeline] = useState<any | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -259,23 +257,18 @@ const Pipeline = () => {
     };
 
     window.addEventListener("refresh-pipelines", handleRefreshPipelines);
+    const handleStageAdded = () => {
+      console.log("Stage added event received, refetching stages...");
+      fetchStages();
+    };
+    window.addEventListener("stage-added", handleStageAdded);
 
     return () => {
       window.removeEventListener("refresh-pipelines", handleRefreshPipelines);
+      window.removeEventListener("stage-added", handleStageAdded);
     };
-  }, []);
+  }, [socket]);
 
-  // Handle edit click
-  const handleEditClick = (pipeline: any) => {
-    console.log("Edit pipeline clicked:", pipeline);
-    setEditPipeline(pipeline);
-    // Open the modal
-    const modal = document.getElementById("edit-pipeline-modal");
-    if (modal) {
-      const bootstrapModal = new (window as any).bootstrap.Modal(modal);
-      bootstrapModal.show();
-    }
-  };
 
   // Handle delete click
   const handleDeleteClick = (pipeline: any) => {
@@ -503,14 +496,9 @@ const Pipeline = () => {
       render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
           <Link
-            to="#"
+            to={`${routes.editPipeline.replace(':pipelineId', record._id)}`}
             className="me-2"
-            data-bs-toggle="modal"
-            data-bs-target="#edit_pipeline"
-            onClick={(e) => {
-              e.preventDefault();
-              handleEditClick(record);
-            }}
+            title="Edit Pipeline"
           >
             <i className="ti ti-edit" />
           </Link>
@@ -734,10 +722,6 @@ const Pipeline = () => {
       {/* /Page Wrapper */}
       <CrmsModal />
       <AddPipeline />
-      <EditPipeline
-        pipeline={editPipeline}
-        onPipelineUpdated={handlePipelineUpdated}
-      />
       <DeletePipeline
         pipeline={deletePipeline}
         onPipelineDeleted={handlePipelineDeleted}

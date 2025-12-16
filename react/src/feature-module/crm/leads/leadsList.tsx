@@ -1178,8 +1178,12 @@ const LeadsList = () => {
                     <input
                       type="number"
                       className="form-control"
+                      min="0"
                       value={formData.value}
-                      onChange={(e) => handleFormChange('value', parseInt(e.target.value) || 0)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        handleFormChange('value', val < 0 ? 0 : val);
+                      }}
                     />
                   </div>
                   <div className="col-md-6 mb-3">
@@ -1333,8 +1337,12 @@ const LeadsList = () => {
                     <input
                       type="number"
                       className="form-control"
+                      min="0"
                       value={formData.value}
-                      onChange={(e) => handleFormChange('value', parseInt(e.target.value) || 0)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        handleFormChange('value', val < 0 ? 0 : val);
+                      }}
                     />
                   </div>
                   <div className="col-md-6 mb-3">
