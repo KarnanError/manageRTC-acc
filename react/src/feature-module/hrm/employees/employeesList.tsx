@@ -322,6 +322,7 @@ const EmployeeList = () => {
     // Fetch employee data (works for both list and grid views)
     socket.emit("hrm/employees/get-employee-stats");
     socket.emit("hr/departments/get");
+    // Designations will be loaded when a department is selected
 
     const handleAddEmployeeResponse = (response: any) => {
       if (!isMounted) return;
@@ -1220,31 +1221,29 @@ const EmployeeList = () => {
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
+    console.log("Submitting form and permissions");
     try {
       e.preventDefault();
-      console.log("Helllo1");
 
       setError("null");
 
       if (!validateForm()) {
         return;
       }
-      console.log("Helllo1");
 
+      // Optional: Check if at least one module is enabled (made optional for flexibility)
       const anyModuleEnabled = Object.values(permissions.enabledModules).some(
         Boolean
       );
       if (!anyModuleEnabled) {
-        setError(
-          "Please enable at least one module before saving permissions."
-        );
-        toast.error("Please enable at least one module before saving permissions.", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        return;
+        console.warn("No permissions enabled for this employee");
+        // Optionally uncomment below to make permissions mandatory:
+        // toast.error("Please enable at least one module before saving.", {
+        //   position: "top-right",
+        //   autoClose: 3000,
+        // });
+        // return;
       }
-      console.log("Helllo1");
       setLoading(true);
       // Extract basic info fields separately
       const {
@@ -1478,9 +1477,7 @@ const EmployeeList = () => {
       return;
     }
 
-    // Save logic here...
-
-    // After successful save:
+    // Switch to permissions tab
     setActiveTab("address");
   };
 

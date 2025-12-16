@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import { ObjectId } from "mongodb";
 import { generateId } from "../../utils/generateId.js";
-import { getTenantCollections } from "../../config/db.js";
+import { getTenantCollections, client } from "../../config/db.js";
 import { maskAccountNumber } from "../../utils/maskAccNo.js";
 
 export const getEmployeesStats = async (companyId, hrId, filters = {}) => {
@@ -1241,82 +1241,6 @@ export const getExperienceInfo = async (companyId, hrId, employeeId) => {
 };
 /////////////
 
-export const updateFamilyInfo = async (companyId, hrId, payload) => {
-  const session = client.startSession();
-  try {
-    session.startTransaction();
-
-    if (!companyId || !payload?.employeeId || !payload?.familyInfo) {
-      await session.abortTransaction();
-      return { done: false, error: "Missing required parameters" };
-    }
-
-    const collections = getTenantCollections(companyId);
-    const employeeObjId = new ObjectId(payload.employeeId);
-
-    const [hrExists, empExists] = await Promise.all([
-      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
-      collections.employees.countDocuments({ _id: employeeObjId }, { session }),
-    ]);
-
-    // if (!hrExists || !empExists) {
-    //   await session.abortTransaction();
-    //   return {
-    //     done: false,
-    //     error: !hrExists ? "HR not found" : "Employee not found",
-    //   };
-    // }
-
-    if (!employee) {
-      await session.abortTransaction();
-      return {
-        done: false,
-        error: employee ? "HR not found" : "Employee not found",
-      };
-    }
-
-    const updateData = {
-      family: {
-        name: payload.familyInfo.name,
-        relationship: payload.familyInfo.relationship,
-        phone: payload.familyInfo.phone,
-        passportExpiry: payload.familyInfo.passportExpiry,
-        updatedBy: new ObjectId(hrId),
-      },
-      updatedBy: new ObjectId(hrId),
-    };
-
-    const result = await collections.employees.updateOne(
-      { _id: employeeObjId },
-      { $set: updateData },
-      { session }
-    );
-
-    if (result.matchedCount === 0) {
-      await session.abortTransaction();
-      return { done: false, error: "Update failed - employee not found" };
-    }
-
-    await session.commitTransaction();
-    return {
-      done: true,
-      message: "Family information updated successfully",
-      updatedFields: {
-        familyInfo: payload.familyInfo,
-        updatedAt: new Date(),
-      },
-    };
-  } catch (error) {
-    await session.abortTransaction();
-    return {
-      done: false,
-      error: "Internal server error",
-    };
-  } finally {
-    session.endSession();
-  }
-};
-
 export const updateBankStatutory = async (companyId, hrId, payload = {}) => {
   const session = client.startSession();
   try {
@@ -1425,49 +1349,40 @@ export const updateBankDetails = async (companyId, hrId, payload = {}) => {
   try {
     session.startTransaction();
 
-    if (!companyId || !payload?.employeeId || !payload?.bankDetails) {
+    if (!companyId || !payload?.employeeId || !payload?.bank) {
       await session.abortTransaction();
       return { done: false, error: "Missing required parameters" };
     }
 
     const collections = getTenantCollections(companyId);
-    const employeeObjId = new ObjectId(payload.employeeId);
 
-    const [hrExists, empExists] = await Promise.all([
-      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
-      collections.employees.countDocuments({ _id: employeeObjId }, { session }),
-    ]);
-
-    // if (!hrExists || !empExists) {
-    //   await session.abortTransaction();
-    //   return {
-    //     done: false,
-    //     error: !hrExists ? "HR not found" : "Employee not found",
-    //   };
-    // }
+    // Find employee by employeeId string, not _id
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
 
     if (!employee) {
       await session.abortTransaction();
       return {
         done: false,
-        error: employee ? "HR not found" : "Employee not found",
+        error: "Employee not found",
       };
     }
 
-    // Prepare bank details update with audit trail
+    // Prepare bank details update
     const updateData = {
-      bank: {
-        accountNumber: payload.bankDetails.accountNumber,
-        bankName: payload.bankDetails.bankName,
-        branchAddress: payload.bankDetails.branchAddress,
-        ifsc: payload.bankDetails.ifscCode,
-        updatedBy: new ObjectId(hrId),
-      },
-      updatedBy: new ObjectId(hrId),
+      "bank.accountHolderName": payload.bank.accountHolderName || "",
+      "bank.accountNumber": payload.bank.accountNumber || "",
+      "bank.bankName": payload.bank.bankName || "",
+      "bank.branch": payload.bank.branch || "",
+      "bank.ifscCode": payload.bank.ifscCode || "",
+      updatedBy: hrId,
+      updatedAt: new Date(),
     };
 
     const result = await collections.employees.updateOne(
-      { _id: employeeObjId },
+      { employeeId: payload.employeeId },
       { $set: updateData },
       { session }
     );
@@ -1495,7 +1410,140 @@ export const updateBankDetails = async (companyId, hrId, payload = {}) => {
   }
 };
 
-export const updateExperience = async (companyId, hrId, payload = {}) => {
+export const updatePersonalInfo = async (companyId, hrId, payload = {}) => {
+  const session = client.startSession();
+  try {
+    session.startTransaction();
+
+    if (!companyId || !payload?.employeeId || !payload?.personal) {
+      await session.abortTransaction();
+      return { done: false, error: "Missing required parameters" };
+    }
+
+    const collections = getTenantCollections(companyId);
+
+    // Find employee by employeeId string, not _id
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
+
+    if (!employee) {
+      await session.abortTransaction();
+      return {
+        done: false,
+        error: "Employee not found",
+      };
+    }
+
+    // Prepare personal info update
+    const updateData = {
+      "personal.passport.number": payload.personal.passport?.number || "",
+      "personal.passport.expiryDate": payload.personal.passport?.expiryDate || "",
+      "personal.passport.country": payload.personal.passport?.country || "",
+      "personal.religion": payload.personal.religion || "",
+      "personal.maritalStatus": payload.personal.maritalStatus || "",
+      "personal.employmentOfSpouse": payload.personal.employmentOfSpouse || "",
+      "personal.noOfChildren": payload.personal.noOfChildren || 0,
+      updatedBy: hrId,
+      updatedAt: new Date(),
+    };
+
+    const result = await collections.employees.updateOne(
+      { employeeId: payload.employeeId },
+      { $set: updateData },
+      { session }
+    );
+
+    if (result.matchedCount === 0) {
+      await session.abortTransaction();
+      return { done: false, error: "Update failed - employee not found" };
+    }
+
+    await session.commitTransaction();
+    return {
+      done: true,
+      message: "Personal information updated successfully",
+      updatedAt: new Date(),
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Personal info update error:", error);
+    return {
+      done: false,
+      error: "Internal server error",
+    };
+  } finally {
+    session.endSession();
+  }
+};
+
+export const updateFamilyInfo = async (companyId, hrId, payload) => {
+  const session = client.startSession();
+  try {
+    session.startTransaction(); 
+    if (!companyId || !payload?.employeeId || !payload?.family) {
+      await session.abortTransaction();
+      return { done: false, error: "Missing required parameters" };
+    }
+
+    const collections = getTenantCollections(companyId);
+
+    // Find employee by employeeId string, not _id
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
+
+    if (!employee) {
+      await session.abortTransaction();
+      return {
+        done: false,
+        error: "Employee not found",
+      };
+    }
+
+    const updateData = {
+      "family.Name": payload.family.familyMemberName || "",
+      "family.relationship": payload.family.relationship || "",
+      "family.phone": payload.family.phone || "",
+      updatedBy: hrId,
+      updatedAt: new Date(),
+    };
+
+    const result = await collections.employees.updateOne(
+      { employeeId: payload.employeeId },
+      { $set: updateData },
+      { session }
+    );
+
+    if (result.matchedCount === 0) {
+      await session.abortTransaction();
+      return { done: false, error: "Update failed - employee not found" };
+    }
+
+    await session.commitTransaction();
+    return {
+      done: true,
+      message: "Family information updated successfully",
+      updatedFields: {
+        family: payload.family,
+        updatedAt: new Date(),
+      },
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Family info update error:", error);
+    return {
+      done: false,
+      error: "Internal server error",
+    };
+  } finally {
+    session.endSession();
+  }
+};
+
+export const updateExperienceInfo = async (companyId, hrId, payload = {}) => {
   const session = client.startSession();
   try {
     session.startTransaction();
@@ -1506,26 +1554,15 @@ export const updateExperience = async (companyId, hrId, payload = {}) => {
     }
 
     const collections = getTenantCollections(companyId);
-    const employeeObjId = new ObjectId(payload.employeeId);
 
-    const [hrExists, empExists] = await Promise.all([
-      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
-      collections.employees.countDocuments({ _id: employeeObjId }, { session }),
-    ]);
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
 
-    // if (!hrExists || !empExists) {
-    //   await session.abortTransaction();
-    //   return {
-    //     done: false,
-    //     error: !hrExists ? "HR not found" : "Employee not found",
-    //   };
-    // }
     if (!employee) {
       await session.abortTransaction();
-      return {
-        done: false,
-        error: employee ? "HR not found" : "Employee not found",
-      };
+      return { done: false, error: "Employee not found" };
     }
 
     const updateData = {
@@ -1535,13 +1572,13 @@ export const updateExperience = async (companyId, hrId, payload = {}) => {
         startDate: payload.experienceDetails.startDate,
         endDate: payload.experienceDetails.endDate,
         currentlyWorking: payload.experienceDetails.currentlyWorking,
-        updatedBy: new ObjectId(hrId),
+        updatedBy: hrId,
+        updatedAt: new Date(),
       },
-      updatedBy: new ObjectId(hrId),
     };
 
     const result = await collections.employees.updateOne(
-      { _id: employeeObjId },
+      { employeeId: payload.employeeId },
       { $set: updateData },
       { session }
     );
@@ -1569,10 +1606,70 @@ export const updateExperience = async (companyId, hrId, payload = {}) => {
   }
 };
 
-export const updateEducation = async (companyId, hrId, payload = {}) => {
+export const updateAboutInfo = async (companyId, hrId, payload = {}) => {
   const session = client.startSession();
   try {
     session.startTransaction();
+
+    if (!companyId || !payload?.employeeId || !payload?.about) {
+      await session.abortTransaction();
+      return { done: false, error: "Missing required parameters" };
+    }
+
+    const collections = getTenantCollections(companyId);
+
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
+
+    if (!employee) {
+      await session.abortTransaction();
+      return { done: false, error: "Employee not found" };
+    }
+
+    const updateData = {
+      about: payload.about,
+      updatedBy: hrId,
+      updatedAt: new Date(),
+    };
+
+    const result = await collections.employees.updateOne(
+      { employeeId: payload.employeeId },
+      { $set: updateData },
+      { session }
+    );
+
+    if (result.matchedCount === 0) {
+      await session.abortTransaction();
+      return { done: false, error: "Update failed - employee not found" };
+    }
+
+    await session.commitTransaction();
+    return {
+      done: true,
+      message: "About information updated successfully",
+      updatedAt: new Date(),
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("About update error:", error);
+    return {
+      done: false,
+      error: "Internal server error",
+    };
+  } finally {
+    session.endSession();
+  }
+};
+
+export const updateEducationInfo = async (companyId, hrId, payload = {}) => {
+  const session = client.startSession();
+  try {
+    session.startTransaction();
+
+    console.log("=== UPDATE EDUCATION INFO SERVICE ===");
+    console.log("Payload:", JSON.stringify(payload, null, 2));
 
     if (!companyId || !payload?.employeeId || !payload?.educationDetails) {
       await session.abortTransaction();
@@ -1580,46 +1677,45 @@ export const updateEducation = async (companyId, hrId, payload = {}) => {
     }
 
     const collections = getTenantCollections(companyId);
-    const employeeObjId = new ObjectId(payload.employeeId);
+    
+    console.log("Looking for employee with employeeId:", payload.employeeId);
 
-    const [hrExists, empExists] = await Promise.all([
-      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
-      collections.employees.countDocuments({ _id: employeeObjId }, { session }),
-    ]);
-
-    // if (!hrExists || !empExists) {
-    //   await session.abortTransaction();
-    //   return {
-    //     done: false,
-    //     error: !hrExists ? "HR not found" : "Employee not found",
-    //   };
-    // }
+    // Find employee using string employeeId field, NOT ObjectId
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
 
     if (!employee) {
       await session.abortTransaction();
       return {
         done: false,
-        error: employee ? "HR not found" : "Employee not found",
+        error: "Employee not found",
       };
     }
 
-    // Prepare education details update with audit trail
+    console.log("Employee found:", employee._id);
+
+    // Prepare education update
     const updateData = {
-      education: {
-        institution: payload.educationDetails.institution,
-        course: payload.educationDetails.course,
-        startDate: payload.educationDetails.startDate,
-        endDate: payload.educationDetails.endDate,
-        updatedBy: new ObjectId(hrId),
-      },
-      updatedBy: new ObjectId(hrId),
+      "education.institution": payload.educationDetails.institution,
+      "education.degree": payload.educationDetails.course,
+      "education.startDate": payload.educationDetails.startDate || "",
+      "education.endDate": payload.educationDetails.endDate || "",
+      updatedBy: hrId,
+      updatedAt: new Date()
     };
 
+    console.log("Education update data:", JSON.stringify(updateData, null, 2));
+
+    // Update education fields directly
     const result = await collections.employees.updateOne(
-      { _id: employeeObjId },
+      { employeeId: payload.employeeId },
       { $set: updateData },
       { session }
     );
+
+    console.log("Update result:", JSON.stringify(result, null, 2));
 
     if (result.matchedCount === 0) {
       await session.abortTransaction();
@@ -1658,53 +1754,40 @@ export const updateEmergencyContacts = async (
       return { done: false, error: "Missing required parameters" };
     }
 
-    if (
-      !Array.isArray(payload.emergencyContacts) ||
-      payload.emergencyContacts.length === 0
-    ) {
-      await session.abortTransaction();
-      return {
-        done: false,
-        error: "At least one emergency contact is required",
-      };
-    }
-
     const collections = getTenantCollections(companyId);
-    const employeeObjId = new ObjectId(payload.employeeId);
 
-    const [hrExists, empExists] = await Promise.all([
-      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
-      collections.employees.countDocuments({ _id: employeeObjId }, { session }),
-    ]);
-
-    // if (!hrExists || !empExists) {
-    //   await session.abortTransaction();
-    //   return {
-    //     done: false,
-    //     error: !hrExists ? "HR not found" : "Employee not found",
-    //   };
-    // }
+    // Find employee by employeeId string, not _id
+    const employee = await collections.employees.findOne(
+      { employeeId: payload.employeeId },
+      { session }
+    );
 
     if (!employee) {
       await session.abortTransaction();
       return {
         done: false,
-        error: employee ? "HR not found" : "Employee not found",
+        error: "Employee not found",
       };
     }
 
+    // Get the first contact from array (frontend sends array with one object)
+    const contact = Array.isArray(payload.emergencyContacts) 
+      ? payload.emergencyContacts[0] 
+      : payload.emergencyContacts;
+
     const updateData = {
-      emergencyContacts: payload.emergencyContacts.map((contact) => ({
+      emergencyContacts: {
         name: contact.name,
         relationship: contact.relationship,
         phone: Array.isArray(contact.phone) ? contact.phone : [contact.phone],
-        updatedBy: new ObjectId(hrId),
-      })),
-      updatedBy: new ObjectId(hrId),
+        updatedBy: hrId,
+      },
+      updatedBy: hrId,
+      updatedAt: new Date(),
     };
 
     const result = await collections.employees.updateOne(
-      { _id: employeeObjId },
+      { employeeId: payload.employeeId },
       { $set: updateData },
       { session }
     );
@@ -1717,12 +1800,12 @@ export const updateEmergencyContacts = async (
     await session.commitTransaction();
     return {
       done: true,
-      message: "Emergency contacts updated successfully",
+      message: "Emergency contact updated successfully",
       updatedAt: new Date(),
     };
   } catch (error) {
     await session.abortTransaction();
-    console.error("Emergency contacts update error:", error);
+    console.error("Emergency contact update error:", error);
     return {
       done: false,
       error: "Internal server error",
@@ -1900,6 +1983,69 @@ export const getBankDetails = async (companyId, hrId, employeeId) => {
   }
 };
 
+// Emergency contact details
+
+export const getEmergencyContacts = async (companyId, hrId, employeeId) => {
+  const session = client.startSession();
+  try {
+    session.startTransaction();
+    if (!companyId || !employeeId) {
+      await session.abortTransaction();
+      return { done: false, error: "Missing required parameters" };
+    }
+    const collections = getTenantCollections(companyId);
+    const employeeObjId = new ObjectId(employeeId);
+    const [hrExists, employee] = await Promise.all([
+      collections.hr.countDocuments({ _id: new ObjectId(hrId) }, { session }),
+      collections.employees.findOne(
+        { _id: employeeObjId },
+        {
+          "+emergencyContacts": 1,
+          updatedBy: 1,
+          updatedAt: 1,
+        },
+        { session }
+      ),
+    ]);
+    // if (!hrExists || !employee) {
+    //   await session.abortTransaction();
+    //   return {
+    //     done: false,
+    //     error: !hrExists ? "HR not found" : "Employee not found",
+    //   };
+    // }
+    if (!employee) {
+      await session.abortTransaction();
+      return {
+        done: false,
+        error: employee ? "HR not found" : "Employee not found",
+      };
+    }
+    await session.commitTransaction();
+
+    return {
+      done: true,
+      data: {
+        emergencyContacts: employee.emergencyContacts || null,
+        lastUpdated: {
+          by: employee.updatedBy,
+          at: employee.updatedAt,
+        },
+      },
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    return {
+      done: false,
+      error: "Internal server error",
+      systemError:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    };
+  } finally {
+    session.endSession();
+  }
+};
+
 ///// generic function
 
 export const getEmployeeDetails = async (companyId, hrId, employeeId) => {
@@ -1934,6 +2080,33 @@ export const getEmployeeDetails = async (companyId, hrId, employeeId) => {
     return {
       done: false,
       message: "Internal server error",
+    };
+  }
+};
+
+export const getExperienceInfoByEmpId = async (companyId, employeeId) => {
+  try {
+    if (!companyId || !employeeId) {
+      return { done: false, error: "Missing required parameters" };
+    }
+    const collections = getTenantCollections(companyId);
+    const employee = await collections.employees.findOne(
+      { employeeId },
+      { experience: 1 }
+    );
+    if (!employee) {
+      return { done: false, error: "Employee not found" };
+    }
+    return {
+      done: true,
+      data: employee.experience,
+    };
+  } catch (error) {
+    return {
+      done: false,
+      error: "Internal server error",
+      systemError:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     };
   }
 };

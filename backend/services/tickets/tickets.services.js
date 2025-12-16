@@ -168,22 +168,6 @@ export const getTicketsStats = async (tenantDbName) => {
       }
     });
 
-    // If no data exists, provide sample data for charts to display properly
-    if (monthlyTrendsArray.every(val => val === 0)) {
-      monthlyTrendsArray[0] = 5;  // January
-      monthlyTrendsArray[1] = 8;  // February
-      monthlyTrendsArray[2] = 12; // March
-      monthlyTrendsArray[3] = 6;  // April
-      monthlyTrendsArray[4] = 9;  // May
-      monthlyTrendsArray[5] = 15; // June
-      monthlyTrendsArray[6] = 11; // July
-      monthlyTrendsArray[7] = 7;  // August
-      monthlyTrendsArray[8] = 13; // September
-      monthlyTrendsArray[9] = 10; // October
-      monthlyTrendsArray[10] = 8; // November
-      monthlyTrendsArray[11] = 6; // December
-    }
-
     // Format the data
     const stats = {
       newTickets: statusStats.find(s => s._id === 'New')?.count || 0,
@@ -195,15 +179,6 @@ export const getTicketsStats = async (tenantDbName) => {
       categoryStats: categoryStats,
       agentStats: agentStats
     };
-
-    // If no tickets exist, provide sample data for demonstration
-    if (stats.newTickets === 0 && stats.openTickets === 0 && stats.solvedTickets === 0 && stats.pendingTickets === 0) {
-      stats.newTickets = 12;
-      stats.openTickets = 8;
-      stats.solvedTickets = 15;
-      stats.pendingTickets = 5;
-      stats.percentageChange = 19.01;
-    }
 
     return { done: true, data: stats };
   } catch (error) {
@@ -485,6 +460,160 @@ export const bulkDeleteTickets = async (tenantDbName, ticketIds) => {
     };
   } catch (error) {
     console.error('Error bulk deleting tickets:', error);
+    return { done: false, error: error.message };
+  }
+};
+
+// Get all ticket categories
+export const getTicketCategories = async (tenantDbName) => {
+  try {
+    const collections = getTenantCollections(tenantDbName);
+    
+    const categories = await collections.ticketCategories
+      .find({ status: "active" })
+      .sort({ name: 1 })
+      .toArray();
+
+    // Get ticket counts for each category
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        const ticketCount = await collections.tickets.countDocuments({
+          category: category.name
+        });
+        return {
+          ...category,
+          ticketCount: ticketCount
+        };
+      })
+    );
+
+    return {
+      done: true,
+      data: categoriesWithCounts,
+      message: "Categories fetched successfully"
+    };
+  } catch (error) {
+    console.error('Error fetching ticket categories:', error);
+    return { done: false, error: error.message };
+  }
+};
+
+// Add new ticket category
+export const addTicketCategory = async (tenantDbName, categoryData, userId = "System") => {
+  try {
+    const collections = getTenantCollections(tenantDbName);
+    
+    // Validate required fields
+    if (!categoryData.name || !categoryData.name.trim()) {
+      return { done: false, error: "Category name is required" };
+    }
+
+    // Check if category already exists
+    const existingCategory = await collections.ticketCategories.findOne({
+      name: { $regex: `^${categoryData.name.trim()}$`, $options: "i" }
+    });
+
+    if (existingCategory) {
+      return { done: false, error: "Category already exists" };
+    }
+
+    // Create new category
+    const newCategory = {
+      name: categoryData.name.trim(),
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: userId
+    };
+
+    const result = await collections.ticketCategories.insertOne(newCategory);
+
+    return {
+      done: true,
+      data: {
+        _id: result.insertedId,
+        ...newCategory
+      },
+      message: "Category added successfully"
+    };
+  } catch (error) {
+    console.error('Error adding ticket category:', error);
+    return { done: false, error: error.message };
+  }
+};
+
+// Update ticket category
+export const updateTicketCategory = async (tenantDbName, categoryId, updateData) => {
+  try {
+    const collections = getTenantCollections(tenantDbName);
+    
+    // Validate category ID
+    if (!ObjectId.isValid(categoryId)) {
+      return { done: false, error: "Invalid category ID" };
+    }
+
+    const updates = {
+      updatedAt: new Date()
+    };
+
+    if (updateData.name) updates.name = updateData.name.trim();
+    if (updateData.status) updates.status = updateData.status;
+
+    const result = await collections.ticketCategories.updateOne(
+      { _id: new ObjectId(categoryId) },
+      { $set: updates }
+    );
+
+    if (result.matchedCount === 0) {
+      return { done: false, error: "Category not found" };
+    }
+
+    return {
+      done: true,
+      message: "Category updated successfully"
+    };
+  } catch (error) {
+    console.error('Error updating ticket category:', error);
+    return { done: false, error: error.message };
+  }
+};
+
+// Delete ticket category
+export const deleteTicketCategory = async (tenantDbName, categoryId) => {
+  try {
+    const collections = getTenantCollections(tenantDbName);
+    
+    // Validate category ID
+    if (!ObjectId.isValid(categoryId)) {
+      return { done: false, error: "Invalid category ID" };
+    }
+
+    // Check if any tickets are using this category
+    const ticketsUsingCategory = await collections.tickets.countDocuments({
+      category: categoryId
+    });
+
+    if (ticketsUsingCategory > 0) {
+      return { 
+        done: false, 
+        error: `Cannot delete category. ${ticketsUsingCategory} ticket(s) are using this category.` 
+      };
+    }
+
+    const result = await collections.ticketCategories.deleteOne({
+      _id: new ObjectId(categoryId)
+    });
+
+    if (result.deletedCount === 0) {
+      return { done: false, error: "Category not found" };
+    }
+
+    return {
+      done: true,
+      message: "Category deleted successfully"
+    };
+  } catch (error) {
+    console.error('Error deleting ticket category:', error);
     return { done: false, error: error.message };
   }
 };

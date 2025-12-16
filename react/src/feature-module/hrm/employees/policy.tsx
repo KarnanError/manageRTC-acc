@@ -46,6 +46,7 @@ const Policy = () => {
   const [departmentError, setDepartmentError] = useState<string | null>(null);
   const [policyLoading, setPolicyLoading] = useState(false);
   const [departmentLoading, setDepartmentLoading] = useState(false);
+  const [selectedFilterDepartment, setSelectedFilterDepartment] = useState<string>("");
 
   const socket = useSocket() as Socket | null;
 
@@ -179,6 +180,12 @@ const Policy = () => {
 
   const options = [...staticOptions, ...dynamicOptions];
 
+  // Add this helper function to get department name by ID
+  const getDepartmentName = (departmentId: string): string => {
+    const dept = departments.find(d => d._id === departmentId);
+    return dept ? dept.department : "Unknown";
+  };
+
   const columns = [
     {
       title: "Name",
@@ -191,7 +198,13 @@ const Policy = () => {
     {
       title: "Department",
       dataIndex: "department",
-      sorter: (a: any, b: any) => a.Department.length - b.Department.length,
+      render: (departmentId: string) => (
+        <h6 className="fw-normal fs-14 text-dark">
+          {getDepartmentName(departmentId)}
+        </h6>
+      ),
+      sorter: (a: any, b: any) => 
+        getDepartmentName(a.department).localeCompare(getDepartmentName(b.department)),
     },
     {
       title: "Description",
@@ -314,7 +327,15 @@ const Policy = () => {
   };
 
   const onSelectDepartment = (dept: string) => {
-    applyFilters({ department: dept });
+    if (dept === "Select") {
+      // Load default data - clear department filter
+      setSelectedFilterDepartment("");
+      applyFilters({ department: "" });
+    } else {
+      // Load data for selected department
+      setSelectedFilterDepartment(dept);
+      applyFilters({ department: dept });
+    }
   };
 
   const handleDateRangeFilter = (ranges: { start?: string; end?: string } = { start: "", end: "" }) => {
@@ -551,6 +572,11 @@ const Policy = () => {
                     data-bs-toggle="dropdown"
                   >
                     Department
+                    {selectedFilterDepartment && selectedFilterDepartment !== "Select"
+                      ? `: ${
+                          options.find(opt => opt.value === selectedFilterDepartment)?.label || "None"
+                        }`
+                      : ": None"}
                   </Link>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     {departmentError ? (
@@ -634,6 +660,13 @@ const Policy = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => {
+                  setPolicyName("");
+                  setEffectiveDate("");
+                  setDescription("");
+                  setSelectedDepartment(staticOptions[0].value);
+                  setError(null);
+                }}
               >
                 <i className="ti ti-x" />
               </button>

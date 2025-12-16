@@ -16,7 +16,7 @@ export const allDepartments = async (companyId, hrId) => {
     // if (!hrExists) return { done: false, error: "HR not found" };
 
     const result = await collections.departments
-      .find({}, { projection: { department: 1, _id: 1 } })
+      .find({ status: "active" }, { projection: { department: 1, _id: 1 } })
       .toArray();
 
     return {
@@ -98,35 +98,22 @@ export const displayDepartment = async (companyId, hrId, filters = {}) => {
       { $match: query },
       { $sort: { createdAt: -1 } },
       {
-        $lookup: {
-          from: "departments",
-          let: { deptId: "$_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $eq: ["$_id", { $toObjectId: "$$deptId" }],
-                },
-              },
-            },
-            { $project: { department: 1 } },
-          ],
-          as: "departmentInfo",
-        },
+        $addFields: {
+          departmentIdString: { $toString: "$_id" }
+        }
       },
-      { $unwind: "$departmentInfo" },
       {
         $lookup: {
           from: "employees",
-          let: { departmentId: "$_id" },
+          let: { deptIdStr: "$departmentIdString" },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
                     {
-                      $eq: ["$departmentId", { $toObjectId: "$$departmentId" }],
-                    }, // Convert for comparison
+                      $eq: ["$departmentId", "$$deptIdStr"],
+                    },
                     {
                       $or: [
                         { $eq: ["$status", "active"] },
@@ -144,11 +131,9 @@ export const displayDepartment = async (companyId, hrId, filters = {}) => {
       {
         $addFields: {
           employeeCount: { $size: "$employees" },
-          departmentName: "$departmentInfo.department",
         },
       },
-
-      { $project: { employees: 0 } },
+      { $project: { employees: 0, departmentIdString: 0 } },
     ];
 
     const departments = await collections.departments

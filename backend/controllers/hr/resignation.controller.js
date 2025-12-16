@@ -34,12 +34,25 @@ const resignationController = (socket, io) => {
 
   socket.on("hr/resignation/departmentlist", async () => {
     try {
-      const res = await resignationService.getDepartments(
-        companyId
-      );
+      const res = await resignationService.getDepartments(companyId);
       socket.emit("hr/resignation/departmentlist-response", res);
     } catch (error) {
       socket.emit("hr/resignation/departmentlist-response", toErr(error));
+    }
+  });
+
+  socket.on("hr/resignation/employees-by-department", async (departmentId) => {
+    try {
+      console.log("Controller received employees-by-department with departmentId:", departmentId, "type:", typeof departmentId);
+      const res = await resignationService.getEmployeesByDepartment(
+        companyId,
+        departmentId
+      );
+      console.log("Controller sending employees-by-department-response:", res.data?.length, "records");
+      socket.emit("hr/resignation/employees-by-department-response", res);
+    } catch (error) {
+      console.error("Error in employees-by-department:", error);
+      socket.emit("hr/resignation/employees-by-department-response", toErr(error));
     }
   });
 

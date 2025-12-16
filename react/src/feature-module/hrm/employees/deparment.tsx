@@ -142,15 +142,26 @@ const Department = () => {
       dataIndex: "department",
       render: (text: String, record: any) => (
         <h6 className="fw-medium">
-          <Link to="#">{text}</Link>
+          <Link to={`${all_routes.employeeList}?department=${encodeURIComponent(record._id)}`}>{text}</Link>
         </h6>
       ),
-      sorter: (a: any, b: any) => a.Department.length - b.Department.length,
+      sorter: (a: any, b: any) => a.department.localeCompare(b.department),
     },
     {
       title: "No of Employees",
       dataIndex: "employeeCount",
-      sorter: (a: any, b: any) => a.NoOfEmployees.length - b.NoOfEmployees.length,
+      render: (count: number, record: any) => (
+        <span className="fw-medium">
+          {count > 0 ? (
+            <Link to={`${all_routes.employeeList}?department=${encodeURIComponent(record._id)}`}>
+              {count}
+            </Link>
+          ) : (
+            <span className="text-muted">0</span>
+          )}
+        </span>
+      ),
+      sorter: (a: any, b: any) => a.employeeCount - b.employeeCount,
     },
     {
       title: "Status",

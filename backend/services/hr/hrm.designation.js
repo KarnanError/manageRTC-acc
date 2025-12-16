@@ -137,9 +137,21 @@ export const displayDesignations = async (companyId, hrId, filters) => {
     const pipeline = [
       { $match: query },
       { $sort: { createdAt: -1 } },
-      // Convert to ObjectId for consistent joins
+      // Convert IDs to strings for matching with employees collection
+      // This ensures we match employees by BOTH designationId AND departmentId
       {
         $addFields: {
+          // Convert designation _id (ObjectId) to string for matching with employee.designationId
+          designationIdString: { $toString: "$_id" },
+          // Convert designation departmentId to string for matching with employee.departmentId
+          departmentIdString: {
+            $cond: {
+              if: { $eq: [{ $type: "$departmentId" }, "string"] },
+              then: "$departmentId",
+              else: { $toString: "$departmentId" },
+            },
+          },
+          // Keep ObjectId version for department lookup
           departmentObjId: {
             $cond: {
               if: { $eq: [{ $type: "$departmentId" }, "string"] },
@@ -152,14 +164,31 @@ export const displayDesignations = async (companyId, hrId, filters) => {
       {
         $lookup: {
           from: "employees",
-          let: { designationId: "$_id", departmentId: "$departmentObjId" },
+          let: { 
+            designationIdStr: "$designationIdString",
+            departmentIdStr: "$departmentIdString"
+          },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ["$designationId", "$$designationId"] },
-                    { $eq: ["$departmentId", "$$departmentId"] },
+                    // Match employee.designationId (string) with designation._id (converted to string)
+                    { 
+                      $eq: [
+                        { $ifNull: ["$designationId", ""] }, 
+                        "$$designationIdStr"
+                      ] 
+                    },
+                    // Match employee.departmentId (string) with designation.departmentId (converted to string)
+                    // This ensures we only count employees in THIS department with THIS designation
+                    { 
+                      $eq: [
+                        { $ifNull: ["$departmentId", ""] }, 
+                        "$$departmentIdStr"
+                      ] 
+                    },
+                    // Only count active employees
                     {
                       $or: [
                         { $eq: ["$status", "active"] },
@@ -170,9 +199,8 @@ export const displayDesignations = async (companyId, hrId, filters) => {
                 },
               },
             },
-            { $count: "count" },
           ],
-          as: "employeeCount",
+          as: "employees",
         },
       },
       {
@@ -185,9 +213,7 @@ export const displayDesignations = async (companyId, hrId, filters) => {
       },
       {
         $addFields: {
-          employeeCount: {
-            $ifNull: [{ $arrayElemAt: ["$employeeCount.count", 0] }, 0],
-          },
+          employeeCount: { $size: "$employees" },
           department: {
             $ifNull: [
               { $arrayElemAt: ["$department.department", 0] },
@@ -212,6 +238,8 @@ export const displayDesignations = async (companyId, hrId, filters) => {
     const designations = await collections.designations
       .aggregate(pipeline)
       .toArray();
+
+    console.log("Designations with employee count:", JSON.stringify(designations, null, 2));
 
     return {
       done: true,

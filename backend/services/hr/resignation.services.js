@@ -128,8 +128,10 @@ const getResignations = async (companyId,{ type, startDate, endDate } = {}) => {
         $project: {
           _id: 0,
           employeeName: 1,
+          employeeId: 1,
           reason: 1,
           department: 1,
+          departmentId: 1,
           resignationDate: 1, 
           noticeDate: 1,        // yyyy-mm-dd string
           resignationId: 1,
@@ -153,33 +155,9 @@ const getResignations = async (companyId,{ type, startDate, endDate } = {}) => {
   }
 };
 
-const getDepartments = async (companyId) => {
-  try {
-    const collection = getTenantCollections(companyId);
-    
-    const pipeline = [
-      {
-        $project: {
-          _id: 0,
-          department: 1,
-        },
-      },
-    ];
 
 
-    const results = await collection.departments.aggregate(pipeline).toArray();
 
-    return {
-      done: true,
-      message: "success",
-      data: results,
-      count: results.length,
-    };
-  } catch (error) {
-    console.error("Error fetching departments:", error);
-    return { done: false, message: error.message, data: [] };
-  }
-};
 
 // 3. Get a specific Resignation record
 const getSpecificResignation = async (companyId,resignationId) => {
@@ -193,6 +171,7 @@ const getSpecificResignation = async (companyId,resignationId) => {
           employeeName: 1,
           reason: 1,
           department: 1,
+          departmentId: 1,
           resignationDate: 1,
           noticeDate: 1,
           resignationId: 1,
@@ -220,8 +199,10 @@ const addResignation = async (companyId,form) => {
 
     const newResignation = {
       employeeName: form.employeeName,
+      employeeId: form.employeeId || null,
       reason: form.reason,
       department: form.department,
+      departmentId: form.departmentId || null,
       resignationDate: toYMDStr(form.resignationDate), // store as Date
       noticeDate: toYMDStr(form.noticeDate), // store as Date
       resignationId: new ObjectId().toHexString(),
@@ -231,6 +212,10 @@ const addResignation = async (companyId,form) => {
     console.log(newResignation);
 
     await collection.resignation.insertOne(newResignation);
+    await collection.employees.updateOne(
+      { employeeId: form.employeeId },
+      { $set: { status: "Resigned" } }
+    );
     return { done: true, message: "Resignation added successfully" };
   } catch (error) {
     console.error("Error adding Resignation:", error);
@@ -249,8 +234,10 @@ const updateResignation = async (companyId,form) => {
 
     const updateData = {
       employeeName: form.employeeName ?? existing.employeeName,
+         employeeId: form.employeeId || existing.employeeId || null,
       reason: form.reason ?? existing.reason,
       department: form.department ?? existing.department,
+      departmentId: form.departmentId ?? existing.departmentId ?? null,
       resignationDate: form.resignationDate ? toYMDStr(form.resignationDate) : existing.resignationDate,
       noticeDate: form.noticeDate ? toYMDStr(form.noticeDate) : existing.noticeDate,
       // keep identifiers and created metadata
@@ -292,13 +279,103 @@ const deleteResignation = async (companyId,resignationIds) => {
   }
 };
 
+// Get all departments
+const getDepartments = async (companyId) => {
+  try {
+    const collection = getTenantCollections(companyId);
+    
+    const results = await collection.departments
+      .find({})
+      .project({ _id: 1, department: 1 })
+      .toArray();
+
+    return {
+      done: true,
+      message: "success",
+      data: results,
+      count: results.length,
+    };
+  } catch (error) {
+    console.error("Error fetching departments:", error);
+    return { done: false, message: error.message, data: [] };
+  }
+};
+
+// Get employees by department
+const getEmployeesByDepartment = async (companyId, departmentId) => {
+  try {
+    if (!departmentId) {
+      return { done: false, message: "Department ID is required", data: [] };
+    }
+
+    console.log("getEmployeesByDepartment - received departmentId:", departmentId, "type:", typeof departmentId);
+
+    const collection = getTenantCollections(companyId);
+    // Query employees by department ObjectId (employees store department as ObjectId reference)
+    const query = {
+      status: { $in: ["Active", "active"] },
+      departmentId: departmentId,
+    };
+    console.log("MongoDB query to run in console:");
+    console.log(`db.employees.find(${JSON.stringify(query, null, 2)})`);
+    
+    const results = await collection.employees
+      .find(query)
+      .project({ 
+        _id: 1, 
+        firstName: 1, 
+        lastName: 1, 
+        employeeId: 1, 
+        employeeName: 1,
+        department: 1, 
+        departmentId: 1 
+      })
+      .sort({ firstName: 1, lastName: 1 })
+      .toArray();
+
+    console.log("getEmployeesByDepartment - found employees count:", results.length);
+    console.log("Employees found:", results.map(emp => `${emp.employeeId} - ${emp.firstName}`).join(", "));
+    
+    if (results.length === 0) {
+      console.log("getEmployeesByDepartment - NO EMPLOYEES FOUND for departmentId:", departmentId);
+      // Debug: check what departments employees have
+      const departmentCounts = await collection.employees
+        .aggregate([
+          { $match: { status: { $in: ["Active", "active"] } } },
+          { $group: { _id: "$department", count: { $sum: 1 } } },
+        ])
+        .toArray();
+      console.log("Active employees department distribution:", departmentCounts);
+    }
+
+    return {
+      done: true,
+      message: "success",
+      data: results.map(emp => ({
+        _id: emp._id,
+        employeeId: emp.employeeId,
+        employeeName: emp.employeeName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        department: emp.department,
+        departmentId: emp.departmentId
+      })),
+      count: results.length,
+    };
+  } catch (error) {
+    console.error("Error fetching employees by department:", error);
+    return { done: false, message: error.message, data: [] };
+  }
+};
+
 export {
   getResignationStats,
   getResignations,
-  getDepartments,
   getSpecificResignation,
   addResignation,
   updateResignation,
   deleteResignation,
+  getDepartments,
+  getEmployeesByDepartment,
 };
 

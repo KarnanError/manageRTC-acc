@@ -1,4 +1,6 @@
 import * as ticketsService from '../../services/tickets/tickets.services.js';
+import { getTenantCollections } from '../../config/db.js';
+import { ObjectId } from 'mongodb';
 
 const ticketsSocketController = (socket, io) => {
   console.log('Attaching tickets socket controller...');
@@ -172,6 +174,180 @@ const ticketsSocketController = (socket, io) => {
     } catch (error) {
       console.error('Error bulk deleting tickets:', error);
       socket.emit('tickets/bulk-delete-tickets-response', {
+        done: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Get ticket categories
+  socket.on('tickets/categories/get-categories', async (data) => {
+    try {
+      const result = await ticketsService.getTicketCategories(socket.companyId);
+      socket.emit('tickets/categories/get-categories-response', result);
+    } catch (error) {
+      console.error('Error getting ticket categories:', error);
+      socket.emit('tickets/categories/get-categories-response', {
+        done: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Get employees for assignment (IT Support department only)
+  const IT_SUPPORT_DEPARTMENT_NAME = 'IT Support';
+
+  socket.on('tickets/employees/get-list', async () => {
+    try {
+      const collections = getTenantCollections(socket.companyId);
+
+      // Resolve IT Support department dynamically to avoid hardcoded ObjectId assumptions
+      const itSupportDept = await collections.departments.findOne(
+        { department: { $regex: `^${IT_SUPPORT_DEPARTMENT_NAME}$`, $options: 'i' } },
+        { projection: { _id: 1, department: 1 } }
+      );
+
+      const deptValues = [];
+      if (itSupportDept?._id) {
+        deptValues.push(itSupportDept._id, String(itSupportDept._id));
+      }
+
+      const deptFilter = deptValues.length
+        ? {
+            $or: [
+              { departmentId: { $in: deptValues } },
+              { department: { $in: deptValues } },
+              { departmentName: { $regex: `^${IT_SUPPORT_DEPARTMENT_NAME}$`, $options: 'i' } },
+            ],
+          }
+        : {
+            $or: [
+              { department: { $regex: `^${IT_SUPPORT_DEPARTMENT_NAME}$`, $options: 'i' } },
+              { departmentName: { $regex: `^${IT_SUPPORT_DEPARTMENT_NAME}$`, $options: 'i' } },
+              { departmentId: IT_SUPPORT_DEPARTMENT_NAME },
+            ],
+          };
+
+      const employees = await collections.employees
+        .find({ status: { $in: ['Active', 'active'] }, ...deptFilter })
+        .project({ firstName: 1, lastName: 1, email: 1, avatar: 1, employeeId: 1, departmentId: 1 })
+        .sort({ firstName: 1, lastName: 1 })
+        .toArray();
+
+      // Get ticket counts per agent (exclude Closed and Solved tickets)
+      const ticketCounts = await collections.tickets.aggregate([
+        {
+          $match: {
+            status: { $nin: ['Closed', 'Solved'] }
+          }
+        },
+        {
+          $group: {
+            _id: '$assignedTo._id',
+            count: { $sum: 1 }
+          }
+        }
+      ]).toArray();
+
+      const ticketCountMap = {};
+      ticketCounts.forEach(tc => {
+        if (tc._id) {
+          ticketCountMap[String(tc._id)] = tc.count;
+        }
+      });
+
+      const list = employees.map((e) => ({
+        _id: String(e._id),
+        employeeId: e.employeeId || '',
+        firstName: e.firstName || '',
+        lastName: e.lastName || '',
+        email: e.email || '',
+        avatar: e.avatar || null,
+        departmentId: e.departmentId ? String(e.departmentId) : '',
+        ticketCount: ticketCountMap[String(e._id)] || 0,
+      }));
+
+      socket.emit('tickets/employees/get-list-response', { done: true, data: list });
+    } catch (error) {
+      console.error('Error fetching IT Support employees:', error);
+      socket.emit('tickets/employees/get-list-response', {
+        done: false,
+        error: error.message,
+      });
+    }
+  });
+
+  // Add ticket category
+  socket.on('tickets/categories/add-category', async (data) => {
+    try {
+      console.log('Adding ticket category with data:', data);
+      const userId = socket.user?.sub || "System";
+      
+      // Fetch employee info to get employeeId
+      const collections = getTenantCollections(socket.companyId);
+      const employee = await collections.employees.findOne(
+        { userId: userId },
+        { projection: { employeeId: 1 } }
+      );
+      
+      const createdBy = employee?.employeeId || userId;
+      const result = await ticketsService.addTicketCategory(socket.companyId, data, createdBy);
+      
+      if (result.done) {
+        // Broadcast to all connected clients in the company room
+        const companyRoom = `company_${socket.companyId}`;
+        io.to(companyRoom).emit('tickets/category-created', result);
+      }
+
+      socket.emit('tickets/categories/add-category-response', result);
+    } catch (error) {
+      console.error('Error adding ticket category:', error);
+      socket.emit('tickets/categories/add-category-response', {
+        done: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Update ticket category
+  socket.on('tickets/categories/update-category', async (data) => {
+    try {
+      const { categoryId, updateData } = data;
+      const result = await ticketsService.updateTicketCategory(socket.companyId, categoryId, updateData);
+      
+      if (result.done) {
+        const companyRoom = `company_${socket.companyId}`;
+        io.to(companyRoom).emit('tickets/category-updated', result);
+      }
+
+      socket.emit('tickets/categories/update-category-response', result);
+    } catch (error) {
+      console.error('Error updating ticket category:', error);
+      socket.emit('tickets/categories/update-category-response', {
+        done: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Delete ticket category
+  socket.on('tickets/categories/delete-category', async (data) => {
+    try {
+      const { categoryId } = data;
+      const result = await ticketsService.deleteTicketCategory(socket.companyId, categoryId);
+      
+      if (result.done) {
+        const companyRoom = `company_${socket.companyId}`;
+        io.to(companyRoom).emit('tickets/category-deleted', { 
+          done: true, 
+          categoryId 
+        });
+      }
+
+      socket.emit('tickets/categories/delete-category-response', result);
+    } catch (error) {
+      console.error('Error deleting ticket category:', error);
+      socket.emit('tickets/categories/delete-category-response', {
         done: false,
         error: error.message
       });

@@ -165,19 +165,34 @@ const Designations = () => {
       title: "Designation",
       dataIndex: "designation",
       render: (text: String, record: any) => (
-        <h6 className="fw-medium fs-14 text-dark">{text}</h6>
+        <h6 className="fw-medium fs-14 text-dark">
+          <Link to={`${all_routes.employeeList}?designation=${encodeURIComponent(record._id)}`}>
+            {text}
+          </Link>
+        </h6>
       ),
-      sorter: (a: any, b: any) => a.Designation.length - b.Designation.length,
+      sorter: (a: any, b: any) => a.designation.localeCompare(b.designation),
     },
     {
       title: "Department",
       dataIndex: "department",
-      sorter: (a: any, b: any) => a.Department.length - b.Department.length,
+      sorter: (a: any, b: any) => a.department.localeCompare(b.department),
     },
     {
       title: "No of Employees",
       dataIndex: "employeeCount",
-      sorter: (a: any, b: any) => a.NoOfEmployees.length - b.NoOfEmployees.length,
+      render: (count: number, record: any) => (
+        <span className="fw-medium">
+          {count > 0 ? (
+            <Link to={`${all_routes.employeeList}?designation=${encodeURIComponent(record._id)}`}>
+              {count}
+            </Link>
+          ) : (
+            <span className="text-muted">0</span>
+          )}
+        </span>
+      ),
+      sorter: (a: any, b: any) => a.employeeCount - b.employeeCount,
     },
     {
       title: "Status",

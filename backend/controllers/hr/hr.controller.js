@@ -905,6 +905,11 @@ const hrDashboardController = (socket, io) => {
           }
         }
         if (
+          typeof filters.departmentId === "string" &&
+          filters.departmentId.trim() !== ""
+        ) {
+          sanitizedFilters.departmentId = filters.departmentId.trim();
+        } else if (
           typeof filters.department === "string" &&
           filters.department.trim() !== ""
         ) {
@@ -1274,5 +1279,281 @@ const hrDashboardController = (socket, io) => {
       });
     }
   });
+
+  // Update Bank Details
+  socket.on(
+    "hrm/employees/update-bank",
+    withRateLimit(async (data) => {
+      console.log("=== UPDATE BANK DETAILS EVENT RECEIVED ===");
+      console.log("Raw data:", JSON.stringify(data, null, 2));
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+        console.log("Validated access - companyId:", companyId, "hrId:", hrId);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Bank update data is required");
+        }
+
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for bank update");
+        }
+        console.log("Employee ID extracted:", employeeId);
+
+        if (!data.bank) {
+          throw new Error("Bank details are required");
+        }
+        console.log("Bank data:", JSON.stringify(data.bank, null, 2));
+
+        console.log("Calling updateBankDetails service...");
+        const response = await hrmEmployee.updateBankDetails(
+          companyId,
+          hrId,
+          data
+        );
+        console.log("Service response:", JSON.stringify(response, null, 2));
+
+        socket.emit("hrm/employees/update-bank-response", response);
+        console.log("Response emitted to client");
+      } catch (error) {
+        console.error("Error in update-bank:", error);
+        socket.emit("hrm/employees/update-bank-response", {
+          done: false,
+          error: error.message || "Unexpected error updating bank details",
+        });
+      }
+    })
+  );
+
+  // Update Personal Info
+  socket.on(
+    "hrm/employees/update-personal",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Personal info update data is required");
+        }
+
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for personal info update");
+        }
+
+        if (!data.personal) {
+          throw new Error("Personal details are required");
+        }
+
+        const response = await hrmEmployee.updatePersonalInfoDetails(
+          companyId,
+          hrId,
+          data
+        );
+
+        socket.emit("hrm/employees/update-personal-response", response);
+      } catch (error) {
+        console.error("Error in update-personal:", error);
+        socket.emit("hrm/employees/update-personal-response", {
+          done: false,
+          error: error.message || "Unexpected error updating personal info",
+        });
+      }
+    })
+  );
+
+  // Update Family Info
+  socket.on(
+    "hrm/employees/update-family",
+    withRateLimit(async (data) => {
+      console.log("=== UPDATE FAMILY INFO EVENT RECEIVED ===");
+      console.log("Raw data:", JSON.stringify(data, null, 2));
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+        console.log("Validated access - companyId:", companyId, "hrId:", hrId);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Family info update data is required");
+        }
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for family info update");
+        }
+        console.log("Employee ID extracted:", employeeId);
+
+        if (!data.family) {
+          throw new Error("Family details are required");
+        }
+        console.log("Family data:", JSON.stringify(data.family, null, 2));
+
+        console.log("Calling updateFamilyInfo service...");
+        const response = await hrmEmployee.updateFamilyInfo(
+          companyId,
+          hrId,
+          data
+        );
+        console.log("Service response:", JSON.stringify(response, null, 2));
+
+        socket.emit("hrm/employees/update-family-response", response);
+        console.log("Response emitted to client");
+      } catch (error) {
+        console.error("Error in update-family:", error);
+        socket.emit("hrm/employees/update-family-response", {
+          done: false,
+          error: error.message || "Unexpected error updating family info",
+        });
+      }
+    })
+  );
+
+  // Update Education Info
+  socket.on(
+    "hrm/employees/update-education",
+    withRateLimit(async (data) => { 
+      console.log("=== UPDATE EDUCATION INFO EVENT RECEIVED ===");
+      console.log("Raw data:", JSON.stringify(data, null, 2));
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+        console.log("Validated access - companyId:", companyId, "hrId:", hrId);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Education info update data is required");
+        }
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for education info update");
+        }
+        console.log("Employee ID extracted:", employeeId);
+
+        if (!data.educationDetails) {
+          throw new Error("Education details are required");
+        }
+        console.log(
+          "Education data:",
+          JSON.stringify(data.educationDetails, null, 2)
+        );
+
+        console.log("Calling updateEducationInfo service...");
+        const response = await hrmEmployee.updateEducationInfo(
+          companyId,
+          hrId,
+          data
+        );
+        console.log("Service response:", JSON.stringify(response, null, 2));
+
+        socket.emit("hrm/employees/update-education-response", response);
+        console.log("Response emitted to client");
+      } catch (error) {
+        console.error("Error in update-education:", error);
+        socket.emit("hrm/employees/update-education-response", {
+          done: false,
+          error: error.message || "Unexpected error updating education info",
+        });
+      }
+    })
+  );
+
+  // Update Emergency Info
+  socket.on(
+    "hrm/employees/update-emergency",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket); 
+        if (!data || typeof data !== "object") {
+          throw new Error("Emergency info update data is required");
+        }
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for emergency info update");
+        }
+        if (!data.emergencyContacts) {
+          throw new Error("Emergency contact details are required");
+        }
+        const response = await hrmEmployee.updateEmergencyContacts(
+          companyId,
+          hrId,
+          data
+        );
+        socket.emit("hrm/employees/update-emergency-response", response);
+      } catch (error) {
+        console.error("Error in update-emergency:", error);
+        socket.emit("hrm/employees/update-emergency-response", {
+          done: false,
+          error: error.message || "Unexpected error updating emergency info",
+        });
+      }
+    })
+  );
+
+  // Update Experience Info
+  socket.on(
+    "hrm/employees/update-experience",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+        if (!data || typeof data !== "object") {
+          throw new Error("Experience info update data is required");
+        }
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for experience info update");
+        }
+        if (!data.experienceDetails) {
+          throw new Error("Experience details are required");
+        }
+        const response = await hrmEmployee.updateExperienceInfo(
+          companyId,
+          hrId,
+          data
+        );
+        socket.emit("hrm/employees/update-experience-response", response);
+      } catch (error) {
+        console.error("Error in update-experience:", error);
+        socket.emit("hrm/employees/update-experience-response", {
+          done: false,
+          error: error.message || "Unexpected error updating experience info",
+        });
+      }
+    })
+  );
+
+  // Update About Info
+  socket.on(
+    "hrm/employees/update-about",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+        if (!data || typeof data !== "object") {
+          throw new Error("About update data is required");
+        }
+        const employeeId =
+          typeof data.employeeId === "string" ? data.employeeId.trim() : "";
+        if (!employeeId) {
+          throw new Error("Employee ID is required for about update");
+        }
+        if (!data.about || typeof data.about !== "string") {
+          throw new Error("About content is required and must be a string");
+        }
+        const response = await hrmEmployee.updateAboutInfo(
+          companyId,
+          hrId,
+          data
+        );
+        socket.emit("hrm/employees/update-about-response", response);
+      } catch (error) {
+        console.error("Error in update-about:", error);
+        socket.emit("hrm/employees/update-about-response", {
+          done: false,
+          error: error.message || "Unexpected error updating about info",
+        });
+      }
+    })
+  );
 };
 export default hrDashboardController;
