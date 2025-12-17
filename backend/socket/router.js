@@ -8,7 +8,6 @@ import activityController from "../controllers/activities/activities.controllers
 import projectController from "../controllers/project/project.controller.js";
 import taskController from "../controllers/task/task.controller.js";
 import projectNotesController from "../controllers/notes/project.notes.controller.js";
-import hrDashboardController from "../controllers/hr/hr.controller.js";
 import { ChatController } from "../controllers/chat/chat.controller.js";
 import { ChatUsersController } from "../controllers/chat/users.controller.js";
 import userSocketController from "../controllers/user/user.socket.controller.js";
@@ -43,7 +42,6 @@ const router = (socket, io, role) => {
     userMetadata: socket.userMetadata,
   });
 
-  
   if (socket.companyId) {
     console.log("Attaching chat controller...");
     new ChatController(socket, io);
@@ -85,7 +83,6 @@ const router = (socket, io, role) => {
       socialFeedSocketController(socket, io);
       console.log("Attaching kanban controller for admin...");
       kanbanController(socket, io);
-
 
       // Pipelines JS
       pipelineController(socket, io);
