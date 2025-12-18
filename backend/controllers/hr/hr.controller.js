@@ -1053,9 +1053,11 @@ const hrDashboardController = (socket, io) => {
 
   // Check for duplicate email, username, and phone - called before moving to permissions tab
   socket.on("hrm/employees/check-duplicates", async (data) => {
-    console.log("=== hrm/employees/check-duplicates called ===");
+    console.log("=== BACKEND: hrm/employees/check-duplicates called ===");
+    console.log("Received data:", data);
     try {
       const { companyId } = validateHrAccess(socket);
+      console.log("CompanyId:", companyId);
       
       if (!data || typeof data !== "object") {
         throw new Error("Invalid request data");
@@ -1068,15 +1070,19 @@ const hrDashboardController = (socket, io) => {
       }
 
       // Check for duplicates (email, username, and optionally phone)
+      console.log("Calling checkDuplicates service...");
       const duplicateCheck = await hrmEmployee.checkDuplicates(companyId, email, userName, phone);
       
+      console.log("=== BACKEND: Sending response ===", duplicateCheck);
       socket.emit("hrm/employees/check-duplicates-response", duplicateCheck);
     } catch (error) {
       console.error("Error in hrm/employees/check-duplicates:", error);
-      socket.emit("hrm/employees/check-duplicates-response", {
+      const errorResponse = {
         done: false,
         error: error.message || "Error checking for duplicates",
-      });
+      };
+      console.log("=== BACKEND: Sending error response ===", errorResponse);
+      socket.emit("hrm/employees/check-duplicates-response", errorResponse);
     }
   });
 

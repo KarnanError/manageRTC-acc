@@ -87,6 +87,13 @@ const generateId = (prefix: string): string => {
   return `${prefix}-${paddedNum}`;
 };
 
+// Normalize status to ensure correct case (Active or Inactive)
+const normalizeStatus = (status: string | undefined): "Active" | "Inactive" => {
+  if (!status) return "Active";
+  const normalized = status.toLowerCase();
+  return normalized === "inactive" ? "Inactive" : "Active";
+};
+
 // Type definitions
 type PasswordField = "password" | "confirmPassword";
 type PermissionAction =
@@ -234,6 +241,7 @@ const EmployeeList = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUpload, setImageUpload] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [isBasicInfoValidated, setIsBasicInfoValidated] = useState(false);
   const [department, setDepartment] = useState<Option[]>([]);
   const [designation, setDesignation] = useState<Option[]>([]);
   const [allDesignations, setAllDesignations] = useState<Option[]>([]);
@@ -338,6 +346,8 @@ const EmployeeList = () => {
         // Close the add employee modal
         if (addEmployeeModalRef.current) {
           addEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
         }
         
         // Store the newly added employee data
@@ -352,6 +362,8 @@ const EmployeeList = () => {
         setTimeout(() => {
           if (successModalRef.current) {
             successModalRef.current.click();
+            // Ensure previous modal backdrop is removed
+            closeModal();
           }
         }, 300);
         
@@ -367,10 +379,11 @@ const EmployeeList = () => {
         if (errorInfo) {
           setFieldErrors({ [errorInfo.field]: errorInfo.message });
           
-          // If error is for a basic field, switch to basic info tab and scroll
+          // If error is for a basic field, switch to basic info tab, reset validation, and scroll
           const basicFields = ['firstName', 'lastName', 'email', 'userName', 'password', 'phone', 'departmentId', 'designationId', 'dateOfJoining'];
           if (basicFields.includes(errorInfo.field) || errorInfo.field === 'general') {
             setActiveTab("basic-info");
+            setIsBasicInfoValidated(false); // Reset validation flag
             setTimeout(() => {
               const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) || 
                                   document.querySelector(`#${errorInfo.field}`) ||
@@ -451,7 +464,12 @@ const EmployeeList = () => {
           setStats(response.data.stats);
         }
         if (Array.isArray(response.data.employees)) {
-          setEmployees(response.data.employees);
+          // Normalize status for all employees to ensure correct case
+          const normalizedEmployees = response.data.employees.map((emp: Employee) => ({
+            ...emp,
+            status: normalizeStatus(emp.status)
+          }));
+          setEmployees(normalizedEmployees);
         }
         setError(null);
         setLoading(false);
@@ -493,6 +511,8 @@ const EmployeeList = () => {
         // Close the modal
         if (editEmployeeModalRef.current) {
           editEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
         }
         
         toast.success("Employee updated successfully!", {
@@ -613,6 +633,33 @@ const EmployeeList = () => {
     }
   }, [editingEmployee]);
 
+  // Clean up modal backdrops on component unmount or when activeTab changes
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      closeModal();
+    };
+  }, []);
+
+  // Also clean up backdrops whenever modals might have closed
+  useEffect(() => {
+    const handleModalHidden = () => {
+      setTimeout(() => closeModal(), 100);
+    };
+
+    // Listen for Bootstrap modal hidden events
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+      modal.addEventListener('hidden.bs.modal', handleModalHidden);
+    });
+
+    return () => {
+      modals.forEach(modal => {
+        modal.removeEventListener('hidden.bs.modal', handleModalHidden);
+      });
+    };
+  }, []);
+
   const data = employee_list_details;
   const columns = [
     {
@@ -702,8 +749,9 @@ const EmployeeList = () => {
     {
       title: "",
       dataIndex: "actions",
+      key: "actions",
       render: (_test: any, employee: Employee) => (
-        <div className="action-icon d-inline-flex">
+        <div className="action-icon d-inline-flex" key={`actions-${employee._id}`}>
           <Link
             to="#"
             className="me-2"
@@ -1491,7 +1539,7 @@ const EmployeeList = () => {
       dateOfJoining: editingEmployee.dateOfJoining || null,
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
-      status: editingEmployee.status || "Active",
+      status: normalizeStatus(editingEmployee.status),
     };
     console.log("update payload", payload);
 
@@ -1570,6 +1618,7 @@ const EmployeeList = () => {
     setError("");
     setFieldErrors({});
     setConfirmPassword("");
+    setIsBasicInfoValidated(false);
   };
 
   // Helper function to safely prepare employee for editing
@@ -1596,7 +1645,7 @@ const EmployeeList = () => {
       designationId: emp.designationId || "",
       about: emp.about || "",
       avatarUrl: emp.avatarUrl || "",
-      status: emp.status || "Active",
+      status: normalizeStatus(emp.status),
       dateOfJoining: emp.dateOfJoining || null,
     };
   };
@@ -1605,6 +1654,20 @@ const EmployeeList = () => {
   const getModalContainer = (): HTMLElement => {
     const modalElement = document.getElementById("modal-datepicker");
     return modalElement ? modalElement : document.body;
+  };
+
+  // Utility function to properly close modal and remove backdrop
+  const closeModal = () => {
+    // Remove all modal backdrops
+    const backdrops = document.querySelectorAll('.modal-backdrop');
+    backdrops.forEach(backdrop => backdrop.remove());
+    
+    // Remove modal-open class from body
+    document.body.classList.remove('modal-open');
+    
+    // Reset body style
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
   };
 
   // Handle "Save and Next" - validate with backend before going to permissions tab
@@ -1639,6 +1702,7 @@ const EmployeeList = () => {
 
         // Listen for duplicate check response
         const responseHandler = (response: any) => {
+          console.log("=== FRONTEND: Received response from backend ===", response);
           clearTimeout(timeoutId);
           resolve(response);
         };
@@ -1646,17 +1710,15 @@ const EmployeeList = () => {
         socket.once("hrm/employees/check-duplicates-response", responseHandler);
 
         // Emit duplicate check request
-        console.log("Emitting check-duplicates:", {
+        const requestData = {
           email: formData.contact.email,
           userName: formData.account.userName,
           phone: formData.contact.phone,
-        });
+        };
         
-        socket.emit("hrm/employees/check-duplicates", {
-          email: formData.contact.email,
-          userName: formData.account.userName,
-          phone: formData.contact.phone,
-        });
+        console.log("=== FRONTEND: Emitting check-duplicates ===", requestData);
+        
+        socket.emit("hrm/employees/check-duplicates", requestData);
       });
 
       const result = await checkDuplicates;
@@ -1665,10 +1727,27 @@ const EmployeeList = () => {
       console.log("Check duplicates result:", result);
 
       if (!result.done) {
-        // Duplicate found - parse error and display inline
-        const errorInfo = parseBackendError(result.error || "Validation failed");
-        if (errorInfo) {
-          setFieldErrors({ [errorInfo.field]: errorInfo.message });
+        // Duplicate found - backend returns field and error
+        const fieldName = result.field || "general";
+        const errorMessage = result.error || "Validation failed";
+        
+        console.log("Setting field error:", fieldName, errorMessage);
+        
+        // Use parseBackendError to get user-friendly message
+        const errorInfo = parseBackendError(errorMessage);
+        
+        if (errorInfo && errorInfo.field !== "general") {
+          // Set error for specific field
+          setFieldErrors(prev => ({
+            ...prev,
+            [errorInfo.field]: errorInfo.message
+          }));
+          
+          // Also show toast as backup
+          toast.error(errorInfo.message, {
+            position: "top-right",
+            autoClose: 5000,
+          });
           
           // Scroll to error field
           setTimeout(() => {
@@ -1681,20 +1760,37 @@ const EmployeeList = () => {
             }
           }, 100);
         } else {
-          setFieldErrors({ general: result.error || "Validation failed" });
+          // General error
+          setFieldErrors({ general: errorMessage });
+          toast.error(errorMessage, {
+            position: "top-right",
+            autoClose: 5000,
+          });
         }
+        
         return; // Don't proceed to next tab
       }
 
-      // All validation passed - proceed to permissions tab
+      // All validation passed - mark as validated and proceed to permissions tab
+      setIsBasicInfoValidated(true);
       setActiveTab("address");
     } catch (error: any) {
       console.error("Validation error:", error);
       setIsValidating(false);
       if (error.message === "timeout") {
-        setFieldErrors({ general: "Validation is taking longer than expected. Please check your connection and try again." });
+        const errorMsg = "Validation is taking longer than expected. Please check your connection and try again.";
+        setFieldErrors({ general: errorMsg });
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 5000,
+        });
       } else {
-        setFieldErrors({ general: "Unable to validate. Please try again." });
+        const errorMsg = "Unable to validate. Please try again.";
+        setFieldErrors({ general: errorMsg });
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 5000,
+        });
       }
     }
   };
@@ -1737,6 +1833,16 @@ const EmployeeList = () => {
 
   return (
     <>
+      <style>{`
+        .nav-link.disabled {
+          opacity: 0.5;
+          cursor: not-allowed !important;
+          pointer-events: all !important;
+        }
+        .nav-link.disabled:hover {
+          background-color: transparent !important;
+        }
+      `}</style>
       {/* Page Wrapper */}
       <div className="page-wrapper">
         <div className="content">
@@ -1888,7 +1994,7 @@ const EmployeeList = () => {
                     </div>
                     <div className="ms-2 overflow-hidden">
                       <p className="fs-12 fw-medium mb-1 text-truncate">
-                        InActive
+                        Inactive
                       </p>
                       <h4>{stats?.inactiveCount}</h4>
                     </div>
@@ -2012,7 +2118,7 @@ const EmployeeList = () => {
                       <Link
                         to="#"
                         className="dropdown-item rounded-1"
-                        onClick={() => onSelectStatus("active")}
+                        onClick={() => onSelectStatus("Active")}
                       >
                         Active
                       </Link>
@@ -2021,7 +2127,7 @@ const EmployeeList = () => {
                       <Link
                         to="#"
                         className="dropdown-item rounded-1"
-                        onClick={() => onSelectStatus("inactive")}
+                        onClick={() => onSelectStatus("Inactive")}
                       >
                         Inactive
                       </Link>
@@ -2292,6 +2398,7 @@ const EmployeeList = () => {
                 onClick={() => {
                   handleResetFormData();
                   setActiveTab("basic-info");
+                  setTimeout(() => closeModal(), 100);
                 }}
               >
                 <i className="ti ti-x" />
@@ -2327,8 +2434,18 @@ const EmployeeList = () => {
                     <button
                       className={`nav-link ${
                         activeTab === "address" ? "active" : ""
-                      }`}
+                      } ${!isBasicInfoValidated ? "disabled" : ""}`}
                       onClick={(e) => {
+                        // Prevent access to permissions tab until basic info is validated
+                        if (!isBasicInfoValidated) {
+                          e.preventDefault();
+                          toast.info("Please complete and validate basic information first", {
+                            position: "top-right",
+                            autoClose: 3000,
+                          });
+                          return;
+                        }
+                        
                         // Check if basic info tab has any errors
                         const basicInfoFields = ['firstName', 'lastName', 'email', 'userName', 'password', 'confirmPassword', 'phone', 'departmentId', 'designationId', 'dateOfJoining'];
                         const hasBasicInfoErrors = basicInfoFields.some(field => fieldErrors[field]);
@@ -2358,6 +2475,7 @@ const EmployeeList = () => {
                       type="button"
                       role="tab"
                       aria-selected="false"
+                      disabled={!isBasicInfoValidated}
                     >
                       Permissions
                     </button>
@@ -2962,6 +3080,7 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -3096,6 +3215,7 @@ const EmployeeList = () => {
                       onClick={() => {
                         handleResetFormData();
                         setActiveTab("basic-info");
+                        setTimeout(() => closeModal(), 100);
                       }}
                     >
                       Cancel
@@ -3141,7 +3261,10 @@ const EmployeeList = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
-                onClick={() => setEditingEmployee(null)}
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setTimeout(() => closeModal(), 100);
+                }}
               >
                 <i className="ti ti-x" />
               </button>
@@ -3823,6 +3946,7 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -3955,6 +4079,7 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -3997,7 +4122,10 @@ const EmployeeList = () => {
                         to={all_routes.employeeList}
                         className="btn btn-dark w-100"
                         data-bs-dismiss="modal"
-                        onClick={handleResetFormData}
+                        onClick={() => {
+                          handleResetFormData();
+                          setTimeout(() => closeModal(), 100);
+                        }}
                       >
                         Back to List
                       </Link>
@@ -4040,6 +4168,7 @@ const EmployeeList = () => {
                   data-bs-dismiss="modal"
                   onClick={() => {
                     setNewlyAddedEmployee(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                 >
                   <i className="ti ti-list me-1" />
@@ -4053,6 +4182,7 @@ const EmployeeList = () => {
                       navigate(`${all_routes.employeedetails}/${newlyAddedEmployee._id}`);
                     }
                     setNewlyAddedEmployee(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                 >
                   <i className="ti ti-eye me-1" />
@@ -4088,7 +4218,10 @@ const EmployeeList = () => {
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
-                  onClick={() => setEmployeeToDelete(null)}
+                  onClick={() => {
+                    setEmployeeToDelete(null);
+                    setTimeout(() => closeModal(), 100);
+                  }}
                   disabled={loading}
                 >
                   Cancel
@@ -4101,6 +4234,7 @@ const EmployeeList = () => {
                       deleteEmployee(employeeToDelete._id);
                     }
                     setEmployeeToDelete(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                   disabled={loading}
                 >
