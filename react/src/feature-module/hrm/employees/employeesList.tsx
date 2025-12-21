@@ -668,7 +668,7 @@ const EmployeeList = () => {
       render: (text: String, record: any) => (
         <Link to={`/employees/${record._id}`}>{text}</Link>
       ),
-      sorter: (a: any, b: any) => a.EmpId.length - b.EmpId.length,
+      sorter: (a: any, b: any) => (a.employeeId || "").length - (b.employeeId || "").length,
     },
     {
       title: "Name",
@@ -694,24 +694,24 @@ const EmployeeList = () => {
           </div>
         );
       },
-      sorter: (a: any, b: any) => a.Name.length - b.Name.length,
+      sorter: (a: any, b: any) => (a.firstName || "").localeCompare(b.firstName || ""),
     },
     {
       title: "Email",
       dataIndex: ["contact", "email"],
-      sorter: (a: any, b: any) => a.Email.length - b.Email.length,
+      sorter: (a: any, b: any) => (a.contact?.email || "").localeCompare(b.contact?.email || ""),
     },
     {
       title: "Phone",
       dataIndex: ["contact", "phone"],
-      sorter: (a: any, b: any) => a.Phone.length - b.Phone.length,
+      sorter: (a: any, b: any) => (a.contact?.phone || "").localeCompare(b.contact?.phone || ""),
     },
     {
       title: "Department",
       dataIndex: "departmentId",
       render: (text: string, record: any) =>
         department.find((dep) => dep.value === record.departmentId)?.label,
-      sorter: (a: any, b: any) => a.Designation.length - b.Designation.length,
+      sorter: (a: any, b: any) => (a.departmentId || "").localeCompare(b.departmentId || ""),
     },
     {
       title: "Joining Date",
@@ -744,7 +744,7 @@ const EmployeeList = () => {
           {text}
         </span>
       ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      sorter: (a: any, b: any) => (a.status || "").localeCompare(b.status || ""),
     },
     {
       title: "",
@@ -2052,8 +2052,8 @@ const EmployeeList = () => {
                   </div>
                 </div>
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                     role="button"
@@ -2091,10 +2091,11 @@ const EmployeeList = () => {
                   </ul>
                 </div>
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    onClick={(e) => e.preventDefault()}
                   >
                     Select status{" "}
                     {selectedStatus
@@ -2135,10 +2136,11 @@ const EmployeeList = () => {
                   </ul>
                 </div>
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    onClick={(e) => e.preventDefault()}
                   >
                     Sort By
                     {sortOrder
