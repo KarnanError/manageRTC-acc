@@ -46,11 +46,11 @@ jobs:
             tar -xzf ~/backend.tar.gz -C ~/releases/backend
             rm -f ~/backend.tar.gz
 
-            # ensure target exists (comment these two lines if you pre-created + chowned in step 2)
-            # sudo mkdir -p /var/www/apidev.manage-rtc.com/backend
-            # sudo chown -R ${USER}:${USER} /var/www/apidev.manage-rtc.com
+            # Clean up node_modules before rsync to avoid permission issues
+            rm -rf /var/www/apidev.manage-rtc.com/backend/node_modules
 
-            rsync -a --delete ~/releases/backend/ /var/www/apidev.manage-rtc.com/backend/
+            # Sync files (exclude node_modules since we'll do npm ci anyway)
+            rsync -a --delete --exclude='node_modules' ~/releases/backend/ /var/www/apidev.manage-rtc.com/backend/
             cd /var/www/apidev.manage-rtc.com/backend
 
             cat > .env << 'EOF'
