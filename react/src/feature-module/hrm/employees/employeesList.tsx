@@ -1506,10 +1506,10 @@ const EmployeeList = () => {
     }
 
     // Check if phone number already exists
-    const phoneAvailable = await checkPhoneExists(formData.contact.phone);
-    if (!phoneAvailable) {
-      return false;
-    }
+    // const phoneAvailable = await checkPhoneExists(formData.contact.phone);
+    // if (!phoneAvailable) {
+    //   return false;
+    // }
     if (!formData.account.userName) {
       toast.error("Please fill in username", {
         position: "top-right",

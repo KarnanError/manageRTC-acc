@@ -6,6 +6,29 @@ import fs from "fs";
 import path from "path";
 import { format } from "date-fns";
 
+// Helper function to generate next project ID
+const generateNextProjectId = async (companyId) => {
+  try {
+    const collections = getTenantCollections(companyId);
+
+    const lastProject = await collections.projects.findOne(
+      {},
+      { sort: { createdAt: -1 } }
+    );
+    
+    let nextId = 1;
+    if (lastProject && lastProject.projectId) {
+      const lastIdNumber = parseInt(lastProject.projectId.replace("PRO-", ""));
+      nextId = lastIdNumber + 1;
+    }
+
+    const projectId = `PRO-${String(nextId).padStart(4, "0")}`;
+    return projectId;
+  } catch (error) {
+    console.error('Error generating project ID:', error);
+    throw error;
+  }
+};
 
 export const createProject = async (companyId, projectData) => {
   try {
@@ -15,8 +38,12 @@ export const createProject = async (companyId, projectData) => {
       projectData,
     });
 
+    // Generate projectId
+    const projectId = await generateNextProjectId(companyId);
+
     const newProject = {
       ...projectData,
+      projectId,
       companyId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -59,6 +86,9 @@ export const getProjects = async (companyId, filters = {}) => {
 
     if (Array.isArray(filters.status) && filters.status.length > 0) {
       query.status = { $in: filters.status };
+    } else if (filters.status && typeof filters.status === 'object' && filters.status.$ne) {
+      // Handle exclusion filter like { $ne: 'Completed' }
+      query.status = filters.status;
     } else if (filters.status && filters.status !== "all") {
       query.status = filters.status;
     }
@@ -92,14 +122,84 @@ export const getProjects = async (companyId, filters = {}) => {
       .find(query)
       .sort(sort)
       .toArray();
+    
 
-    const processedProjects = projects.map((project) => ({
-      ...project,
-      createdAt: project.createdAt ? new Date(project.createdAt) : null,
-      updatedAt: project.updatedAt ? new Date(project.updatedAt) : null,
-      startDate: project.startDate ? new Date(project.startDate) : null,
-      endDate: project.endDate ? new Date(project.endDate) : null,
-    }));
+    // Compute task counts per project
+    const taskCounts = await Promise.all(
+      projects.map(async (project) => {
+        const count = await collections.tasks.countDocuments({
+          projectId: project.projectId.toString(),
+        });
+
+        return {
+          projectId: project.projectId.toString(),
+          taskCount: count,
+        };
+      })
+    );
+
+    const teamLeadDetails = await Promise.all(
+      projects.map(async (project) => {
+        const teamleadIds = Array.isArray(project.teamLeader) ? project.teamLeader : [];
+        if (!teamleadIds.length) {
+          return { projectId: project.projectId.toString(), teamleadName: [] };
+        }
+        const teamleads = await collections.employees
+          .find(
+            {
+              employeeId: { $in: teamleadIds },
+              status: "Active",
+            },
+            { projection: { employeeId: 1, firstName: 1, lastName: 1, _id: 0 } }
+          )
+          .toArray();
+
+        const names = teamleads.map((e) => ({
+          name: `${e.firstName || ""} ${e.lastName || ""}`.trim(),
+          employeeId: e.employeeId,
+        }));
+
+        return { projectId: project.projectId.toString(), teamleadName: names };
+      })
+    );
+
+    const completedtaskcounts = await Promise.all(
+      projects.map(async (project) => {
+        const count = await collections.tasks.countDocuments({
+          projectId: project.projectId.toString(),
+          status: { $in: ["Completed", "completed", "COMPLETED"] },
+        });
+        return {
+          projectId: project.projectId.toString(),
+          completedtaskCount: count,
+        };
+      })
+    );
+
+    const processedProjects = projects.map((project) => {
+      const taskEntry = taskCounts.find(
+        (t) => t.projectId === project.projectId.toString()
+      );
+
+      const completedTaskEntry = completedtaskcounts.find(
+        (t) => t.projectId === project.projectId.toString()
+      );
+
+      const teamLeadEntry = teamLeadDetails.find(
+        (t) => t.projectId === project.projectId.toString()
+      );
+
+      return {
+        ...project,
+        createdAt: project.createdAt ? new Date(project.createdAt) : null,
+        updatedAt: project.updatedAt ? new Date(project.updatedAt) : null,
+        startDate: project.startDate ? new Date(project.startDate) : null,
+        endDate: project.endDate ? new Date(project.endDate) : null,
+        taskCount: taskEntry?.taskCount || 0,
+        completedtaskCount: completedTaskEntry?.completedtaskCount || 0,
+        teamleadName: teamLeadEntry?.teamleadName || []
+      };
+    });
 
     return { done: true, data: processedProjects };
   } catch (error) {
@@ -124,23 +224,86 @@ export const getProjectById = async (companyId, projectId) => {
     }
 
     const project = await collections.projects.findOne({
-      _id: new ObjectId(projectId),
-      companyId,
-      isDeleted: { $ne: true },
+      _id: new ObjectId(projectId)
     });
 
     if (!project) {
       console.error("[ProjectService] Project not found", { projectId });
       return { done: false, error: "Project not found" };
     }
+    // Fetch team members details if array exists
+    const teamMembersArray = Array.isArray(project.teamMembers) ? project.teamMembers : [];
+    const employees = teamMembersArray.length > 0 
+      ? await collections.employees
+          .find(
+            {
+              employeeId: { $in: teamMembersArray },
+              status: "Active",
+            },
+            {
+              projection: {
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                _id: 0
+              }
+            }
+          )
+          .toArray()
+      : [];
 
+    project.teamMembersdetail = employees;
+    
+    // Fetch team leader details if array exists
+    const teamLeaderArray = Array.isArray(project.teamLeader) ? project.teamLeader : [];
+    const teamLeaderdetail = teamLeaderArray.length > 0
+      ? await collections.employees
+          .find(
+            {
+              employeeId: { $in: teamLeaderArray },
+              status: "Active",
+            },
+            {
+              projection: {
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                _id: 0
+              }
+            }
+          )
+          .toArray()
+      : [];
+
+    project.teamLeaderdetail = teamLeaderdetail;
+
+    // Fetch project manager details if array exists
+    const projectManagerArray = Array.isArray(project.projectManager) ? project.projectManager : [];
+    const projectmanagerdetail = projectManagerArray.length > 0
+      ? await collections.employees
+          .find(
+            {
+              employeeId: { $in: projectManagerArray },
+              status: "Active",
+            },
+            {
+              projection: {
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                _id: 0
+              }
+            }
+          )
+          .toArray()
+      : [];
+
+    project.projectManagerdetail = projectmanagerdetail;
     
     const processedProject = {
       ...project,
       createdAt: project.createdAt ? new Date(project.createdAt) : null,
       updatedAt: project.updatedAt ? new Date(project.updatedAt) : null,
-      startDate: project.startDate ? new Date(project.startDate) : null,
-      endDate: project.endDate ? new Date(project.endDate) : null,
     };
 
     return { done: true, data: processedProject };
@@ -172,8 +335,6 @@ export const updateProject = async (companyId, projectId, updateData) => {
     
     const existingProject = await collections.projects.findOne({
       _id: new ObjectId(projectId),
-      companyId,
-      isDeleted: { $ne: true },
     });
 
     if (!existingProject) {
@@ -189,9 +350,11 @@ export const updateProject = async (companyId, projectId, updateData) => {
       updatedAt: new Date(),
     };
 
+    console.log("[ProjectService] updateFields", { updateFields });
+
     
     const result = await collections.projects.updateOne(
-      { _id: new ObjectId(projectId), companyId },
+      { _id: new ObjectId(projectId) },
       { $set: updateFields }
     );
 
@@ -366,15 +529,56 @@ export const getProjectClients = async (companyId) => {
     const collections = getTenantCollections(companyId);
     console.log("[ProjectService] getProjectClients", { companyId });
 
-    const clients = await collections.projects.distinct("client", {
-      companyId,
+    const clients = await collections.clients.distinct("name", {
       isDeleted: { $ne: true },
-      client: { $exists: true, $ne: null },
     });
 
     return { done: true, data: clients };
   } catch (error) {
     console.error("[ProjectService] Error in getProjectClients", {
+      error: error.message,
+    });
+    return { done: false, error: error.message };
+  }
+};
+
+// Get team members for a specific project
+export const getProjectTeamMembers = async (companyId, projectId) => {
+  try {
+    const collections = getTenantCollections(companyId);
+    console.log("[ProjectService] getProjectTeamMembers", { companyId, projectId });
+
+    // Get the project
+    const project = await collections.projects.findOne({
+     projectId: projectId
+    });
+
+    if (!project) {
+      return { done: false, error: "Project not found" };
+    }
+
+    // Get team members array (stored as employee IDs)
+    const teamMemberIds = project.teamMembers || [];
+
+    if (teamMemberIds.length === 0) {
+      return { done: true, data: { teamMembers: [] } };
+    }
+
+    // Fetch employee details for each team member ID
+    const employees = await collections.employees
+      .find({
+        employeeId: { $in: teamMemberIds },
+        status: "Active",
+      })
+      .sort({ firstName: 1 })
+      .toArray();
+
+    return {
+      done: true,
+      data: { teamMembers: employees },
+    };
+  } catch (error) {
+    console.error("[ProjectService] Error in getProjectTeamMembers", {
       error: error.message,
     });
     return { done: false, error: error.message };

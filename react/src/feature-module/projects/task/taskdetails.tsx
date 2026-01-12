@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import dayjs from "dayjs";
 import { useParams } from "react-router-dom";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { Link } from "react-router-dom";
@@ -19,6 +20,8 @@ const TaskDetails = () => {
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [projectMembers, setProjectMembers] = useState<any[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
   const loadTask = useCallback(() => {
     if (!taskId || !socket) return;
@@ -27,6 +30,12 @@ const TaskDetails = () => {
     setError(null);
     socket.emit("task:getById", taskId);
   }, [taskId, socket]);
+
+  const loadProjectMembers = useCallback(() => {
+    if (!task?.projectId || !socket) return;
+    setLoadingMembers(true);
+    socket.emit("project:getMembers", { projectId: task.projectId });
+  }, [task?.projectId, socket]);
 
   const handleTaskResponse = useCallback((response: any) => {
     setLoading(false);
@@ -47,6 +56,29 @@ const TaskDetails = () => {
       };
     }
   }, [socket, handleTaskResponse, loadTask]);
+
+  useEffect(() => {
+    if (task?.projectId) {
+      loadProjectMembers();
+    }
+  }, [task?.projectId, loadProjectMembers]);
+
+  useEffect(() => {
+    if (socket) {
+      const handleProjectMembersResponse = (response: any) => {
+        setLoadingMembers(false);
+        if (response?.done) {
+          setProjectMembers(response.data?.members || []);
+        }
+      };
+
+      socket.on("project:getMembers-response", handleProjectMembersResponse);
+
+      return () => {
+        socket.off("project:getMembers-response", handleProjectMembersResponse);
+      };
+    }
+  }, [socket]);
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
@@ -240,24 +272,28 @@ const TaskDetails = () => {
                       </p>
                     </div>
                     <div className="col-sm-9">
-                      <div className="d-flex align-items-center mb-3">
+                      <div className="d-flex align-items-center mb-3 flex-wrap">
                         {task.team && task.team.length > 0 ? (
-                          task.team.map((member: any, index: number) => (
-                            <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
-                              <Link
-                                to="#"
-                                className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
-                              >
-                                <ImageWithBasePath
-                                  src={member.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
-                                  alt="Img"
-                                />
-                              </Link>
-                              <h6 className="fs-12">
-                                <Link to="#">{member.name || member}</Link>
-                              </h6>
-                            </div>
-                          ))
+                          task.team.map((member: any, index: number) => {
+                            const memberData = projectMembers.find(m => m._id === member._id || m.id === member.id) || member;
+                            return (
+                              <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2 mb-2">
+                                <Link
+                                  to="#"
+                                  className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
+                                  title={memberData.name || memberData.firstName}
+                                >
+                                  <ImageWithBasePath
+                                    src={memberData.profileImage || memberData.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
+                                    alt="Img"
+                                  />
+                                </Link>
+                                <h6 className="fs-12 mb-0">
+                                  <Link to="#">{memberData.name || memberData.firstName || 'Unknown'}</Link>
+                                </h6>
+                              </div>
+                            );
+                          })
                         ) : (
                           <p className="text-muted mb-0">No team members assigned</p>
                         )}
@@ -279,24 +315,28 @@ const TaskDetails = () => {
                       </p>
                     </div>
                     <div className="col-sm-9">
-                      <div className="d-flex align-items-center mb-3">
+                      <div className="d-flex align-items-center mb-3 flex-wrap">
                         {task.assignee && task.assignee.length > 0 ? (
-                          task.assignee.map((assignee: any, index: number) => (
-                            <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
-                              <Link
-                                to="#"
-                                className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
-                              >
-                                <ImageWithBasePath
-                                  src={assignee.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
-                                  alt="Img"
-                                />
-                              </Link>
-                              <h6 className="fs-12">
-                                <Link to="#">{assignee.name || assignee}</Link>
-                              </h6>
-                            </div>
-                          ))
+                          task.assignee.map((assignee: any, index: number) => {
+                            const assigneeData = projectMembers.find(m => m._id === assignee._id || m.id === assignee.id) || assignee;
+                            return (
+                              <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2 mb-2">
+                                <Link
+                                  to="#"
+                                  className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
+                                  title={assigneeData.name || assigneeData.firstName}
+                                >
+                                  <ImageWithBasePath
+                                    src={assigneeData.profileImage || assigneeData.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
+                                    alt="Img"
+                                  />
+                                </Link>
+                                <h6 className="fs-12 mb-0">
+                                  <Link to="#">{assigneeData.name || assigneeData.firstName || 'Unknown'}</Link>
+                                </h6>
+                              </div>
+                            );
+                          })
                         ) : (
                           <p className="text-muted mb-0">No assignee assigned</p>
                         )}
@@ -350,10 +390,6 @@ const TaskDetails = () => {
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Created on</p>
                       <h6 className="fw-normal">{task.createdAt ? new Date(task.createdAt).toLocaleDateString() : 'Not set'}</h6>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
-                      <p className="mb-0">Started on</p>
-                      <h6 className="fw-normal">{task.startedAt ? new Date(task.startedAt).toLocaleDateString() : 'Not started'}</h6>
                     </div>
                     <div className="d-flex align-items-center justify-content-between p-3">
                       <p className="mb-0">Due Date</p>
@@ -508,7 +544,7 @@ const TaskDetails = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          defaultValue={task.dueDate ? new Date(task.dueDate) : undefined}
+                          defaultValue={task.dueDate ? dayjs(task.dueDate) : undefined}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />

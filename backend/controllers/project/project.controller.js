@@ -1,4 +1,5 @@
 import * as projectService from "../../services/project/project.services.js";
+import * as employeeService from "../../services/employee/employee.services.js";
 
 const projectController = (socket, io) => {
   
@@ -60,6 +61,7 @@ const projectController = (socket, io) => {
         console.error("[Project] Failed to get projects", { error: result.error });
       }
       socket.emit("project:getAll-response", result);
+      console.log("[Project] project:getAll-response sent", result);
     } catch (error) {
       console.error("[Project] Error in project:getAll", { error: error.message });
       socket.emit("project:getAll-response", { done: false, error: error.message });
@@ -139,20 +141,20 @@ const projectController = (socket, io) => {
   });
 
   
-  socket.on("project:getClients", async () => {
-    try {
-      console.log("[Project] project:getClients event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
-      const companyId = validateCompanyAccess(socket);
-      const result = await projectService.getProjectClients(companyId);
-      if (!result.done) {
-        console.error("[Project] Failed to get project clients", { error: result.error });
-      }
-      socket.emit("project:getClients-response", result);
-    } catch (error) {
-      console.error("[Project] Error in project:getClients", { error: error.message });
-      socket.emit("project:getClients-response", { done: false, error: error.message });
-    }
-  });
+  // socket.on("project:getClients", async () => {
+  //   try {
+  //     console.log("[Project] project:getClients event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
+  //     const companyId = validateCompanyAccess(socket);
+  //     const result = await projectService.getProjectClients(companyId);
+  //     if (!result.done) {
+  //       console.error("[Project] Failed to get project clients", { error: result.error });
+  //     }
+  //     socket.emit("project:getClients-response", result);
+  //   } catch (error) {
+  //     console.error("[Project] Error in project:getClients", { error: error.message });
+  //     socket.emit("project:getClients-response", { done: false, error: error.message });
+  //   }
+  // });
 
   
   socket.on("project/export-pdf", async () => {
@@ -243,25 +245,74 @@ const projectController = (socket, io) => {
   
   socket.on("project:getAllData", async (filters = {}) => {
     try {
+      console.log("[Project] Received project:getAllData event");
       const companyId = validateCompanyAccess(socket);
 
-      const [projects, stats, clients] = await Promise.all([
+      const [projects, stats, clients, employees] = await Promise.all([
         projectService.getProjects(companyId, filters),
         projectService.getProjectStats(companyId),
-        projectService.getProjectClients(companyId)
+        projectService.getProjectClients(companyId),
+        employeeService.getAllEmployees(companyId)
       ]);
+
+      console.log("[Project] getAllData - clients:", clients);
+      console.log("[Project] getAllData - employees count:", employees?.length);
+
+      // Transform employees to { value, label, position } format
+      const transformedEmployees = (employees || []).map(emp => ({
+        value: emp.employeeId || emp._id?.toString() || emp._id,
+        employeeId: emp.employeeId || emp._id?.toString() || emp._id,
+        label: emp.firstName && emp.lastName ? `${emp.firstName} ${emp.lastName}` : emp.name || "Unknown",
+        position: emp.position || "N/A",
+        department: emp.department || "N/A"
+      }));
+
+      console.log("[Project] Sending getAllData response with clients:", clients.data?.length, "employees:", transformedEmployees.length);
 
       socket.emit("project:getAllData-response", {
         done: true,
         data: {
           projects: projects.data || [],
           stats: stats.data || {},
-          clients: clients.data || []
+          clients: clients.data || [],
+          employees: transformedEmployees
         }
       });
     } catch (error) {
-      console.error("[Project] Error in project:getAllData", { error: error.message });
+      console.error("[Project] Error in project:getAllData", { error: error.message, stack: error.stack });
       socket.emit("project:getAllData-response", { done: false, error: error.message });
+    }
+  });
+
+  // Get team members for a specific project
+  socket.on("project:getTeamMembers", async ({ projectId }) => {
+    try {
+      console.log("[Project] project:getTeamMembers event --- ", projectId);
+      const companyId = validateCompanyAccess(socket);
+      const result = await projectService.getProjectTeamMembers(companyId, projectId);
+      if (!result.done) {
+        console.error("[Project] Failed to get project team members", { error: result.error });
+      }
+      socket.emit("project:getTeamMembers-response", result);
+    } catch (error) {
+      console.error("[Project] Error in project:getTeamMembers", { error: error.message });
+      socket.emit("project:getTeamMembers-response", { done: false, error: error.message });
+    }
+  });
+
+  // Alias: Get members for a project
+  socket.on("project:getMembers", async ({ projectId }) => {
+    try {
+      console.log("[Project] project:getMembers event --- ", projectId);
+      const companyId = validateCompanyAccess(socket);
+      const result = await projectService.getProjectTeamMembers(companyId, projectId);
+      if (!result.done) {
+        console.error("[Project] Failed to get project members", { error: result.error });
+      }
+      socket.emit("project:getMembers-response", result);
+    } catch (error) {
+      console.error("[Project] Error in project:getMembers", { error: error.message });
+      socket.emit("project:getMembers-response", { done: false, error: error.message });
     }
   });
 };

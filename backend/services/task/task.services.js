@@ -5,17 +5,53 @@ import { ObjectId } from 'mongodb';
 
 export const createTask = async (companyId, taskData) => {
   try {
-    const taskId = generateId('task');
-    const newTask = new Task({
-      _id: taskId,
-      ...taskData,
-      companyId,
-    });
+    const collections = getTenantCollections(companyId);
 
-    const savedTask = await newTask.save();
+    const now = new Date();
+    const normalizedAssignees = Array.isArray(taskData.assignee)
+      ? taskData.assignee.filter(Boolean)
+      : [];
+
+    const normalizedAttachments = Array.isArray(taskData.attachments)
+      ? taskData.attachments.map(att => ({
+          filename: att?.filename || '',
+          url: att?.url || '',
+          uploadedAt: att?.uploadedAt ? new Date(att.uploadedAt) : now,
+        }))
+      : [];
+
+    const doc = {
+      _id: new ObjectId(),
+      title: taskData.title,
+      description: taskData.description || '',
+      projectId: taskData.projectId,
+      companyId,
+      status: taskData.status || 'Pending',
+      priority: taskData.priority || 'Medium',
+      assignee: normalizedAssignees,
+      tags: Array.isArray(taskData.tags) ? taskData.tags : [],
+      estimatedHours: taskData.estimatedHours || 0,
+      actualHours: taskData.actualHours || 0,
+      attachments: normalizedAttachments,
+      createdBy: taskData.createdBy || 'unknown',
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: false,
+    };
+
+    // Only add date fields if they have values (MongoDB doesn't accept undefined)
+    if (taskData.startDate) {
+      doc.startDate = new Date(taskData.startDate);
+    }
+    if (taskData.dueDate) {
+      doc.dueDate = new Date(taskData.dueDate);
+    }
+
+    const insertResult = await collections.tasks.insertOne(doc);
+
     return {
       done: true,
-      data: savedTask,
+      data: { ...doc, _id: insertResult.insertedId },
       message: 'Task created successfully'
     };
   } catch (error) {
@@ -26,85 +62,6 @@ export const createTask = async (companyId, taskData) => {
     };
   }
 };
-
-export const getTasks = async (companyId, filters = {}) => {
-  try {
-    const collections = getTenantCollections(companyId);
-
-    const query = {
-      isDeleted: { $ne: true }
-    };
-
-
-    if (filters.projectId) {
-      query.projectId = filters.projectId;
-    }
-
-    if (filters.status && filters.status !== 'all') {
-      query.status = filters.status;
-    }
-
-    if (filters.priority && filters.priority !== 'all') {
-      query.priority = filters.priority;
-    }
-
-    if (filters.assignee) {
-      query.assignee = { $in: [filters.assignee] };
-    }
-
-    if (filters.search) {
-      const searchRegex = new RegExp(filters.search, 'i');
-      query.$or = [
-        { title: { $regex: searchRegex } },
-        { description: { $regex: searchRegex } },
-        { tags: { $elemMatch: { $regex: searchRegex } } },
-        { assignee: { $elemMatch: { $regex: searchRegex } } },
-        { _id: { $regex: searchRegex } }
-      ];
-    }
-
-    const sortOptions = {};
-    if (filters.sortBy) {
-      sortOptions[filters.sortBy] = filters.sortOrder === 'desc' ? -1 : 1;
-    } else {
-      sortOptions.createdAt = -1;
-    }
-
-    const tasks = await collections.tasks
-      .find(query)
-      .sort(sortOptions)
-      .limit(filters.limit || 50)
-      .skip(filters.skip || 0)
-      .toArray();
-
-    const totalCount = await collections.tasks.countDocuments(query);
-
-    return {
-      done: true,
-      data: tasks,
-      totalCount,
-      message: 'Tasks retrieved successfully'
-    };
-  } catch (error) {
-    console.error('Error getting tasks:', error);
-
-    if (error.message && error.message.includes('buffering timed out')) {
-      console.log('Tasks collection does not exist yet, returning empty results');
-      return {
-        done: true,
-        data: [],
-        totalCount: 0,
-        message: 'Tasks retrieved successfully (collection not created yet)'
-      };
-    }
-
-    return {
-      done: false,
-      error: error.message
-    };
-  }
-};
-
 
 export const getTaskById = async (companyId, taskId) => {
   try {
@@ -255,8 +212,7 @@ export const getTasksByProject = async (companyId, projectId, filters = {}) => {
     const collections = getTenantCollections(companyId);
 
     const query = {
-      projectId,
-      isDeleted: { $ne: true }
+      projectId: projectId,
     };
 
 
@@ -298,116 +254,6 @@ export const getTasksByProject = async (companyId, projectId, filters = {}) => {
     };
   }
 };
-
-
-
-export const getTaskStats = async (companyId, projectId = null) => {
-  try {
-    const collections = getTenantCollections(companyId);
-
-    const matchQuery = {
-      isDeleted: { $ne: true }
-    };
-
-    if (projectId) {
-      matchQuery.projectId = projectId;
-    }
-
-    const stats = await collections.tasks.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          pending: {
-            $sum: {
-              $cond: [
-                { $or: [{ $eq: ['$status', 'Pending'] }, { $eq: ['$status', 'pending'] }] },
-                1,
-                0
-              ]
-            }
-          },
-          inprogress: {
-            $sum: {
-              $cond: [
-                { $or: [
-                  { $eq: ['$status', 'Inprogress'] },
-                  { $eq: ['$status', 'inprogress'] },
-                  { $eq: ['$status', 'In Progress'] }
-                ] },
-                1,
-                0
-              ]
-            }
-          },
-          completed: {
-            $sum: {
-              $cond: [
-                { $or: [{ $eq: ['$status', 'Completed'] }, { $eq: ['$status', 'completed'] }] },
-                1,
-                0
-              ]
-            }
-          },
-          onhold: {
-            $sum: {
-              $cond: [
-                { $or: [
-                  { $eq: ['$status', 'Onhold'] },
-                  { $eq: ['$status', 'onhold'] },
-                  { $eq: ['$status', 'On Hold'] }
-                ] },
-                1,
-                0
-              ]
-            }
-          }
-        }
-      }
-    ]).toArray();
-
-    const result = stats[0] || {
-      total: 0,
-      pending: 0,
-      inprogress: 0,
-      completed: 0,
-      onhold: 0
-    };
-
-    return {
-      done: true,
-      data: result,
-      message: 'Task stats retrieved successfully'
-    };
-  } catch (error) {
-    console.error('Error getting task stats:', error);
-
-    
-    if (error.message && error.message.includes('buffering timed out')) {
-      console.log('Tasks collection does not exist yet, returning empty stats');
-      return {
-        done: true,
-        data: {
-          total: 0,
-          pending: 0,
-          inprogress: 0,
-          completed: 0,
-          onhold: 0
-        },
-        message: 'Task stats retrieved successfully (collection not created yet)'
-      };
-    }
-
-    return {
-      done: false,
-      error: error.message
-    };
-  }
-};
-
-
-
 
 export const getTasksForKanban = async (companyId, projectId = null, filters = {}) => {
   try {
@@ -528,6 +374,83 @@ export const updateTaskStatus = async (companyId, taskId, newStatus) => {
       done: false,
       error: error.message
     };
+  }
+};
+
+export const getTaskStatuses = async (companyId) => {
+  try {
+    const collections = getTenantCollections(companyId);
+
+    const statuses = await collections.taskstatus
+      .find({ active: true })
+      .sort({ order: 1 })
+      .toArray();
+
+    return {
+      done: true,
+      data: statuses,
+      message: 'Task statuses retrieved successfully'
+    };
+  } catch (error) {
+    console.error('Error getting task statuses:', error);
+    
+    if (error.message && error.message.includes('buffering timed out')) {
+      console.log('Task statuses collection does not exist yet, returning empty results');
+      return {
+        done: true,
+        data: [],
+        message: 'Task statuses collection not created yet'
+      };
+    }
+
+    return {
+      done: false,
+      error: error.message
+    };
+  }
+};
+
+export const createTaskStatus = async (companyId, payload) => {
+  try {
+    const collections = getTenantCollections(companyId);
+
+    const name = (payload?.name || "").trim();
+    const colorName = (payload?.colorName || "purple").trim().toLowerCase();
+    const colorHex = payload?.colorHex || "";
+    if (!name) {
+      return { done: false, error: "Status name is required" };
+    }
+
+    const key = (payload?.key || name)
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, "");
+
+    // Determine next order
+    const last = await collections.taskstatus
+      .find({})
+      .sort({ order: -1 })
+      .limit(1)
+      .toArray();
+    const nextOrder = last.length ? (last[0].order || 0) + 1 : 1;
+
+    const doc = {
+      key,
+      name,
+      colorName,
+      colorHex,
+      order: payload?.order || nextOrder,
+      active: payload?.active !== false,
+      createdAt: new Date(),
+    };
+
+    await collections.taskstatus.insertOne(doc);
+
+    return { done: true, data: doc, message: "Task status created" };
+  } catch (error) {
+    console.error("Error creating task status:", error);
+    return { done: false, error: error.message };
   }
 };
 
