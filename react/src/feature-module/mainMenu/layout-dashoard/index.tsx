@@ -7,7 +7,6 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import { Chart } from "primereact/chart";
 import { Calendar } from "primereact/calendar";
-import ProjectModals from "../../../core/modals/projectModal";
 import RequestModals from "../../../core/modals/requestModal";
 import TodoModal from "../../../core/modals/todoModal";
 import { useDispatch } from "react-redux";
@@ -3152,7 +3151,6 @@ const LayoutDemo = () => {
         <Footer />
       </div>
       {/* /Page Wrapper */}
-      <ProjectModals />
       <RequestModals mode = "employee" />
       <TodoModal />
     </>

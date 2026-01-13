@@ -33,7 +33,14 @@ const projectNotesController = (socket, io) => {
         throw new Error("Title, content, and projectId are required");
       }
 
-      const result = await projectNotesService.createProjectNote(companyId, { ...data, companyId });
+      // Add createdBy from socket user information
+      const noteData = {
+        ...data,
+        companyId,
+        createdBy: socket.user?.sub || socket.userMetadata?.userId || 'unknown'
+      };
+
+      const result = await projectNotesService.createProjectNote(companyId, noteData);
       if (!result.done) {
         console.error("[ProjectNotes] Failed to create project note", { error: result.error });
       }

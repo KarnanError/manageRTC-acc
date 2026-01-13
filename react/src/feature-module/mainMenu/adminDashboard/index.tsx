@@ -7,7 +7,6 @@ import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 import { Chart } from "primereact/chart";
 import { Calendar } from "primereact/calendar";
-import ProjectModals from "../../../core/modals/projectModal";
 import RequestModals from "../../../core/modals/requestModal";
 import TodoModal from "../../../core/modals/todoModal";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
@@ -3991,14 +3990,6 @@ const AdminDashboard = () => {
       </div>
       {/* /Page Wrapper */}
 
-      <ProjectModals
-        onProjectCreated={() => {
-          if (socket) {
-            const currentYear = date.getFullYear();
-            socket.emit("admin/dashboard/get-all-data", { year: currentYear });
-          }
-        }}
-      />
       <RequestModals
         onLeaveRequestCreated={() => {
           if (socket) {

@@ -46,6 +46,7 @@ export const getTenantCollections = (tenantDbName) => {
     projects: db.collection("projects"),
     clients: db.collection("clients"),
     tasks: db.collection("tasks"),
+    taskstatus: db.collection("taskstatus"),
     attendance: db.collection("attendance"),
     departments: db.collection("departments"),
     leaves: db.collection("leaves"),
@@ -97,6 +98,7 @@ export const getTenantCollections = (tenantDbName) => {
 
     // notes - application
     notes: db.collection("notes"),
+    projectNotes: db.collection("projectnotes"),
     candidates: db.collection("candidates"),
 
     performanceIndicators: db.collection("performanceIndicators"),

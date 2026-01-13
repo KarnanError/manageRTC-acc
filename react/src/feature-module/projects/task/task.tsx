@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import React, { useState, useEffect, useCallback } from "react";
+import { Dayjs } from "dayjs";
+import { DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
+import { useAuth } from "@clerk/clerk-react";
 import CommonSelect from "../../../core/common/commonSelect";
-import { label } from "yet-another-react-lightbox/*";
-import { DatePicker } from "antd";
 import CommonTagsInput from "../../../core/common/Taginput";
 import CommonTextEditor from "../../../core/common/textEditor";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { useSocket } from "../../../SocketContext";
+import { all_routes } from "../../router/all_routes";
 import Footer from "../../../core/common/footer";
+import { emit } from "process";
 
 const Task = () => {
   const getModalContainer = () => {
@@ -17,50 +19,108 @@ const Task = () => {
     return modalElement ? modalElement : document.body;
   };
 
-  const projectChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Office Management", label: "Office Management" },
-    { value: "Clinic Management", label: "Clinic Management" },
-    { value: "Educational Platform", label: "Educational Platform" },
-  ];
-  const statusChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Inprogress", label: "Inprogress" },
-    { value: "Completed", label: "Completed" },
-    { value: "Pending", label: "Pending" },
-    { value: "Onhold", label: "Onhold" },
-  ];
-  const priorityChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Medium", label: "Medium" },
-    { value: "High", label: "High" },
-    { value: "Low", label: "Low" },
-  ];
-  const [tags, setTags] = useState<string[]>([
-    "Jerald",
-    "Andrew",
-    "Philip",
-    "Davis",
-  ]);
-  const [tags1, setTags1] = useState<string[]>(["Collab", "Rated"]);
   const socket = useSocket() as any;
+  const { userId } = useAuth();
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({});
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     priority: 'all',
     status: 'all',
     project: 'all',
     search: ''
   });
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [projectTeamMembers, setProjectTeamMembers] = useState<any[]>([]);
+  const [loadingTeamMembers, setLoadingTeamMembers] = useState(false);
+  const [addAttachments, setAddAttachments] = useState<File[]>([]);
+  const [editAttachments, setEditAttachments] = useState<File[]>([]);
+  const [addForm, setAddForm] = useState({
+    title: "",
+    projectId: "",
+    assignees: [] as string[],
+    dueDate: null as Dayjs | null,
+    status: "To do",
+    priority: "Medium",
+    description: "",
+    tags: [] as string[],
+  });
+  const [editForm, setEditForm] = useState({
+    title: "",
+    projectId: "",
+    assignees: [] as string[],
+    dueDate: null as Dayjs | null,
+    status: "To do",
+    priority: "Medium",
+    description: "",
+    tags: [] as string[],
+  });
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Derived counts: total and completed tasks per project
+  const projectTaskCounts = React.useMemo(() => {
+    const counts: Record<string, { total: number; completed: number }> = {};
+    tasks.forEach((t: any) => {
+      const pid = t.projectId;
+      if (!pid) return;
+      if (!counts[pid]) counts[pid] = { total: 0, completed: 0 };
+      counts[pid].total += 1;
+      if ((t.status || "").toLowerCase() === "completed") counts[pid].completed += 1;
+    });
+    return counts;
+  }, [tasks]);
+
+  const getProjectCounts = React.useCallback((projectId: string) => {
+    const total = projectTaskCounts[projectId]?.total || 0;
+    const completed = projectTaskCounts[projectId]?.completed || 0;
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, percent };
+  }, [projectTaskCounts]);
+
+  // Dynamic project options from loaded projects
+  const projectChoose = React.useMemo(() => [
+    { value: "Select", label: "Select" },
+    ...projects
+      .filter(project => project.status !== 'Completed')
+      .map(project => ({
+        value: project.projectId,
+        label: project.name || 'Untitled Project'
+      }))
+  ], [projects]);
+
+  // Dynamic employee options for team members (from selected project)
+  const employeeOptions = React.useMemo(() => 
+    projectTeamMembers.map(emp => {
+      const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+      return {
+        value: emp._id,
+        label: name ? `${name} (${emp.employeeId || ''})` : emp.employeeId || 'Unknown'
+      };
+    })
+  , [projectTeamMembers]);
+
+  const statusChoose = [
+    { value: "To do", label: "To do" },
+    { value: "Pending", label: "Pending" },
+    { value: "Inprogress", label: "Inprogress" },
+    { value: "Completed", label: "Completed" },
+    { value: "Onhold", label: "Onhold" },
+    { value: "Review", label: "Review" },
+    { value: "Cancelled", label: "Cancelled" },
+  ];
+  const priorityChoose = [
+    { value: "Medium", label: "Medium" },
+    { value: "High", label: "High" },
+    { value: "Low", label: "Low" },
+  ];
 
   const loadTasks = useCallback(() => {
     if (!socket) return;
 
-    setLoading(true);
     setError(null);
     socket.emit("task:getAllData", filters);
   }, [socket, filters]);
@@ -68,40 +128,168 @@ const Task = () => {
   const loadProjects = useCallback(() => {
     if (!socket) return;
 
+    // Load all projects and filter non-completed ones in frontend
     socket.emit("project:getAll", {});
   }, [socket]);
 
-  const loadEmployees = useCallback(() => {
-    if (!socket) return;
-
-    socket.emit("hrm/employees/get-employee-stats", {});
-  }, [socket]);
-
-  const handleTaskDataResponse = useCallback((response: any) => {
-    setLoading(false);
-    if (response.done && response.data) {
-      setTasks(response.data.tasks || []);
-      setStats(response.data.stats || {});
-    } else {
-      setError(response.error || "Failed to load tasks");
+  const handleProjectSelection = useCallback((projectId: string) => {
+    if (!projectId || projectId === "Select") {
+      setSelectedProject(null);
+      setProjectTeamMembers([]);
+      setAddForm(prev => ({ ...prev, projectId: "", assignees: [] }));
+      return;
     }
-  }, []);
+
+    setSelectedProject(projectId);
+    setAddForm(prev => ({ ...prev, projectId, assignees: [] }));
+    if (!socket) return;
+    setLoadingTeamMembers(true);
+    setProjectTeamMembers([]);
+    socket.emit("project:getTeamMembers", { projectId });
+  }, [socket]);
 
   const handleProjectResponse = useCallback((response: any) => {
     if (response.done && response.data) {
       setProjects(response.data || []);
+      console.log('Loaded projects:', response.data); 
     }
   }, []);
 
   const handleEmployeeResponse = useCallback((response: any) => {
-    if (response.done && response.data && response.data.employees) {
-      setEmployees(response.data.employees || []);
+    setLoadingTeamMembers(false);
+    if (response.done && response.data) {
+      setProjectTeamMembers(response.data.teamMembers || response.data || []);
+    } else {
+      console.error('Failed to load team members:', response.error);
+      setProjectTeamMembers([]);
     }
   }, []);
 
   const handlePriorityFilter = useCallback((priority: string) => {
     setFilters(prev => ({ ...prev, priority }));
   }, []);
+
+  const handleProjectTasksClick = useCallback((projectId: string) => {
+    console.log('Filtering tasks for project:', projectId);
+    if (!projectId) return;
+    if (socket) {
+      socket.emit("task:getByProject", { projectId });
+    }
+  }, [socket]);
+
+  const formatFileSize = useCallback((bytes: number) => {
+    if (!bytes && bytes !== 0) return "";
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.min(Math.floor(Math.log(bytes || 1) / Math.log(1024)), sizes.length - 1);
+    const value = bytes / Math.pow(1024, i);
+    return `${value.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
+  }, []);
+
+  const handleAddFiles = useCallback((files: FileList | null) => {
+    if (!files) return;
+    setAddAttachments(Array.from(files));
+  }, []);
+
+  const handleEditFiles = useCallback((files: FileList | null) => {
+    if (!files) return;
+    setEditAttachments(Array.from(files));
+  }, []);
+
+  const resetAddForm = useCallback(() => {
+    setAddForm({
+      title: "",
+      projectId: "",
+      assignees: [],
+      dueDate: null,
+      status: "To do",
+      priority: "Medium",
+      description: "",
+      tags: [],
+    });
+    setSelectedProject(null);
+    setProjectTeamMembers([]);
+    setLoadingTeamMembers(false);
+    setAddAttachments([]);
+    setFormError(null);
+  }, []);
+
+  const closeAddModal = useCallback(() => {
+    const modalElement = document.getElementById("add_task");
+    const bootstrapAny = (window as any)?.bootstrap;
+    try {
+      const modalInstance = bootstrapAny?.Modal?.getInstance?.(modalElement)
+        || bootstrapAny?.Modal?.getOrCreateInstance?.(modalElement);
+      if (modalInstance) {
+        modalInstance.hide();
+        return;
+      }
+      const closeBtn = modalElement?.querySelector('[data-bs-dismiss="modal"]') as HTMLElement | null;
+      closeBtn?.click?.();
+    } catch {
+      const closeBtn = modalElement?.querySelector('[data-bs-dismiss="modal"]') as HTMLElement | null;
+      closeBtn?.click?.();
+    }
+  }, []);
+
+  const handleTaskCreateResponse = useCallback((response: any) => {
+    setCreatingTask(false);
+    if (response?.done) {
+      message.success("Task created successfully");
+      // Close modal first, then reset form state
+      closeAddModal();
+      resetAddForm();
+      // Reload tasks and projects to refresh all counts and lists
+      loadTasks();
+      loadProjects();
+      return;
+    }
+
+    const errorMsg = response?.error || "Failed to create task";
+    setFormError(errorMsg);
+    message.error(errorMsg);
+  }, [closeAddModal, loadTasks, loadProjects, resetAddForm]);
+
+  const handleTaskCreatedBroadcast = useCallback((response: any) => {
+    if (response?.done) {
+      loadTasks();
+    }
+  }, [loadTasks]);
+
+  const handleAddTaskSubmit = useCallback(() => {
+    if (!socket) {
+      message.error("Unable to create task: socket not connected");
+      return;
+    }
+
+    const { title, projectId, assignees, dueDate, status, priority, description, tags } = addForm;
+
+    if (!title.trim() || !projectId) {
+      const errorMsg = "Title and project are required";
+      setFormError(errorMsg);
+      message.error(errorMsg);
+      return;
+    }
+
+    const payload: any = {
+      title: title.trim(),
+      projectId,
+      assignee: assignees,
+      status,
+      priority,
+      description,
+      tags,
+      createdBy: userId || "unknown",
+      attachments: addAttachments.map(file => ({ filename: file.name, url: "" })),
+    };
+
+    if (dueDate) {
+      payload.dueDate = dueDate.toDate();
+    }
+
+    setCreatingTask(true);
+    setFormError(null);
+    socket.emit("task:create", payload);
+  }, [socket, addForm, userId, addAttachments]);
 
   const getEmployeeById = useCallback((employeeId: string) => {
     if (!employeeId || !employees.length) return null;
@@ -115,26 +303,73 @@ const Task = () => {
     return null;
   }, [employees]);
 
+  const handleTaskByProject = useCallback((response: any) => {
+    if (response.done && response.data) {
+      setTasks(response.data.tasks || []);
+    } else {
+      setError(response.error || "Failed to load tasks for the project");
+    }
+  }, []);
   useEffect(() => {
     if (socket) {
-      socket.on("task:getAllData-response", handleTaskDataResponse);
+      socket.on("task:create-response", handleTaskCreateResponse);
+      socket.on("task:task-created", handleTaskCreatedBroadcast);
       socket.on("project:getAll-response", handleProjectResponse);
-      socket.on("hrm/employees/get-employee-stats-response", handleEmployeeResponse);
+      socket.on("project:getTeamMembers-response", handleEmployeeResponse);
       loadTasks();
       loadProjects();
-      loadEmployees();
+      socket.on("task:getByProject-response", handleTaskByProject);
 
       return () => {
-        socket.off("task:getAllData-response", handleTaskDataResponse);
+        socket.off("task:create-response", handleTaskCreateResponse);
+        socket.off("task:task-created", handleTaskCreatedBroadcast);
         socket.off("project:getAll-response", handleProjectResponse);
-        socket.off("hrm/employees/get-employee-stats-response", handleEmployeeResponse);
+        socket.off("project:getTeamMembers-response", handleEmployeeResponse);
+        socket.off("task:getByProject-response", handleTaskByProject);
       };
     }
-  }, [socket, handleTaskDataResponse, handleProjectResponse, handleEmployeeResponse, loadTasks, loadProjects, loadEmployees]);
+  }, [socket, handleTaskByProject, handleProjectResponse, handleEmployeeResponse, loadTasks, loadProjects, handleTaskCreateResponse, handleTaskCreatedBroadcast]);
 
   useEffect(() => {
     loadTasks();
   }, [filters, loadTasks]);
+
+  // Reset modal state when modals open
+  useEffect(() => {
+    const addTaskModal = document.getElementById('add_task');
+    const editTaskModal = document.getElementById('edit_task');
+
+    const resetModalState = () => {
+      resetAddForm();
+      setEditForm({
+        title: "",
+        projectId: "",
+        assignees: [],
+        dueDate: null,
+        status: "To do",
+        priority: "Medium",
+        description: "",
+        tags: [],
+      });
+      setEditAttachments([]);
+    };
+
+    if (addTaskModal) {
+      addTaskModal.addEventListener('show.bs.modal', resetModalState);
+    }
+    if (editTaskModal) {
+      editTaskModal.addEventListener('show.bs.modal', resetModalState);
+    }
+
+    return () => {
+      if (addTaskModal) {
+        addTaskModal.removeEventListener('show.bs.modal', resetModalState);
+      }
+      if (editTaskModal) {
+        editTaskModal.removeEventListener('show.bs.modal', resetModalState);
+      }
+    };
+  }, [resetAddForm]);
 
   return (
     <>
@@ -175,13 +410,7 @@ const Task = () => {
           <div className="row">
             <div className="col-xl-4">
               <div>
-                {loading ? (
-                  <div className="text-center py-5">
-                    <div className="spinner-border text-primary" role="status">
-                      <span className="visually-hidden">Loading projects...</span>
-                    </div>
-                  </div>
-                ) : error ? (
+                {error ? (
                   <div className="text-center py-5">
                     <i className="ti ti-alert-circle fs-1 text-danger mb-3"></i>
                     <h6 className="text-danger">Error loading projects</h6>
@@ -209,16 +438,29 @@ const Task = () => {
                           </Link>
                           <div>
                             <h6 className="mb-1">
-                              <Link to={`${all_routes.projectdetails}/${project._id}`}>
+                              <span
+                                className={`text-dark text-truncate d-inline-block ${hoveredProjectId === project._id ? "text-primary" : ""}`}
+                                style={{ cursor: "pointer" }}
+                                onMouseEnter={() => setHoveredProjectId(project._id)}
+                                onMouseLeave={() => setHoveredProjectId(null)}
+                                onClick={() => handleProjectTasksClick(project.projectId)}
+                              >
                                 {project.name || 'Untitled Project'}
-                              </Link>
+                              </span>
                             </h6>
                             <div className="d-flex align-items-center">
-                              <span>{project.totalTasks || 0} tasks</span>
+                              <span
+                                className="mx-1"
+                                
+                                title="Show tasks for this project"
+                              >
+                               {project.taskCount} tasks
+                                
+                              </span>
                               <span className="mx-1">
                                 <i className="ti ti-point-filled text-primary" />
                               </span>
-                              <span>{project.completedTasks || 0} Completed</span>
+                              <span>{project.completedtaskCount} Completed</span>
                             </div>
                           </div>
                         </div>
@@ -246,15 +488,16 @@ const Task = () => {
                               <span className="mb-1 d-block">Project Lead</span>
                               <h6 className="fw-normal d-flex align-items-center">
                                 {(() => {
-                                  const managerId = project.projectManager?.[0] || project.teamLead?.[0];
-                                  const employee = managerId ? getEmployeeById(managerId) : null;
+                                  const teamLead = Array.isArray(project.teamleadName) && project.teamleadName.length > 0
+                                    ? project.teamleadName[0]
+                                    : null;
                                   
-                                  if (employee) {
+                                  if (teamLead && teamLead.name) {
                                     return (
                                       <>
-                                        <span className="text-truncate" title={`${employee.name} (${employee.employeeId})`}>
-                                          {employee.name}
-                                          <small className="text-muted ms-1">({employee.employeeId})</small>
+                                        <span className="text-truncate" title={`${teamLead.name} (${teamLead.employeeId || "N/A"})`}>
+                                          {teamLead.name}
+                                          <small className="text-muted ms-1">({teamLead.employeeId || "N/A"})</small>
                                         </span>
                                       </>
                                     );
@@ -287,9 +530,7 @@ const Task = () => {
                               <div>
                                 <div className="d-flex align-items-center justify-content-between mb-1">
                                   <small className="text-dark">
-                                    {project.totalTasks > 0
-                                      ? Math.round((project.completedTasks || 0) / project.totalTasks * 100)
-                                      : 0}% Completed
+                                    {getProjectCounts(project._id).percent}% Completed
                                   </small>
                                 </div>
                                 <div className="progress progress-xs">
@@ -297,14 +538,11 @@ const Task = () => {
                                     className="progress-bar"
                                     role="progressbar"
                                     style={{
-                                      width: `${project.totalTasks > 0
-                                        ? Math.round((project.completedTasks || 0) / project.totalTasks * 100)
-                                        : 0}%`,
-                                      backgroundColor: project.totalTasks > 0 && (project.completedTasks || 0) / project.totalTasks > 0.8
-                                        ? '#28a745' // green for >80%
-                                        : project.totalTasks > 0 && (project.completedTasks || 0) / project.totalTasks > 0.5
-                                          ? '#17a2b8' // blue for >50%
-                                          : '#dc3545' // red for <50%
+                                      width: `${getProjectCounts(project._id).percent}%`,
+                                      backgroundColor: (() => {
+                                        const pc = getProjectCounts(project._id).percent;
+                                        return pc > 80 ? '#28a745' : pc > 50 ? '#17a2b8' : '#dc3545';
+                                      })()
                                     }}
                                   />
                                 </div>
@@ -614,11 +852,22 @@ const Task = () => {
             </div>
             <form>
               <div className="modal-body">
+                {formError && (
+                  <div className="alert alert-danger" role="alert">
+                    {formError}
+                  </div>
+                )}
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
                       <label className="form-label">Title</label>
-                      <input type="text" className="form-control" />
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={addForm.title}
+                        onChange={(e) => setAddForm(prev => ({ ...prev, title: e.target.value }))}
+                        placeholder="Task title"
+                      />
                     </div>
                   </div>
                   <div className="col-md-6">
@@ -633,6 +882,8 @@ const Task = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={addForm.dueDate}
+                          onChange={(value) => setAddForm(prev => ({ ...prev, dueDate: value }))}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -646,27 +897,43 @@ const Task = () => {
                       <CommonSelect
                         className="select"
                         options={projectChoose}
-                        defaultValue={projectChoose[1]}
+                        value={projectChoose.find(opt => opt.value === addForm.projectId) || null}
+                        onChange={(option: any) => handleProjectSelection(option?.value)}
                       />
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label me-2">Team Members</label>
-                      <CommonTagsInput
-                        value={tags}
-                        onChange={setTags}
-                        placeholder="Add new"
-                        className="custom-input-class" // Optional custom class
+                      <label className="form-label me-2">
+                        Team Members
+                        {loadingTeamMembers && (
+                          <span className="spinner-border spinner-border-sm ms-2" role="status">
+                            <span className="visually-hidden">Loading...</span>
+                          </span>
+                        )}
+                      </label>
+                      <CommonSelect
+                        className="select"
+                        options={[{ value: "Select", label: "Select" }, ...employeeOptions]}
+                        isSearchable
+                        disabled={!selectedProject || loadingTeamMembers}
+                        value={employeeOptions.find(opt => opt.value === addForm.assignees[0]) || null}
+                        onChange={(option: any) => setAddForm(prev => ({ ...prev, assignees: option?.value ? [option.value] : [] }))}
                       />
+                      {!selectedProject && (
+                        <small className="text-muted mt-1 d-block">Please select a project first</small>
+                      )}
+                      {loadingTeamMembers && (
+                        <small className="text-info mt-1 d-block">Loading team members...</small>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">Tag</label>
                       <CommonTagsInput
-                        value={tags1}
-                        onChange={setTags1}
+                        value={addForm.tags}
+                        onChange={(value) => setAddForm(prev => ({ ...prev, tags: value }))}
                         placeholder="Add new"
                         className="custom-input-class" // Optional custom class
                       />
@@ -675,10 +942,11 @@ const Task = () => {
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">Status</label>
-                      <CommonSelect
-                        className="select"
-                        options={statusChoose}
-                        defaultValue={statusChoose[1]}
+                      <input
+                        type="text"
+                        className="form-control"
+                        value="To do"
+                        readOnly
                       />
                     </div>
                   </div>
@@ -688,63 +956,18 @@ const Task = () => {
                       <CommonSelect
                         className="select"
                         options={priorityChoose}
-                        defaultValue={priorityChoose[1]}
+                        value={priorityChoose.find(opt => opt.value === addForm.priority) || null}
+                        onChange={(option: any) => setAddForm(prev => ({ ...prev, priority: option?.value || "Medium" }))}
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Who Can See this Task?</label>
-                    <div className="d-flex align-items-center mb-3">
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault1"
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault1"
-                        >
-                          Public
-                        </label>
-                      </div>
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault2"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault2"
-                        >
-                          Private
-                        </label>
-                      </div>
-                      <div className="form-check ">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault3"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault3"
-                        >
-                          Admin Only
-                        </label>
-                      </div>
                     </div>
                   </div>
                   <div className="col-lg-12">
                     <div className="mb-3">
                       <label className="form-label">Descriptions</label>
-                      <CommonTextEditor />
+                      <CommonTextEditor
+                        defaultValue={addForm.description}
+                        onChange={(value) => setAddForm(prev => ({ ...prev, description: value }))}
+                      />
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -757,27 +980,29 @@ const Task = () => {
                             type="file"
                             className="form-control image-sign"
                             multiple
+                            onChange={(e) => handleAddFiles(e.target.files)}
                           />
                         </div>
                       </div>
-                      <div className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                        <div className="d-flex align-items-center">
-                          <h6 className="fs-12 fw-medium me-1">Logo.zip</h6>
-                          <span className="badge badge-soft-info">21MB </span>
-                        </div>
-                        <Link to="#" className="btn btn-sm btn-icon">
-                          <i className="ti ti-trash" />
-                        </Link>
-                      </div>
-                      <div className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex align-items-center">
-                          <h6 className="fs-12 fw-medium me-1">Files.zip</h6>
-                          <span className="badge badge-soft-info">25MB </span>
-                        </div>
-                        <Link to="#" className="btn btn-sm btn-icon">
-                          <i className="ti ti-trash" />
-                        </Link>
-                      </div>
+                      {addAttachments.length === 0 ? (
+                        <p className="text-muted small mb-0">No files selected</p>
+                      ) : (
+                        addAttachments.map((file, idx) => (
+                          <div key={idx} className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
+                            <div className="d-flex align-items-center">
+                              <h6 className="fs-12 fw-medium me-1 text-truncate" style={{ maxWidth: '200px' }} title={file.name}>{file.name}</h6>
+                              <span className="badge badge-soft-info">{formatFileSize(file.size)}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon"
+                              onClick={() => setAddAttachments(prev => prev.filter((_, i) => i !== idx))}
+                            >
+                              <i className="ti ti-trash" />
+                            </button>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -792,10 +1017,11 @@ const Task = () => {
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleAddTaskSubmit}
+                  disabled={creatingTask}
                 >
-                  Add New Task
+                  {creatingTask ? "Saving..." : "Add New Task"}
                 </button>
               </div>
             </form>
@@ -823,7 +1049,13 @@ const Task = () => {
                   <div className="col-12">
                     <div className="mb-3">
                       <label className="form-label">Title</label>
-                      <input type="text" className="form-control" />
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editForm.title}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                        placeholder="Task title"
+                      />
                     </div>
                   </div>
                   <div className="col-md-6">
@@ -838,6 +1070,8 @@ const Task = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editForm.dueDate}
+                          onChange={(value) => setEditForm(prev => ({ ...prev, dueDate: value }))}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -851,27 +1085,46 @@ const Task = () => {
                       <CommonSelect
                         className="select"
                         options={projectChoose}
-                        defaultValue={projectChoose[1]}
+                        value={projectChoose.find(opt => opt.value === editForm.projectId) || null}
+                        onChange={(option: any) => {
+                          handleProjectSelection(option?.value);
+                          setEditForm(prev => ({ ...prev, projectId: option?.value || "", assignees: [] }));
+                        }}
                       />
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label me-2">Team Members</label>
-                      <CommonTagsInput
-                        value={tags}
-                        onChange={setTags}
-                        placeholder="Add new"
-                        className="custom-input-class" // Optional custom class
+                      <label className="form-label me-2">
+                        Team Members
+                        {loadingTeamMembers && (
+                          <span className="spinner-border spinner-border-sm ms-2" role="status">
+                            <span className="visually-hidden">Loading...</span>
+                          </span>
+                        )}
+                      </label>
+                      <CommonSelect
+                        className="select"
+                        options={[{ value: "Select", label: "Select" }, ...employeeOptions]}
+                        isSearchable
+                        disabled={!selectedProject || loadingTeamMembers}
+                        value={employeeOptions.find(opt => opt.value === editForm.assignees[0]) || null}
+                        onChange={(option: any) => setEditForm(prev => ({ ...prev, assignees: option?.value ? [option.value] : [] }))}
                       />
+                      {!selectedProject && (
+                        <small className="text-muted mt-1 d-block">Please select a project first</small>
+                      )}
+                      {loadingTeamMembers && (
+                        <small className="text-info mt-1 d-block">Loading team members...</small>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">Tag</label>
                       <CommonTagsInput
-                        value={tags1}
-                        onChange={setTags1}
+                        value={editForm.tags}
+                        onChange={(value) => setEditForm(prev => ({ ...prev, tags: value }))}
                         placeholder="Add new"
                         className="custom-input-class" // Optional custom class
                       />
@@ -880,10 +1133,11 @@ const Task = () => {
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">Status</label>
-                      <CommonSelect
-                        className="select"
-                        options={statusChoose}
-                        defaultValue={statusChoose[1]}
+                      <input
+                        type="text"
+                        className="form-control"
+                        value="To do"
+                        readOnly
                       />
                     </div>
                   </div>
@@ -893,63 +1147,18 @@ const Task = () => {
                       <CommonSelect
                         className="select"
                         options={priorityChoose}
-                        defaultValue={priorityChoose[1]}
+                        value={priorityChoose.find(opt => opt.value === editForm.priority) || null}
+                        onChange={(option: any) => setEditForm(prev => ({ ...prev, priority: option?.value || "Medium" }))}
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Who Can See this Task?</label>
-                    <div className="d-flex align-items-center mb-3">
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault1"
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault1"
-                        >
-                          Public
-                        </label>
-                      </div>
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault2"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault2"
-                        >
-                          Private
-                        </label>
-                      </div>
-                      <div className="form-check ">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault3"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault3"
-                        >
-                          Admin Only
-                        </label>
-                      </div>
                     </div>
                   </div>
                   <div className="col-lg-12">
                     <div className="mb-3">
                       <label className="form-label">Descriptions</label>
-                      <div className="summernote" />
+                      <CommonTextEditor
+                        defaultValue={editForm.description}
+                        onChange={(value) => setEditForm(prev => ({ ...prev, description: value }))}
+                      />
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -962,27 +1171,29 @@ const Task = () => {
                             type="file"
                             className="form-control image-sign"
                             multiple
+                            onChange={(e) => handleEditFiles(e.target.files)}
                           />
                         </div>
                       </div>
-                      <div className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                        <div className="d-flex align-items-center">
-                          <h6 className="fs-12 fw-medium me-1">Logo.zip</h6>
-                          <span className="badge badge-soft-info">21MB </span>
-                        </div>
-                        <Link to="#" className="btn btn-sm btn-icon">
-                          <i className="ti ti-trash" />
-                        </Link>
-                      </div>
-                      <div className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex align-items-center">
-                          <h6 className="fs-12 fw-medium me-1">Files.zip</h6>
-                          <span className="badge badge-soft-info">25MB </span>
-                        </div>
-                        <Link to="#" className="btn btn-sm btn-icon">
-                          <i className="ti ti-trash" />
-                        </Link>
-                      </div>
+                      {editAttachments.length === 0 ? (
+                        <p className="text-muted small mb-0">No files selected</p>
+                      ) : (
+                        editAttachments.map((file, idx) => (
+                          <div key={idx} className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
+                            <div className="d-flex align-items-center">
+                              <h6 className="fs-12 fw-medium me-1 text-truncate" style={{ maxWidth: '200px' }} title={file.name}>{file.name}</h6>
+                              <span className="badge badge-soft-info">{formatFileSize(file.size)}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon"
+                              onClick={() => setEditAttachments(prev => prev.filter((_, i) => i !== idx))}
+                            >
+                              <i className="ti ti-trash" />
+                            </button>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
