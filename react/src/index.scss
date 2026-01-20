@@ -30,6 +30,27 @@
 @import 'swiper/css/virtual';
 @import "./style/scss/main.scss";
 
+// Local Inter variable font (normal and italic)
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./style/fonts/Inter-VariableFont_opsz,wght.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./style/fonts/Inter-Italic-VariableFont_opsz,wght.ttf") format("truetype");
+}
+
+body {
+  font-family: $font-family-primary;
+}
+
 a {
   text-decoration: none;
   color: #262a2a;
@@ -191,7 +212,7 @@ div.css-t3ipsp-control:hover {
 }
 
 span.p-dropdown-label.p-inputtext span {
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
 }
 
 // datepicker
@@ -870,7 +891,7 @@ div.sidebar-themesettings .input-themeselect input[type="radio"]:checked~label .
 .ant-picker-input>input {
   font-size: 14px;
   font-weight: 400;
-  font-family: "Roboto", sans-serif !important;
+  font-family: $font-family-primary !important;
   color: #202C4B;
 }
 
@@ -1257,7 +1278,7 @@ div.css-1xc3v61-indicatorContainer:hover {
 }
 
 .ant-select.ant-select-outlined {
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
 }
 
 .ant-select.ant-select-outlined:not(.ant-select-disabled):not(.ant-select-customize-input):not(.ant-pagination-size-changer):hover .ant-select-selector {
@@ -1265,7 +1286,7 @@ div.css-1xc3v61-indicatorContainer:hover {
 }
 
 div.ant-select-item .ant-select-item-option-content {
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
   color: #6A7287;
 }
 
@@ -1292,7 +1313,7 @@ div.ant-select-focused.ant-select-outlined:not(.ant-select-disabled):not(.ant-se
 th.ant-table-cell {
   color: #202C4B;
   font-size: 14px;
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
 }
 
 .table.ant-table-wrapper .ant-table-thead>tr>th,
@@ -1305,11 +1326,11 @@ th.ant-table-cell {
 }
 
 .table.ant-table-wrapper .ant-table {
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
 }
 
 div.ant-picker-date-panel {
-  font-family: "Roboto", sans-serif;
+  font-family: $font-family-primary;
   font-size: 13px;
 }
 

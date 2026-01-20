@@ -1099,7 +1099,7 @@ const Project = () => {
                               placeholder="Select team members"
                               className="basic-multi-select"
                               classNamePrefix="select"
-                              getOptionLabel={(option: any) => `${option.label} - ${option.position}`}
+                              getOptionLabel={(option: any) => `${option.label} - ${option.employeeId}`}
                               getOptionValue={(option: any) => option.value}
                             />
                             <small className="form-text text-muted">
