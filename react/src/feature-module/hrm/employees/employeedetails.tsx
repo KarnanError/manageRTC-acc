@@ -14,6 +14,7 @@ import { toast, ToastContainer } from "react-toastify";
 import Footer from "../../../core/common/footer";
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
+import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
 
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -284,6 +285,23 @@ interface Resignation {
     noticeDate: string;
     reason?: string;
     notes?: string;
+}
+
+interface Termination {
+    terminationId: string;
+    employeeName: string | null;
+    employeeId: string | null;
+    employee_id?: string | null;
+    employeeImage?: string | null;
+    department: string | null;
+    departmentId: string | null;
+    designation?: string | null;
+    terminationDate: string;
+    noticeDate: string;
+    reason: string;
+    terminationType: string;
+    status?: string;
+    lastWorkingDate?: string;
 }
 
 const EmployeeDetails = () => {
@@ -944,6 +962,8 @@ const EmployeeDetails = () => {
     const [promotionsLoading, setPromotionsLoading] = useState(false);
     const [resignations, setResignations] = useState<Resignation[]>([]);
     const [resignationsLoading, setResignationsLoading] = useState(false);
+    const [terminations, setTerminations] = useState<Termination[]>([]);
+    const [terminationsLoading, setTerminationsLoading] = useState(false);
 
     // Initialize edit form data when employee data is loaded
     useEffect(() => {
@@ -1072,7 +1092,11 @@ const EmployeeDetails = () => {
             return;
         }
         
-        const payload = {
+        // Lifecycle statuses that should only be set through HR workflows
+        const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
+        const currentStatus = editFormData.status || "Active";
+        
+        const payload: any = {
             employeeId: editFormData.employeeId || "",
             firstName: editFormData.firstName || "",
             lastName: editFormData.lastName || "",
@@ -1100,8 +1124,13 @@ const EmployeeDetails = () => {
             dateOfJoining: editFormData.dateOfJoining || null,
             about: editFormData.about || "",
             avatarUrl: editFormData.avatarUrl || "",
-            status: editFormData.status || "Active",
         };
+        
+        // Only include status if it's NOT a lifecycle status
+        // Lifecycle statuses should only be set through termination/resignation workflows
+        if (!lifecycleStatuses.includes(currentStatus)) {
+            payload.status = currentStatus;
+        }
 
         try {
             socket.emit("hrm/employees/update", payload);
@@ -1172,6 +1201,11 @@ const EmployeeDetails = () => {
         setResignationsLoading(true);
         console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
         socket.emit("hr/resignation/resignationlist", { type: "alltime" });
+
+        // Fetch terminations for this employee
+        setTerminationsLoading(true);
+        console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
+        socket.emit("hr/termination/terminationlist", { type: "alltime" });
 
         const handleDetailsResponse = (response: any) => {
             if (!isMounted) return;
@@ -1398,6 +1432,21 @@ const EmployeeDetails = () => {
             }
         };
 
+        const handleGetTerminationsResponse = (response: any) => {
+            console.log('[EmployeeDetails] Received terminations response:', response);
+            setTerminationsLoading(false);
+            if (!isMounted) return;
+
+            if (response.done) {
+                console.log('[EmployeeDetails] Setting terminations, count:', response.data?.length || 0);
+                console.log('[EmployeeDetails] Termination data:', response.data);
+                setTerminations(response.data || []);
+            } else {
+                console.error("[EmployeeDetails] Failed to fetch terminations:", response.error);
+                setTerminations([]);
+            }
+        };
+
         socket.on("hrm/employees/get-details-response", handleDetailsResponse);
         socket.on("hrm/employees/update-response", handleUpdateEmployeeResponse);
         socket.on("hrm/employees/update-bank-response", handleBankUpdateResponse);
@@ -1414,6 +1463,7 @@ const EmployeeDetails = () => {
         socket.on("promotion:create:response", handlePromotionCreateResponse);
         socket.on("promotion:update:response", handlePromotionUpdateResponse);
         socket.on("hr/resignation/resignationlist-response", handleGetResignationsResponse);
+        socket.on("hr/termination/terminationlist-response", handleGetTerminationsResponse);
 
         return () => {
             socket.off("hrm/employees/get-details-response", handleDetailsResponse);
@@ -1432,6 +1482,7 @@ const EmployeeDetails = () => {
             socket.off("promotion:create:response", handlePromotionCreateResponse);
             socket.off("promotion:update:response", handlePromotionUpdateResponse);
             socket.off("hr/resignation/resignationlist-response", handleGetResignationsResponse);
+            socket.off("hr/termination/terminationlist-response", handleGetTerminationsResponse);
             isMounted = false;
             clearTimeout(timeoutId);
         };
@@ -1569,6 +1620,64 @@ const EmployeeDetails = () => {
     };
 
     const employeeResignation = getEmployeeResignation();
+
+    // Get employee's most recent termination (if any)
+    const getEmployeeTermination = (): Termination | null => {
+        if (!employee || !terminations.length) {
+            console.log('[EmployeeDetails] No termination data:', { 
+                hasEmployee: !!employee, 
+                terminationsCount: terminations.length 
+            });
+            return null;
+        }
+
+        if (!employee._id && !employee.employeeId) {
+            console.log('[EmployeeDetails] Employee missing ID fields:', {
+                _id: employee._id,
+                employeeId: employee.employeeId
+            });
+            return null;
+        }
+
+        console.log('[EmployeeDetails] Checking terminations:', {
+            employeeId: employee._id,
+            employeeEmployeeId: employee.employeeId,
+            totalTerminations: terminations.length,
+            terminationEmployeeIds: terminations.map(t => ({
+                terminationId: t.terminationId,
+                employeeId: t.employeeId,
+                employeeName: t.employeeName
+            }))
+        });
+
+        // Filter terminations for this specific employee
+        const employeeTerminations = terminations.filter(termination => {
+            // Handle both employee_id (ObjectId string) and employeeId (EMP-XXXX)
+            const matches = termination.employee_id === employee._id || 
+                           termination.employee_id === employee.employeeId ||
+                           termination.employee_id === employeeId; // Also check the route param
+            
+            if (matches) {
+                console.log('[EmployeeDetails] Found matching termination:', termination);
+            }
+            
+            return matches;
+        });
+
+        console.log('[EmployeeDetails] Filtered terminations for employee:', employeeTerminations.length);
+
+        if (employeeTerminations.length === 0) return null;
+
+        // Sort by termination date (most recent first) and return the first one
+        const sortedTerminations = employeeTerminations.sort((a, b) => 
+            new Date(b.terminationDate).getTime() - new Date(a.terminationDate).getTime()
+        );
+
+        console.log('[EmployeeDetails] Returning termination:', sortedTerminations[0]);
+        return sortedTerminations[0];
+    };
+
+    const employeeTermination = getEmployeeTermination();
 
     if (!employeeId) {
         return (
@@ -1869,6 +1978,25 @@ const EmployeeDetails = () => {
                                                         title="Click to view resignation details"
                                                     >
                                                         {dayjs(employeeResignation.resignationDate).format("DD MMM YYYY")}
+                                                        <i className="ti ti-external-link ms-1 fs-12" />
+                                                    </Link>
+                                                </div>
+                                            )}
+                                            {employeeTermination && (
+                                                <div className="d-flex align-items-center justify-content-between mt-2">
+                                                    <span className="d-inline-flex align-items-center">
+                                                        <i className="ti ti-user-x me-2" />
+                                                        Termination
+                                                    </span>
+                                                    <Link
+                                                        to="#"
+                                                        className="text-danger fw-medium mb-0 text-decoration-none"
+                                                        data-bs-toggle="modal"
+                                                        data-inert={true}
+                                                        data-bs-target="#view_employee_termination"
+                                                        title="Click to view termination details"
+                                                    >
+                                                        {dayjs(employeeTermination.terminationDate).format("DD MMM YYYY")}
                                                         <i className="ti ti-external-link ms-1 fs-12" />
                                                     </Link>
                                                 </div>
@@ -3204,7 +3332,7 @@ const EmployeeDetails = () => {
                                                         <label className="form-label">
                                                             Status <span className="text-danger">*</span>
                                                         </label>
-                                                        <div className="d-flex align-items-center">
+                                                        <div>
                                                             <div className="form-check form-switch">
                                                                 <input
                                                                     className="form-check-input"
@@ -3212,14 +3340,32 @@ const EmployeeDetails = () => {
                                                                     role="switch"
                                                                     id="editStatusSwitch"
                                                                     checked={editFormData.status === "Active"}
-                                                                    onChange={(e) =>
+                                                                    disabled={
+                                                                        editFormData.status?.toLowerCase() !== "active" &&
+                                                                        editFormData.status?.toLowerCase() !== "inactive"
+                                                                    }
+                                                                    onChange={(e) => {
+                                                                        const currentStatus = editFormData.status?.toLowerCase();
+                                                                        // Only allow editing if status is Active or Inactive
+                                                                        if (currentStatus !== "active" && currentStatus !== "inactive") {
+                                                                            return;
+                                                                        }
                                                                         setEditFormData(prev => ({
                                                                             ...prev,
                                                                             status: e.target.checked ? "Active" : "Inactive"
-                                                                        }))
-                                                                    }
+                                                                        }));
+                                                                    }}
                                                                 />
-                                                                <label className="form-check-label" htmlFor="editStatusSwitch">
+                                                                <label 
+                                                                    className="form-check-label" 
+                                                                    htmlFor="editStatusSwitch"
+                                                                    style={{
+                                                                        opacity: (
+                                                                            editFormData.status?.toLowerCase() !== "active" &&
+                                                                            editFormData.status?.toLowerCase() !== "inactive"
+                                                                        ) ? 0.6 : 1
+                                                                    }}
+                                                                >
                                                                     <span
                                                                         className={`badge ${editFormData.status === "Active"
                                                                             ? "badge-success"
@@ -3369,10 +3515,16 @@ const EmployeeDetails = () => {
                                                 <button 
                                                     type="button" 
                                                     className="btn btn-primary"
-                                                    data-bs-toggle="modal"
-                                                    data-inert={true}
-                                                    data-bs-target="#success_modal"
-                                                    onClick={handlePermissionUpdateSubmit}
+                                                    onClick={(e) => {
+                                                        handlePermissionUpdateSubmit(e);
+                                                        // Close modal after submission
+                                                        setTimeout(() => {
+                                                            const closeButton = document.querySelector('#edit_employee [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                                                            if (closeButton) {
+                                                                closeButton.click();
+                                                            }
+                                                        }, 100);
+                                                    }}
                                                     disabled={loading}
                                                 >
                                                     {loading ? "Saving..." : "Save"}
@@ -4092,43 +4244,6 @@ const EmployeeDetails = () => {
                 </div>
             </div>
             {/* /Add Experience */}
-            {/* Add Employee Success */}
-            <div className="modal fade" id="success_modal" role="dialog">
-                <div className="modal-dialog modal-dialog-centered modal-sm">
-                    <div className="modal-content">
-                        <div className="modal-body">
-                            <div className="text-center p-3">
-                                <span className="avatar avatar-lg avatar-rounded bg-success mb-3">
-                                    <i className="ti ti-check fs-24" />
-                                </span>
-                                <h5 className="mb-2">Employee Added Successfully</h5>
-                                <p className="mb-3">
-                                    Stephan Peralt has been added with Employee ID :
-                                    <span className="text-primary">{employee?.employeeId || '-'}</span>
-                                </p>
-                                <div>
-                                    <div className="row g-2">
-                                        <div className="col-6">
-                                            <Link to={all_routes.employeeList} className="btn btn-dark w-100">
-                                                Back to List
-                                            </Link>
-                                        </div>
-                                        <div className="col-6">
-                                            <Link
-                                                to={all_routes.employeedetails}
-                                                className="btn btn-primary w-100"
-                                            >
-                                                Detail Page
-                                            </Link>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {/* /Add Client Success */}
             {/* Add Statuorty */}
             <div className="modal fade" id="add_bank_satutory">
                 <div className="modal-dialog modal-dialog-centered modal-lg">
@@ -4535,6 +4650,10 @@ const EmployeeDetails = () => {
             {/* Resignation Details Modal */}
             <ResignationDetailsModal resignation={employeeResignation} modalId="view_employee_resignation" />
             {/* /Resignation Details Modal */}
+
+            {/* Termination Details Modal */}
+            <TerminationDetailsModal termination={employeeTermination} modalId="view_employee_termination" />
+            {/* /Termination Details Modal */}
         </>
     )
 }

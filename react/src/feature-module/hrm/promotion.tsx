@@ -721,7 +721,15 @@ const Promotion = () => {
           }, 300);
         }, 100);
       } else {
-        toast.error(response.error || "Failed to add promotion");
+        // Handle field-level errors from backend validation
+        const errorMessage = response.error || "Failed to add promotion";
+        
+        // Check if it's an employee lifecycle conflict
+        if (errorMessage.includes("promotion") || errorMessage.includes("resignation") || errorMessage.includes("termination")) {
+          setAddErrors(prev => ({ ...prev, employeeId: errorMessage }));
+        }
+        
+        toast.error(errorMessage);
         console.error("[Promotion] Create failed:", response);
       }
     });

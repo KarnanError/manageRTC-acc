@@ -4,6 +4,71 @@ import { generateId } from "../../utils/generateId.js";
 import { getTenantCollections, client } from "../../config/db.js";
 import { maskAccountNumber } from "../../utils/maskAccNo.js";
 
+/**
+ * Check if employee has active lifecycle records (resignation/termination)
+ * that should control their status
+ */
+export const checkEmployeeLifecycleStatus = async (companyId, employeeId) => {
+  try {
+    const collections = getTenantCollections(companyId);
+    
+    // Get employee details
+    const employee = await collections.employees.findOne(
+      { employeeId: employeeId },
+      { projection: { _id: 1, firstName: 1, lastName: 1 } }
+    );
+
+    if (!employee) {
+      return { hasLifecycleRecord: false };
+    }
+
+    const employeeObjectId = employee._id.toString();
+
+    // Check for active resignation (pending or approved)
+    const activeResignation = await collections.resignation.findOne({
+      employeeId: employeeObjectId,
+      resignationStatus: { $in: ["pending", "approved"] }
+    });
+
+    if (activeResignation) {
+      return {
+        hasLifecycleRecord: true,
+        type: "resignation",
+        status: activeResignation.resignationStatus,
+        effectiveDate: activeResignation.effectiveDate || activeResignation.noticeDate,
+        canChangeStatus: false,
+        message: "Employee status is managed by resignation workflow"
+      };
+    }
+
+    // Check for active termination (pending or processed)
+    const activeTermination = await collections.termination.findOne({
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      terminationStatus: { $in: ["pending", "processed"] }
+    });
+
+    if (activeTermination) {
+      return {
+        hasLifecycleRecord: true,
+        type: "termination",
+        status: activeTermination.terminationStatus,
+        lastWorkingDate: activeTermination.lastWorkingDate,
+        canChangeStatus: false,
+        message: "Employee status is managed by termination workflow"
+      };
+    }
+
+    // No lifecycle records - status can be changed manually
+    return {
+      hasLifecycleRecord: false,
+      canChangeStatus: true
+    };
+  } catch (error) {
+    console.error("Error checking employee lifecycle status:", error);
+    return { hasLifecycleRecord: false, error: error.message };
+  }
+};
+
 export const getEmployeesStats = async (companyId, hrId, filters = {}) => {
   try {
     console.log("reqyesr");
@@ -460,6 +525,73 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
 
     // Remove _id from updateData if present
     const { employeeId, ...updateData } = payload;
+
+    // CRITICAL: Validate status changes against lifecycle records
+    if (updateData.status) {
+      // Get employee's ObjectId for lifecycle record lookups
+      const employee = await collections.employees.findOne(
+        { employeeId: employeeId },
+        { projection: { _id: 1, firstName: 1, lastName: 1 } }
+      );
+
+      if (!employee) {
+        return { done: false, error: "Employee not found" };
+      }
+
+      const employeeObjectId = employee._id.toString();
+
+      // Check for active resignation records (pending or approved status)
+      const activeResignation = await collections.resignation.findOne({
+        employeeId: employeeObjectId,
+        resignationStatus: { $in: ["pending", "approved"] }
+      });
+
+      // Check for active termination records (pending or processed status)
+      const activeTermination = await collections.termination.findOne({
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        terminationStatus: { $in: ["pending", "processed"] }
+      });
+
+      // Block manual status changes if lifecycle records exist
+      if (activeResignation) {
+        return {
+          done: false,
+          error: "Status cannot be changed manually while resignation is active",
+          field: "status",
+          message: "This employee has an active resignation record. Status is managed by the resignation workflow.",
+          lifecycleRecord: {
+            type: "resignation",
+            status: activeResignation.resignationStatus,
+            effectiveDate: activeResignation.effectiveDate || activeResignation.noticeDate
+          }
+        };
+      }
+
+      if (activeTermination) {
+        return {
+          done: false,
+          error: "Status cannot be changed manually while termination is active",
+          field: "status",
+          message: "This employee has an active termination record. Status is managed by the termination workflow.",
+          lifecycleRecord: {
+            type: "termination",
+            status: activeTermination.terminationStatus,
+            lastWorkingDate: activeTermination.lastWorkingDate
+          }
+        };
+      }
+
+      // If trying to set status to anything other than Active/Inactive, validate
+      const allowedManualStatuses = ["Active", "Inactive", "active", "inactive"];
+      if (!allowedManualStatuses.includes(updateData.status)) {
+        return {
+          done: false,
+          error: `Status '${updateData.status}' can only be set through HR lifecycle workflows`,
+          field: "status",
+          message: "Only 'Active' or 'Inactive' status can be set manually. Other statuses are managed by resignation/termination workflows."
+        };
+      }
+    }
 
     // Optionally, add updatedAt field
     updateData.updatedAt = new Date();

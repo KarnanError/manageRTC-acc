@@ -179,7 +179,7 @@ const Header = (): JSX.Element => {
 								<span className="input-icon-addon">
 									<i className="ti ti-search"></i>
 								</span>
-								<input type="text" className="form-control" placeholder="Search in HRMS" />
+								<input type="text" className="form-control" placeholder="Search in ManageRTC" />
 								<span className="input-group-text">
 									<kbd>CTRL + / </kbd>
 								</span>

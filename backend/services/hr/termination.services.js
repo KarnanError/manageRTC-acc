@@ -1,6 +1,7 @@
 import { getTenantCollections } from "../../config/db.js";
 import { startOfToday, subDays, startOfMonth, subMonths } from "date-fns";
 import { ObjectId } from "mongodb";
+import { validateEmployeeLifecycle } from "../../utils/employeeLifecycleValidator.js";
 
 const toYMDStr = (input) => {
   const d = new Date(input);
@@ -136,18 +137,132 @@ const getTerminations = async (
     }
     const pipeline = [
       { $match: dateFilter },
+      
       { $sort: { noticeDate: -1, _id: -1 } },
+      
+      // Lookup employee data using employeeId (stored as ObjectId)
+      {
+        $lookup: {
+          from: "employees",
+          let: { empId: "$employeeId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$empId"] } } },
+            {
+              $project: {
+                _id: 1,
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                avatarUrl: 1,
+                departmentId: 1,
+                designationId: 1,
+              },
+            },
+          ],
+          as: "employeeData",
+        },
+      },
+      { $unwind: { path: "$employeeData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup department using employee's departmentId
+      {
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$employeeData.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1 } },
+          ],
+          as: "departmentData",
+        },
+      },
+      { $unwind: { path: "$departmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup designation using employee's designationId
+      {
+        $lookup: {
+          from: "designations",
+          let: { desigId: { $toObjectId: "$employeeData.designationId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$desigId"] } } },
+            { $project: { _id: 1, name: 1, designation: 1 } },
+          ],
+          as: "designationData",
+        },
+      },
+      { $unwind: { path: "$designationData", preserveNullAndEmptyArrays: true } },
+      
+      // Project final structure with null safety
       {
         $project: {
           _id: 0,
-          employeeName: 1,
-          reason: 1,
-          department: 1,
-          terminationDate: 1, // yyyy-mm-dd string
-          terminationType: 1,
-          noticeDate: 1, // yyyy-mm-dd string
           terminationId: 1,
+          terminationDate: 1,
+          noticeDate: 1,
+          reason: 1,
+          terminationType: 1,
+          status: 1,
           created_at: 1,
+          
+          // Workflow status fields
+          lastWorkingDate: 1,
+          processedBy: 1,
+          processedAt: 1,
+          
+          // Employee data (resolved)
+          employeeId: {
+            $cond: {
+              if: { $ne: ["$employeeData.employeeId", null] },
+              then: "$employeeData.employeeId",
+              else: null,
+            },
+          },
+          employeeName: {
+            $cond: {
+              if: { $ne: ["$employeeData.firstName", null] },
+              then: {
+                $concat: [
+                  "$employeeData.firstName",
+                  " ",
+                  { $ifNull: ["$employeeData.lastName", ""] },
+                ],
+              },
+              else: null,
+            },
+          },
+          employee_id: {
+            $cond: {
+              if: { $ne: ["$employeeData._id", null] },
+              then: { $toString: "$employeeData._id" },
+              else: null,
+            },
+          },
+          employeeImage: "$employeeData.avatarUrl",
+          
+          // Department data (resolved)
+          department: {
+            $cond: {
+              if: { $ne: ["$departmentData.department", null] },
+              then: "$departmentData.department",
+              else: { $ifNull: ["$departmentData.name", null] },
+            },
+          },
+          departmentId: {
+            $cond: {
+              if: { $ne: ["$departmentData._id", null] },
+              then: { $toString: "$departmentData._id" },
+              else: null,
+            },
+          },
+          
+          // Designation data (resolved)
+          designation: {
+            $cond: {
+              if: { $ne: ["$designationData.designation", null] },
+              then: "$designationData.designation",
+              else: { $ifNull: ["$designationData.name", null] },
+            },
+          },
         },
       },
     ];
@@ -168,30 +283,121 @@ const getTerminations = async (
   }
 };
 
-// 3. Get a specific termination record
+// 3. Get a specific termination record with employee details
 const getSpecificTermination = async (companyId, terminationId) => {
   try {
     const collection = getTenantCollections(companyId);
-    const record = await collection.termination.findOne(
-      { terminationId: terminationId },
+    
+    // Use aggregation to fetch employee details dynamically
+    const pipeline = [
+      { $match: { terminationId: terminationId } },
+      
+      // Lookup employee data
       {
-        projection: {
-          _id: 0,
-          employeeName: 1,
-          reason: 1,
-          department: 1,
-          terminationDate: 1,
-          terminationType: 1,
-          noticeDate: 1,
-          terminationId: 1,
+        $lookup: {
+          from: "employees",
+          let: { empId: "$employeeId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$empId"] } } },
+            {
+              $project: {
+                _id: 1,
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                avatarUrl: 1,
+                departmentId: 1,
+              },
+            },
+          ],
+          as: "employeeData",
         },
-      }
-    );
-    if (!record) throw new Error("Termination record not found");
-    return { done: true, message: "success", data: record };
+      },
+      { $unwind: { path: "$employeeData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup department
+      {
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$employeeData.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1 } },
+          ],
+          as: "departmentData",
+        },
+      },
+      { $unwind: { path: "$departmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Project final structure
+      {
+        $project: {
+          _id: 0,
+          terminationId: 1,
+          terminationDate: 1,
+          noticeDate: 1,
+          reason: 1,
+          terminationType: 1,
+          status: 1,
+          
+          // Resolved employee data
+          employeeId: {
+            $cond: {
+              if: { $ne: ["$employeeData.employeeId", null] },
+              then: "$employeeData.employeeId",
+              else: null,
+            },
+          },
+          employeeName: {
+            $cond: {
+              if: { $ne: ["$employeeData.firstName", null] },
+              then: {
+                $concat: [
+                  "$employeeData.firstName",
+                  " ",
+                  { $ifNull: ["$employeeData.lastName", ""] },
+                ],
+              },
+              else: null,
+            },
+          },
+          employee_id: {
+            $cond: {
+              if: { $ne: ["$employeeData._id", null] },
+              then: { $toString: "$employeeData._id" },
+              else: null,
+            },
+          },
+          employeeImage: "$employeeData.avatarUrl",
+          
+          // Resolved department data
+          department: {
+            $cond: {
+              if: { $ne: ["$departmentData.department", null] },
+              then: "$departmentData.department",
+              else: { $ifNull: ["$departmentData.name", null] },
+            },
+          },
+          departmentId: {
+            $cond: {
+              if: { $ne: ["$departmentData._id", null] },
+              then: { $toString: "$departmentData._id" },
+              else: null,
+            },
+          },
+        },
+      },
+    ];
+    
+    const records = await collection.termination.aggregate(pipeline).toArray();
+    if (!records || records.length === 0) {
+      throw new Error("Termination record not found");
+    }
+    
+    return { done: true, message: "success", data: records[0] };
   } catch (error) {
     console.error("Error fetching termination record:", error);
-    return { done: false, message: error.message, data: [] };
+    return { done: false, message: error.message, data: null };
   }
 };
 
@@ -200,10 +406,10 @@ const addTermination = async (companyId, form, useriD) => {
   try {
     const collection = getTenantCollections(companyId);
     // basic validation
+    // Validate required fields - employee data will be fetched via aggregation
     const required = [
-      "employeeName",
+      "employeeId",
       "reason",
-      "department",
       "terminationDate",
       "terminationType",
       "noticeDate",
@@ -211,14 +417,42 @@ const addTermination = async (companyId, form, useriD) => {
     for (const k of required) {
       if (!form[k]) throw new Error(`Missing field: ${k}`);
     }
+    
+    // Validate employeeId is valid ObjectId
+    if (!ObjectId.isValid(form.employeeId)) {
+      throw new Error("Invalid employeeId");
+    }
+    
+    // Check if employee is in any active lifecycle process (promotion/resignation/termination)
+    const lifecycleValidation = await validateEmployeeLifecycle(
+      companyId,
+      form.employeeId,
+      'termination',
+      null
+    );
+    
+    if (!lifecycleValidation.isValid) {
+      return {
+        done: false,
+        message: lifecycleValidation.message,
+        errors: {
+          employeeId: lifecycleValidation.message
+        }
+      };
+    }
 
+    // Store only termination-specific data and employee reference
+    // Employee details (name, department, avatar) fetched via aggregation
     const newTermination = {
-      employeeName: form.employeeName,
+      employeeId: new ObjectId(form.employeeId), // Store as ObjectId reference
       reason: form.reason,
-      department: form.department,
-      terminationDate: toYMDStr(form.terminationDate), // store as Date
+      terminationDate: toYMDStr(form.terminationDate),
       terminationType: form.terminationType,
-      noticeDate: toYMDStr(form.noticeDate), // store as Date
+      noticeDate: toYMDStr(form.noticeDate),
+      status: "pending", // Workflow status: pending, processed, cancelled
+      lastWorkingDate: toYMDStr(form.terminationDate),
+      processedBy: null,
+      processedAt: null,
       terminationId: new ObjectId().toHexString(),
       created_by: useriD,
       created_at: new Date(),
@@ -226,6 +460,22 @@ const addTermination = async (companyId, form, useriD) => {
     console.log(newTermination);
 
     await collection.termination.insertOne(newTermination);
+    
+    // Update employee status to "On Notice" when termination is added
+    if (form.employeeId && ObjectId.isValid(form.employeeId)) {
+      await collection.employees.updateOne(
+        { _id: new ObjectId(form.employeeId) },
+        { 
+          $set: { 
+            status: "On Notice",
+            noticeDate: toYMDStr(form.noticeDate),
+            lastWorkingDate: toYMDStr(form.terminationDate)
+          } 
+        }
+      );
+      console.log(`[Termination Service] Added termination, employee status updated to 'On Notice'`);
+    }
+    
     return { done: true, message: "Termination added successfully" };
   } catch (error) {
     console.error("Error adding termination:", error);
@@ -247,10 +497,10 @@ const updateTermination = async (companyId, form) => {
     });
     if (!existing) throw new Error("Termination not found");
 
+    // Update only termination-specific fields
+    // Employee data is fetched dynamically via aggregation
     const updateData = {
-      employeeName: form.employeeName ?? existing.employeeName,
       reason: form.reason ?? existing.reason,
-      department: form.department ?? existing.department,
       terminationDate: form.terminationDate
         ? toYMDStr(form.terminationDate)
         : existing.terminationDate,
@@ -291,9 +541,42 @@ const updateTermination = async (companyId, form) => {
 const deleteTermination = async (companyId, terminationIds) => {
   try {
     const collection = getTenantCollections(companyId);
+    
+    // Get termination records before deleting to update employee statuses
+    const terminationsToDelete = await collection.termination
+      .find({ terminationId: { $in: terminationIds } })
+      .toArray();
+    
+    // Extract employee IDs from terminations
+    const employeeIds = terminationsToDelete
+      .map(t => t.employeeId)
+      .filter(id => id); // Filter out any null/undefined
+    
+    // Update employee statuses to "Active" and clear lifecycle fields for all affected employees
+    if (employeeIds.length > 0) {
+      const employeeUpdateResult = await collection.employees.updateMany(
+        { _id: { $in: employeeIds } },
+        { 
+          $set: { 
+            status: "Active",
+            updatedAt: new Date()
+          },
+          $unset: {
+            noticeDate: "",
+            lastWorkingDate: ""
+          }
+        }
+      );
+      console.log(`[Termination Service] Updated ${employeeUpdateResult.modifiedCount} employee(s) to 'Active' and cleared lifecycle fields`);
+    }
+    
+    // Now delete the termination records
     const result = await collection.termination.deleteMany({
       terminationId: { $in: terminationIds },
     });
+    
+    console.log(`[Termination Service] Deleted ${result.deletedCount} termination(s) and reverted employee status`);
+    
     return {
       done: true,
       message: `${result.deletedCount} termination(s) deleted successfully`,
@@ -305,6 +588,119 @@ const deleteTermination = async (companyId, terminationIds) => {
   }
 };
 
+// 7. Process Termination (mark as complete and update employee status)
+const processTermination = async (companyId, terminationId, userId) => {
+  try {
+    const collection = getTenantCollections(companyId);
+    
+    // Get termination details
+    const termination = await collection.termination.findOne({ terminationId });
+    if (!termination) {
+      return { done: false, message: "Termination not found" };
+    }
+    
+    if (termination.status === "processed") {
+      return { done: false, message: "Termination already processed" };
+    }
+    
+    if (termination.status === "cancelled") {
+      return { done: false, message: "Cannot process a cancelled termination" };
+    }
+    
+    // Update termination status to processed
+    await collection.termination.updateOne(
+      { terminationId },
+      { 
+        $set: { 
+          status: "processed",
+          processedBy: userId,
+          processedAt: new Date()
+        } 
+      }
+    );
+    
+    // Update employee status to "Terminated" using the stored employeeId (ObjectId)
+    if (termination.employeeId) {
+      await collection.employees.updateOne(
+        { _id: termination.employeeId },
+        { 
+          $set: { 
+            status: "Terminated",
+            lastWorkingDate: new Date(termination.lastWorkingDate)
+          } 
+        }
+      );
+      
+      console.log(`[Termination Service] Processed termination ${terminationId}, employee status updated to 'Terminated'`);
+    } else {
+      console.warn(`[Termination Service] Employee ID not found for termination ${terminationId}`);
+    }
+    
+    return { done: true, message: "Termination processed successfully" };
+  } catch (error) {
+    console.error("Error processing termination:", error);
+    return { done: false, message: error.message || "Error processing termination" };
+  }
+};
+
+// 8. Cancel Termination
+const cancelTermination = async (companyId, terminationId, userId, reason) => {
+  try {
+    const collection = getTenantCollections(companyId);
+    
+    // Get termination details
+    const termination = await collection.termination.findOne({ terminationId });
+    if (!termination) {
+      return { done: false, message: "Termination not found" };
+    }
+    
+    if (termination.status === "cancelled") {
+      return { done: false, message: "Termination already cancelled" };
+    }
+    
+    if (termination.status === "processed") {
+      return { done: false, message: "Cannot cancel a processed termination" };
+    }
+    
+    // Update termination status to cancelled
+    await collection.termination.updateOne(
+      { terminationId },
+      { 
+        $set: { 
+          status: "cancelled",
+          cancelledBy: userId,
+          cancelledAt: new Date(),
+          cancellationReason: reason || "Not specified"
+        } 
+      }
+    );
+    
+    // Revert employee status back to "Active" when termination is cancelled
+    if (termination.employeeId) {
+      await collection.employees.updateOne(
+        { _id: termination.employeeId },
+        { 
+          $set: { 
+            status: "Active"
+          },
+          $unset: {
+            noticeDate: "",
+            lastWorkingDate: ""
+          }
+        }
+      );
+      console.log(`[Termination Service] Cancelled termination ${terminationId}, employee status reverted to 'Active'`);
+    }
+    
+    console.log(`[Termination Service] Cancelled termination ${terminationId}`);
+    
+    return { done: true, message: "Termination cancelled successfully" };
+  } catch (error) {
+    console.error("Error cancelling termination:", error);
+    return { done: false, message: error.message || "Error cancelling termination" };
+  }
+};
+
 export {
   getTerminationStats,
   getTerminations,
@@ -312,4 +708,6 @@ export {
   addTermination,
   updateTermination,
   deleteTermination,
+  processTermination,
+  cancelTermination,
 };

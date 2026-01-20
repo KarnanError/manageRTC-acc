@@ -25,8 +25,6 @@ const ResignationDetailsModal: React.FC<ResignationDetailsModalProps> = ({
   resignation, 
   modalId = "view_resignation_details" 
 }) => {
-  if (!resignation) return null;
-
   // Extract just the name part if employeeName contains "ID - Name" format
   const getDisplayName = (employeeName: string): string => {
     // Check if name contains " - " pattern (e.g., "EMP-8984 - Hari Haran")
@@ -38,7 +36,44 @@ const ResignationDetailsModal: React.FC<ResignationDetailsModalProps> = ({
     return employeeName;
   };
 
-  const displayName = getDisplayName(resignation.employeeName);
+  const displayName = resignation ? getDisplayName(resignation.employeeName) : '';
+
+  // Always render modal structure, just show empty/loading state when no data
+  if (!resignation) {
+    return (
+      <div className="modal fade" id={modalId}>
+        <div className="modal-dialog modal-dialog-centered modal-lg">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Resignation Details</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <div className="modal-body pb-0">
+              <div className="text-center py-5">
+                <p className="text-muted">No resignation selected</p>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-bs-dismiss="modal"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal fade" id={modalId}>
@@ -64,11 +99,12 @@ const ResignationDetailsModal: React.FC<ResignationDetailsModalProps> = ({
                     {resignation.employeeImage && resignation.employeeImage.trim() !== '' ? (
                       <ImageWithBasePath
                         src={resignation.employeeImage}
-                        className="rounded-circle"
+                        className="rounded-circle img-fluid"
                         alt={displayName}
+                        isLink={true}
                       />
                     ) : (
-                      <div className="avatar-title bg-danger-transparent rounded-circle text-danger fs-20">
+                      <div className="avatar-title bg-danger-transparent rounded-circle text-danger">
                         {displayName.charAt(0).toUpperCase()}
                       </div>
                     )}

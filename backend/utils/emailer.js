@@ -8,7 +8,7 @@ const sendCredentialsEmail = async ({
 }) => {
   try {
     const mailOptions = {
-      from: `"HRMS TOOL" <noreply@amasqis.ai>`,
+      from: `"ManageRTC" <noreply@amasqis.ai>`,
       to,
       subject: `[${companyName}] Your login credentials`,
       html: `

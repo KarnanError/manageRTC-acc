@@ -486,7 +486,7 @@ const TicketGrid = () => {
         doc.setFontSize(8);
         doc.setTextColor(128, 128, 128);
         doc.text(`Page ${i} of ${pageCount}`, 20, 290);
-        doc.text(`© ${currentYear} HRMS Tool. All rights reserved.`, 120, 290);
+        doc.text(`© ${currentYear} ManageRTC. All rights reserved.`, 120, 290);
       }
 
       // Save the PDF

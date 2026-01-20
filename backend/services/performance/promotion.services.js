@@ -1,5 +1,6 @@
 import { getTenantCollections } from "../../config/db.js";
 import { ObjectId } from "mongodb";
+import { validateEmployeeLifecycle } from "../../utils/employeeLifecycleValidator.js";
 
 /**
  * Apply a pending promotion to employee record
@@ -189,6 +190,18 @@ const validateCreate = async (collections, promotion, existingPromotionId = null
   if (!promotion.promotionTo?.designationId) return "Target designation is required";
   
   if (!promotion.promotionDate) return "Promotion date is required";
+  
+  // Check if employee is in any active lifecycle process (resignation/termination/promotion)
+  const lifecycleValidation = await validateEmployeeLifecycle(
+    promotion.companyId,
+    promotion.employeeId,
+    'promotion',
+    existingPromotionId
+  );
+  
+  if (!lifecycleValidation.isValid) {
+    return lifecycleValidation.message;
+  }
   
   // Validate that employee exists and fetch current designation
   try {

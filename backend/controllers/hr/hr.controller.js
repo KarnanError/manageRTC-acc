@@ -1284,6 +1284,36 @@ const hrDashboardController = (socket, io) => {
     })
   );
 
+  // Check Employee Lifecycle Status (for UI status dropdown control)
+  socket.on(
+    "hrm/employees/check-lifecycle-status",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId } = validateHrAccess(socket);
+
+        if (!data?.employeeId) {
+          throw new Error("Employee ID is required");
+        }
+
+        const response = await hrmEmployee.checkEmployeeLifecycleStatus(
+          companyId,
+          data.employeeId
+        );
+
+        socket.emit("hrm/employees/check-lifecycle-status-response", {
+          done: true,
+          data: response
+        });
+      } catch (error) {
+        console.log(error);
+        socket.emit("hrm/employees/check-lifecycle-status-response", {
+          done: false,
+          error: error.message || "Unexpected error checking lifecycle status",
+        });
+      }
+    })
+  );
+
   // Update Employee Basic Info
   socket.on(
     "hrm/employees/update",

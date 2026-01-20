@@ -187,7 +187,7 @@ const Sidebar = () => {
             <input
               type="text"
               className="form-control"
-              placeholder="Search in HRMS"
+              placeholder="Search in ManageRTC"
             />
             <span className="input-group-text">
               <kbd>CTRL + / </kbd>
