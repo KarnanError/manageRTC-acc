@@ -856,6 +856,36 @@ const hrDashboardController = (socket, io) => {
     }),
   );
 
+  socket.on(
+    "hrm/departments/reassign-delete",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Invalid payload");
+        }
+
+        if (!data.sourceDepartmentId || !data.targetDepartmentId) {
+          throw new Error("Source and target department IDs are required");
+        }
+
+        const result = await hrmDepartment.reassignAndDeleteDepartment(
+          companyId,
+          hrId,
+          data
+        );
+        socket.emit("hrm/departments/reassign-delete-response", result);
+        io.emit("hrm/departments/reassign-delete", data);
+      } catch (error) {
+        socket.emit("hrm/departments/reassign-delete-response", {
+          done: false,
+          error: error.message || "Unexpected error reassigning and deleting department",
+        });
+      }
+    })
+  );
+
   // crud ops on designation
 
   socket.on(
@@ -1013,6 +1043,36 @@ const hrDashboardController = (socket, io) => {
       });
     }
   });
+
+  socket.on(
+    "hrm/designations/reassign-delete",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId, hrId } = validateHrAccess(socket);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Invalid payload");
+        }
+
+        if (!data.sourceDesignationId || !data.targetDesignationId) {
+          throw new Error("Source and target designation IDs are required");
+        }
+
+        const result = await hrmDesignation.reassignAndDeleteDesignation(
+          companyId,
+          hrId,
+          data
+        );
+        socket.emit("hrm/designations/reassign-delete-response", result);
+        io.emit("hrm/designations/reassign-delete", data);
+      } catch (error) {
+        socket.emit("hrm/designations/reassign-delete-response", {
+          done: false,
+          error: error.message || "Unexpected error reassigning and deleting designation",
+        });
+      }
+    })
+  );
 
   socket.on("hrm/designations/update", async (payload) => {
     try {
@@ -1298,6 +1358,36 @@ const hrDashboardController = (socket, io) => {
         });
       }
     }),
+  );
+
+  // Check Employee Lifecycle Status (for UI status dropdown control)
+  socket.on(
+    "hrm/employees/check-lifecycle-status",
+    withRateLimit(async (data) => {
+      try {
+        const { companyId } = validateHrAccess(socket);
+
+        if (!data?.employeeId) {
+          throw new Error("Employee ID is required");
+        }
+
+        const response = await hrmEmployee.checkEmployeeLifecycleStatus(
+          companyId,
+          data.employeeId
+        );
+
+        socket.emit("hrm/employees/check-lifecycle-status-response", {
+          done: true,
+          data: response
+        });
+      } catch (error) {
+        console.log(error);
+        socket.emit("hrm/employees/check-lifecycle-status-response", {
+          done: false,
+          error: error.message || "Unexpected error checking lifecycle status",
+        });
+      }
+    })
   );
 
   // Update Employee Basic Info

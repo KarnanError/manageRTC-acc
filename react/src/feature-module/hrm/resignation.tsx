@@ -10,8 +10,6 @@ import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import { useSocket } from "../../SocketContext";
 import { Socket } from "socket.io-client";
 import { format, parse } from "date-fns";
-import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
-import { Modal } from "antd";
 import dayjs from "dayjs";
 import ResignationDetailsModal from "../../core/modals/ResignationDetailsModal";
 import { toast } from "react-toastify";
@@ -28,6 +26,10 @@ type ResignationRow = {
   noticeDate: string;
   resignationDate: string; // already formatted by backend like "12 Sep 2025"
   resignationId: string;
+  resignationStatus?: string; // Workflow status: pending, approved, rejected, withdrawn
+  effectiveDate?: string;
+  approvedBy?: string;
+  approvedAt?: string;
 };
 
 type Stats = {
@@ -46,6 +48,8 @@ const Resignation = () => {
     recentResignations: "0",
   });
   const [loading, setLoading] = useState<boolean>(true);
+  const [deletingResignationId, setDeletingResignationId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<string>("thisyear");
   const [customRange, setCustomRange] = useState<{
@@ -59,9 +63,7 @@ const Resignation = () => {
 
   // Controlled edit form data
   const [editForm, setEditForm] = useState({
-    employeeName: "",
     employeeId: "",
-    department: "",
     departmentId: "",
     noticeDate: "", // "DD-MM-YYYY" shown in modal
     reason: "",
@@ -97,10 +99,9 @@ const Resignation = () => {
   }, [socket]);
 
   const openEditModal = (row: any) => {
+    console.log("[Resignation] openEditModal - row:", row);
     setEditForm({
-      employeeName: row.employeeName || "",
-      employeeId: row.employeeId || "",
-      department: row.department || "",
+      employeeId: row.employee_id || "", // Use employee_id (ObjectId), not employeeId string
       departmentId: row.departmentId || "",
       noticeDate: row.noticeDate
         ? format(parse(row.noticeDate, "yyyy-MM-dd", new Date()), "dd-MM-yyyy")
@@ -135,9 +136,7 @@ const Resignation = () => {
 
   // state near top of component
   const [addForm, setAddForm] = useState({
-    employeeName: "",
     employeeId: "",
-    department: "",
     departmentId: "",
     reason: "",
     noticeDate: "", // YYYY-MM-DD from DatePicker
@@ -162,49 +161,85 @@ const Resignation = () => {
     resignationDate: "",
   });
 
-  const confirmDelete = (onConfirm: () => void) => {
-    Modal.confirm({
-      title: null,
-      icon: null,
-      closable: true,
-      centered: true,
-      okText: "Yes, Delete",
-      cancelText: "Cancel",
-      okButtonProps: {
-        style: { background: "#ff4d4f", borderColor: "#ff4d4f" },
-      },
-      cancelButtonProps: { style: { background: "#f5f5f5" } },
-      content: (
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              margin: "0 auto 12px",
-              borderRadius: 12,
-              background: "#ffecec",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <a aria-label="Delete">
-              <DeleteOutlined style={{ fontSize: 18, color: "#ff4d4f" }} />
-            </a>
-          </div>
-          <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>
-            Confirm Delete
-          </div>
-          <div style={{ color: "#6b7280" }}>
-            You want to delete all the marked items, this can’t be undone once
-            you delete.
-          </div>
-        </div>
-      ),
-      onOk: async () => {
-        await onConfirm();
-      },
+
+  // Handle opening Add modal - reset form
+  const handleAddModalOpen = () => {
+    console.log("[Resignation] handleAddModalOpen - Resetting Add form");
+    setAddForm({
+      employeeId: "",
+      departmentId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
     });
+    setAddErrors({
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    setEmployeeOptions([]);
+    setIsSubmitting(false); // Reset loading state
+  };
+
+  // Handle closing Add modal - reset form state
+  const handleAddModalClose = () => {
+    console.log("[Resignation] handleAddModalClose - Cleaning up Add modal state");
+    setAddForm({
+      employeeId: "",
+      departmentId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    setAddErrors({
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    setEmployeeOptions([]);
+    setIsSubmitting(false);
+  };
+
+  // Handle closing Edit modal - reset form state
+  const handleEditModalClose = () => {
+    console.log("[Resignation] handleEditModalClose - Cleaning up Edit modal state");
+    setEditForm({
+      employeeId: "",
+      departmentId: "",
+      noticeDate: "",
+      reason: "",
+      resignationDate: "",
+      resignationId: "",
+    });
+    setEditErrors({
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    setEmployeeOptions([]);
+    setIsSubmitting(false);
+  };
+
+  // Handle delete resignation
+  const handleDeleteClick = (resignationId: string) => {
+    console.log("[Resignation] Delete clicked:", resignationId);
+    setDeletingResignationId(resignationId);
+  };
+
+  const confirmDelete = () => {
+    if (!socket || !deletingResignationId) {
+      toast.error("Socket not connected or no resignation selected");
+      return;
+    }
+
+    console.log("[Resignation] Deleting resignation:", deletingResignationId);
+    socket.emit("hr/resignation/delete-resignation", [deletingResignationId]);
   };
 
   const fmtYMD = (s?: string) => {
@@ -243,11 +278,10 @@ const Resignation = () => {
   const onEmployeesByDepartmentResponse = useCallback((res: any) => {
     console.log("employees-by-dept response:", res?.data, "done:", res?.done, "message:", res?.message);
     if (res?.done) {
-
       const opts = (res.data || []).map((emp: any) => {
         console.log("Employee _id:", emp._id, "employeeId:", emp.employeeId, "employeeName:", emp.employeeName);
         return {
-          value: emp.employeeId,
+          value: emp._id, // Store employee ObjectId, not employeeId string
           label: `${emp.employeeId} - ${emp.employeeName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim()}`,
         };
       });
@@ -266,52 +300,278 @@ const Resignation = () => {
   }, []);
 
   const onAddResponse = useCallback((res: any) => {
+    console.log("[Resignation] onAddResponse received:", res);
+    setIsSubmitting(false);
+    
     if (res?.done) {
       toast.success("Resignation added successfully");
-      // Close modal
-      const modalElement = document.getElementById("add_resignation");
-      if (modalElement) {
-        const modal = window.bootstrap?.Modal?.getInstance(modalElement);
-        if (modal) modal.hide();
+      
+      // Reset form on success
+      setAddForm({
+        employeeId: "",
+        departmentId: "",
+        reason: "",
+        noticeDate: "",
+        resignationDate: "",
+      });
+      
+      // Clear errors
+      setAddErrors({
+        departmentId: "",
+        employeeId: "",
+        reason: "",
+        noticeDate: "",
+        resignationDate: "",
+      });
+
+      // Clear employee options
+      setEmployeeOptions([]);
+      
+      // Refresh the list
+      if (socket) {
+        socket.emit("hr/resignation/resignationlist", { type: filterType, ...customRange });
+        socket.emit("hr/resignation/resignation-details");
       }
+      
+      // Close modal with improved reliability
+      console.log("[Resignation] Attempting to close modal");
+      setTimeout(() => {
+        const modalElement = document.getElementById("new_resignation");
+        console.log("[Resignation] Modal element found:", !!modalElement);
+        if (modalElement) {
+          let modalClosed = false;
+          
+          // Try Bootstrap if available
+          if (window.bootstrap?.Modal) {
+            try {
+              let modal = window.bootstrap.Modal.getInstance(modalElement);
+              
+              if (!modal) {
+                console.log("[Resignation] Creating new modal instance");
+                modal = new window.bootstrap.Modal(modalElement);
+              }
+              
+              console.log("[Resignation] Calling modal.hide()");
+              modal.hide();
+              modalClosed = true;
+            } catch (error) {
+              console.error("[Resignation] Bootstrap modal error:", error);
+            }
+          }
+          
+          // Fallback: Force close manually
+          if (!modalClosed) {
+            console.log("[Resignation] Using fallback modal close");
+            modalElement.classList.remove("show");
+            modalElement.setAttribute("aria-hidden", "true");
+            modalElement.style.display = "none";
+          }
+          
+          // Force cleanup of backdrop and body classes
+          setTimeout(() => {
+            console.log("[Resignation] Forcing cleanup of modal backdrop");
+            document.body.classList.remove("modal-open");
+            const backdrops = document.getElementsByClassName("modal-backdrop");
+            while (backdrops.length > 0) {
+              backdrops[0].parentNode?.removeChild(backdrops[0]);
+            }
+          }, 100);
+        }
+      }, 100);
     } else {
       console.error("Failed to add resignation:", res?.message);
+      
+      // Handle backend validation errors inline
+      if (res?.errors && typeof res.errors === 'object') {
+        // Map backend errors to form fields
+        const backendErrors: any = {};
+        Object.keys(res.errors).forEach(key => {
+          if (key in addErrors) {
+            backendErrors[key] = res.errors[key];
+          }
+        });
+        setAddErrors(prev => ({ ...prev, ...backendErrors }));
+      }
+      
+      // Show toast for general error message
       if (res?.message) {
         toast.error(res.message);
       }
     }
-  }, []);
+  }, [socket, filterType, customRange]);
 
   const onUpdateResponse = useCallback((res: any) => {
+    setIsSubmitting(false);
+    
     if (res?.done) {
       toast.success("Resignation updated successfully");
-      // Close modal
+      
+      // Reset form on success
+      setEditForm({
+        employeeId: "",
+        departmentId: "",
+        reason: "",
+        noticeDate: "",
+        resignationDate: "",
+        resignationId: "",
+      });
+      
+      // Clear errors
+      setEditErrors({
+        departmentId: "",
+        employeeId: "",
+        reason: "",
+        noticeDate: "",
+        resignationDate: "",
+      });
+
+      // Clear employee options
+      setEmployeeOptions([]);
+      
+      // Refresh the list
+      if (socket) {
+        socket.emit("hr/resignation/resignationlist", { type: filterType, ...customRange });
+        socket.emit("hr/resignation/resignation-details");
+      }
+      
+      // Close modal properly
       const modalElement = document.getElementById("edit_resignation");
       if (modalElement) {
-        const modal = window.bootstrap?.Modal?.getInstance(modalElement);
-        if (modal) modal.hide();
+        let modalClosed = false;
+        
+        if (window.bootstrap?.Modal) {
+          try {
+            const modal = window.bootstrap.Modal.getInstance(modalElement);
+            if (modal) {
+              modal.hide();
+              modalClosed = true;
+            } else {
+              const newModal = new window.bootstrap.Modal(modalElement);
+              newModal.hide();
+              modalClosed = true;
+            }
+          } catch (error) {
+            console.error("[Resignation] Bootstrap modal error:", error);
+          }
+        }
+        
+        // Fallback: Force close manually
+        if (!modalClosed) {
+          modalElement.classList.remove("show");
+          modalElement.setAttribute("aria-hidden", "true");
+          modalElement.style.display = "none";
+          document.body.classList.remove("modal-open");
+          const backdrops = document.getElementsByClassName("modal-backdrop");
+          while (backdrops.length > 0) {
+            backdrops[0].parentNode?.removeChild(backdrops[0]);
+          }
+        }
       }
     } else {
       console.error("Failed to update resignation:", res?.message);
+      
+      // Handle backend validation errors inline
+      if (res?.errors && typeof res.errors === 'object') {
+        // Map backend errors to form fields
+        const backendErrors: any = {};
+        Object.keys(res.errors).forEach(key => {
+          if (key in editErrors) {
+            backendErrors[key] = res.errors[key];
+          }
+        });
+        setEditErrors(prev => ({ ...prev, ...backendErrors }));
+      }
+      
+      // Show toast for general error message
       if (res?.message) {
         toast.error(res.message);
       }
     }
-  }, []);
+  }, [socket, filterType, customRange]);
 
   const onDeleteResponse = useCallback((res: any) => {
     if (res?.done) {
       toast.success("Resignation deleted successfully");
       setSelectedKeys([]);
+      setDeletingResignationId(null);
+      
+      // Refresh the resignation list and stats
+      if (socket) {
+        socket.emit("hr/resignation/resignationlist", { type: filterType, ...customRange });
+        socket.emit("hr/resignation/resignation-details");
+        // Refresh employee list to show updated status (Active)
+        socket.emit("hrm/employees/get-employee-stats");
+        console.log("[Resignation] Emitted employee refresh after deletion");
+      }
+      
+      // Close modal (robust)
+      const modalElement = document.getElementById("delete_modal");
+      let closed = false;
+      if (modalElement) {
+        const modal = window.bootstrap?.Modal?.getInstance(modalElement);
+        if (modal) {
+          modal.hide();
+          closed = true;
+        }
+      }
+      // Fallback: forcibly remove modal classes and backdrop if still open
+      if (!closed && modalElement) {
+        modalElement.classList.remove("show");
+        modalElement.setAttribute("aria-hidden", "true");
+        modalElement.style.display = "none";
+        document.body.classList.remove("modal-open");
+        // Remove backdrop
+        const backdrops = document.getElementsByClassName("modal-backdrop");
+        while (backdrops.length > 0) {
+          backdrops[0].parentNode?.removeChild(backdrops[0]);
+        }
+      }
     } else {
       console.error("Failed to delete resignation:", res?.message);
       if (res?.message) {
         toast.error(res.message);
       }
     }
-  }, []);
+  }, [socket, filterType, customRange]);
 
-  // register socket listeners and join room
+  // fetchers
+  const fetchList = useCallback(
+    (type: string, range?: { startDate?: string; endDate?: string }) => {
+      if (!socket) return;
+      setLoading(true);
+      const payload: any = { type };
+      if (type === "custom" && range?.startDate && range?.endDate) {
+        payload.startDate = range.startDate;
+        payload.endDate = range?.endDate;
+      }
+      socket.emit("hr/resignation/resignationlist", payload);
+    },
+    [socket]
+  );
+
+  // Approval response handler (defined after fetchList)
+  const onApproveResponse = useCallback((res: any) => {
+    if (res?.done) {
+      toast.success(res.message || "Resignation approved successfully");
+      fetchList(filterType, customRange);
+      fetchStats();
+    } else {
+      toast.error(res?.message || "Failed to approve resignation");
+    }
+  }, [fetchList, fetchStats, filterType, customRange]);
+
+  // Rejection response handler (defined after fetchList)
+  const onRejectResponse = useCallback((res: any) => {
+    if (res?.done) {
+      toast.success(res.message || "Resignation rejected successfully");
+      fetchList(filterType, customRange);
+      fetchStats();
+    } else {
+      toast.error(res?.message || "Failed to reject resignation");
+    }
+  }, [fetchList, fetchStats, filterType, customRange]);
+
+  // register socket listeners and join room (moved here after callback definitions)
   useEffect(() => {
     if (!socket) return;
 
@@ -324,6 +584,8 @@ const Resignation = () => {
     socket.on("hr/resignation/add-resignation-response", onAddResponse);
     socket.on("hr/resignation/update-resignation-response", onUpdateResponse);
     socket.on("hr/resignation/delete-resignation-response", onDeleteResponse);
+    socket.on("hr/resignation/approve-resignation-response", onApproveResponse);
+    socket.on("hr/resignation/reject-resignation-response", onRejectResponse);
 
     return () => {
       socket.off("hr/resignation/resignationlist-response", onListResponse);
@@ -342,6 +604,8 @@ const Resignation = () => {
         "hr/resignation/delete-resignation-response",
         onDeleteResponse
       );
+      socket.off("hr/resignation/approve-resignation-response", onApproveResponse);
+      socket.off("hr/resignation/reject-resignation-response", onRejectResponse);
     };
   }, [
     socket,
@@ -352,22 +616,9 @@ const Resignation = () => {
     onAddResponse,
     onUpdateResponse,
     onDeleteResponse,
+    onApproveResponse,
+    onRejectResponse,
   ]);
-
-  // fetchers
-  const fetchList = useCallback(
-    (type: string, range?: { startDate?: string; endDate?: string }) => {
-      if (!socket) return;
-      setLoading(true);
-      const payload: any = { type };
-      if (type === "custom" && range?.startDate && range?.endDate) {
-        payload.startDate = range.startDate;
-        payload.endDate = range?.endDate;
-      }
-      socket.emit("hr/resignation/resignationlist", payload);
-    },
-    [socket]
-  );
 
   const toIsoFromDDMMYYYY = (s: string) => {
     // s like "13-09-2025"
@@ -387,7 +638,7 @@ const Resignation = () => {
       return;
     }
 
-    if (!socket) return;
+    if (!socket || isSubmitting) return;
 
     const noticeIso = toIsoFromDDMMYYYY(addForm.noticeDate);
     if (!noticeIso) {
@@ -402,41 +653,15 @@ const Resignation = () => {
     }
 
     const payload = {
-      employeeName: addForm.employeeName,
       employeeId: addForm.employeeId,
       noticeDate: noticeIso,
       reason: addForm.reason,
-      department: addForm.department,
-      departmentId: addForm.departmentId,
       resignationDate: resIso,
     };
 
-    console.log("[Resignation] Emitting add-resignation with payload:", payload);
+    console.log("[Resignation] Emitting add-resignation with normalized payload:", payload);
+    setIsSubmitting(true);
     socket.emit("hr/resignation/add-resignation", payload);
-    
-    // Reset form after successful submission
-    setAddForm({
-      employeeName: "",
-      employeeId: "",
-      department: "",
-      departmentId: "",
-      reason: "",
-      noticeDate: "",
-      resignationDate: "",
-    });
-    
-    // Clear errors
-    setAddErrors({
-      departmentId: "",
-      employeeId: "",
-      reason: "",
-      noticeDate: "",
-      resignationDate: "",
-    });
-    
-    // Refresh the list
-    socket.emit("hr/resignation/resignationlist", { type: "alltime" });
-    socket.emit("hr/resignation/resignation-details");
   };
 
   const handleEditSave = () => {
@@ -448,7 +673,7 @@ const Resignation = () => {
       return;
     }
 
-    if (!socket) return;
+    if (!socket || isSubmitting) return;
 
     const noticeIso = toIsoFromDDMMYYYY(editForm.noticeDate);
     if (!noticeIso) {
@@ -463,43 +688,16 @@ const Resignation = () => {
     }
 
     const payload = {
-      employeeName: editForm.employeeName,
       employeeId: editForm.employeeId,
       noticeDate: noticeIso,
       reason: editForm.reason,
-      department: editForm.department,
-      departmentId: editForm.departmentId,
       resignationDate: resIso,
       resignationId: editForm.resignationId,
     };
 
-    console.log("[Resignation] Emitting update-resignation with payload:", payload);
+    console.log("[Resignation] Emitting update-resignation with normalized payload:", payload);
+    setIsSubmitting(true);
     socket.emit("hr/resignation/update-resignation", payload);
-    
-    // Reset form after successful submission
-    setEditForm({
-      employeeName: "",
-      employeeId: "",
-      department: "",
-      departmentId: "",
-      reason: "",
-      noticeDate: "",
-      resignationDate: "",
-      resignationId: "",
-    });
-    
-    // Clear errors
-    setEditErrors({
-      departmentId: "",
-      employeeId: "",
-      reason: "",
-      noticeDate: "",
-      resignationDate: "",
-    });
-    
-    // Refresh the list
-    socket.emit("hr/resignation/resignationlist", { type: "alltime" });
-    socket.emit("hr/resignation/resignation-details");
   };
 
   // initial + reactive fetch
@@ -509,6 +707,54 @@ const Resignation = () => {
     fetchDepartments();
     fetchStats();
   }, [socket, fetchList, fetchDepartments, fetchStats, filterType, customRange]);
+
+  // Add Bootstrap modal event listeners for cleanup
+  useEffect(() => {
+    const addModalElement = document.getElementById("new_resignation");
+    const editModalElement = document.getElementById("edit_resignation");
+    const deleteModalElement = document.getElementById("delete_modal");
+
+    // Add modal - cleanup on hide
+    const handleAddModalHide = () => {
+      handleAddModalClose();
+    };
+
+    // Edit modal - cleanup on hide
+    const handleEditModalHide = () => {
+      handleEditModalClose();
+    };
+
+    // Delete modal - cleanup on hide
+    const handleDeleteModalHide = () => {
+      console.log("[Resignation] Delete modal hidden - clearing state");
+      setDeletingResignationId(null);
+    };
+
+    if (addModalElement) {
+      addModalElement.addEventListener('hidden.bs.modal', handleAddModalHide);
+    }
+
+    if (editModalElement) {
+      editModalElement.addEventListener('hidden.bs.modal', handleEditModalHide);
+    }
+
+    if (deleteModalElement) {
+      deleteModalElement.addEventListener('hidden.bs.modal', handleDeleteModalHide);
+    }
+
+    // Cleanup event listeners on unmount
+    return () => {
+      if (addModalElement) {
+        addModalElement.removeEventListener('hidden.bs.modal', handleAddModalHide);
+      }
+      if (editModalElement) {
+        editModalElement.removeEventListener('hidden.bs.modal', handleEditModalHide);
+      }
+      if (deleteModalElement) {
+        deleteModalElement.removeEventListener('hidden.bs.modal', handleDeleteModalHide);
+      }
+    };
+  }, []);
 
   // ui events
   type Option = { value: string; label: string };
@@ -548,9 +794,7 @@ const Resignation = () => {
     console.log("Add department selected - _id:", opt?.value);
     setAddForm({
       ...addForm,
-      department: opt?.label || "",
       departmentId: opt?.value || "",
-      employeeName: "",
       employeeId: "",
     });
     // Clear department and dependent field errors
@@ -560,13 +804,21 @@ const Resignation = () => {
     }
   };
 
+  const handleAddEmployeeChange = (opt: any) => {
+    console.log("[Resignation] Add employee selected - id:", opt?.value);
+    setAddForm({
+      ...addForm,
+      employeeId: opt?.value || "",
+    });
+    // Clear employee error initially
+    setAddErrors(prev => ({ ...prev, employeeId: "" }));
+  };
+
   const handleEditDepartmentChange = (opt: any) => {
     console.log("Edit department selected - _id:", opt?.value);
     setEditForm({
       ...editForm,
-      department: opt?.label || "",
       departmentId: opt?.value || "",
-      employeeName: "",
       employeeId: "",
     });
     // Clear department and dependent field errors
@@ -574,6 +826,16 @@ const Resignation = () => {
     if (opt?.value) {
       fetchEmployeesByDepartment(opt.value);
     }
+  };
+
+  const handleEditEmployeeChange = (opt: any) => {
+    console.log("[Resignation] Edit employee selected - id:", opt?.value);
+    setEditForm({
+      ...editForm,
+      employeeId: opt?.value || "",
+    });
+    // Clear employee error initially
+    setEditErrors(prev => ({ ...prev, employeeId: "" }));
   };
 
   // Validate Add Resignation form
@@ -696,6 +958,33 @@ const Resignation = () => {
     setViewingResignation(resignation);
   };
 
+  // Handle approve resignation
+  const handleApproveResignation = (resignationId: string) => {
+    if (!socket) {
+      toast.error("Socket not connected");
+      return;
+    }
+
+    if (window.confirm("Are you sure you want to approve this resignation? Employee status will be updated to 'On Notice'.")) {
+      console.log("[Resignation] Approving resignation:", resignationId);
+      socket.emit("hr/resignation/approve-resignation", { resignationId });
+    }
+  };
+
+  // Handle reject resignation
+  const handleRejectResignation = (resignationId: string) => {
+    if (!socket) {
+      toast.error("Socket not connected");
+      return;
+    }
+
+    const reason = window.prompt("Please enter reason for rejection (optional):");
+    if (reason !== null) { // User clicked OK (even if empty string)
+      console.log("[Resignation] Rejecting resignation:", resignationId);
+      socket.emit("hr/resignation/reject-resignation", { resignationId, reason });
+    }
+  };
+
   // table columns (preserved look, wired to backend fields)
   const columns: any[] = [
     {
@@ -751,12 +1040,10 @@ const Resignation = () => {
       dataIndex: "reason",
       render: (text: string) => {
         if (!text) return '-';
-        const maxLength = 50;
-        const truncated = text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
         return (
-          <span title={text} className="d-inline-block" style={{ maxWidth: '250px' }}>
-            {truncated}
-          </span>
+          <div className="text-truncate" title={text}>
+            {text}
+          </div>
         );
       },
     },
@@ -776,46 +1063,98 @@ const Resignation = () => {
         new Date(b.resignationDate).getTime(),
     },
     {
+      title: "Status",
+      dataIndex: "resignationStatus",
+      render: (status: string) => {
+        const statusMap: Record<string, { className: string; text: string }> = {
+          pending: { className: "badge badge-soft-warning", text: "Pending" },
+          approved: { className: "badge badge-soft-success", text: "Approved" },
+          rejected: { className: "badge badge-soft-danger", text: "Rejected" },
+          withdrawn: { className: "badge badge-soft-secondary", text: "Withdrawn" },
+        };
+        const statusInfo = statusMap[status?.toLowerCase()] || { className: "badge badge-soft-secondary", text: status || "Unknown" };
+        return <span className={statusInfo.className}>{statusInfo.text}</span>;
+      },
+      filters: [
+        { text: "Pending", value: "pending" },
+        { text: "Approved", value: "approved" },
+        { text: "Rejected", value: "rejected" },
+      ],
+      onFilter: (val: any, rec: any) => rec.resignationStatus?.toLowerCase() === val,
+    },
+    {
       title: "",
       dataIndex: "actions",
-      render: (_: any, record: ResignationRow) => (
-        <div className="action-icon d-inline-flex">
-          <Link
-            to="#"
-            className="me-2"
-            onClick={(e) => {
-              e.preventDefault();
-              handleViewClick(record);
-            }}
-            data-bs-toggle="modal"
-            data-bs-target="#view_resignation"
-          >
-            <i className="ti ti-eye" />
-          </Link>
-          <a
-            href="#"
-            className="me-2"
-            data-bs-toggle="modal"
-            data-bs-target="#edit_resignation"
-            onClick={(e) => {
-              openEditModal(record);
-            }}
-          >
-            <i className="ti ti-edit" />
-          </a>
-          <a
-            aria-label="Delete"
-            onClick={(e) => {
-              e.preventDefault();
-              confirmDelete(() =>
-                socket?.emit("hr/resignation/delete-resignation", [record.resignationId])
-              );
-            }}
-          >
-            <i className="ti ti-trash" />
-          </a>
-        </div>
-      ),
+      render: (_: any, record: ResignationRow) => {
+        const isPending = record.resignationStatus?.toLowerCase() === "pending" || !record.resignationStatus;
+        return (
+          <div className="action-icon d-inline-flex">
+            <Link
+              to="#"
+              className="me-2"
+              onClick={(e) => {
+                e.preventDefault();
+                handleViewClick(record);
+              }}
+              data-bs-toggle="modal"
+              data-bs-target="#view_resignation"
+              title="View Details"
+            >
+              <i className="ti ti-eye" />
+            </Link>
+            {isPending && (
+              <>
+                <Link
+                  to="#"
+                  className="me-2 text-success"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleApproveResignation(record.resignationId);
+                  }}
+                  title="Approve Resignation"
+                >
+                  <i className="ti ti-check" />
+                </Link>
+                <Link
+                  to="#"
+                  className="me-2 text-danger"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleRejectResignation(record.resignationId);
+                  }}
+                  title="Reject Resignation"
+                >
+                  <i className="ti ti-x" />
+                </Link>
+              </>
+            )}
+            <a
+              href="#"
+              className="me-2"
+              data-bs-toggle="modal"
+              data-bs-target="#edit_resignation"
+              onClick={(e) => {
+                openEditModal(record);
+              }}
+              title="Edit"
+            >
+              <i className="ti ti-edit" />
+            </a>
+            <Link
+              to="#"
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteClick(record.resignationId);
+              }}
+              data-bs-toggle="modal"
+              data-bs-target="#delete_modal"
+              title="Delete"
+            >
+              <i className="ti ti-trash" />
+            </Link>
+          </div>
+        );
+      },
     },
   ];
 
@@ -854,6 +1193,7 @@ const Resignation = () => {
                   className="btn btn-primary d-flex align-items-center"
                   data-bs-toggle="modal"
                   data-bs-target="#new_resignation"
+                  onClick={handleAddModalOpen}
                 >
                   <i className="ti ti-circle-plus me-2" />
                   Add Resignation
@@ -941,7 +1281,7 @@ const Resignation = () => {
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Department</label>
+                      <label className="form-label">Department <span className="text-danger">*</span></label>
                       <CommonSelect
                         className="select"
                         options={departmentOptions}
@@ -953,18 +1293,14 @@ const Resignation = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Resigning Employee</label>
+                      <label className="form-label">
+                        Resigning Employee <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
                         className="select"
                         options={employeeOptions}
                         value={employeeOptions.find(opt => opt.value === addForm.employeeId) || null}
-                        onChange={(opt: any) =>
-                          setAddForm({
-                            ...addForm,
-                            employeeId: opt?.value || "",
-                            employeeName: opt?.label || "",
-                          })
-                        }
+                        onChange={handleAddEmployeeChange}
                       />
                       {addErrors.employeeId && <div className="text-danger">{addErrors.employeeId}</div>}
                     </div>
@@ -972,7 +1308,7 @@ const Resignation = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <div className="d-flex justify-content-between align-items-center mb-1">
-                        <label className="form-label mb-0">Reason</label>
+                        <label className="form-label mb-0">Reason <span className="text-danger">*</span></label>
                         <small className="text-muted">
                           {addForm.reason.length}/500 characters
                         </small>
@@ -982,9 +1318,13 @@ const Resignation = () => {
                         rows={3}
                         maxLength={500}
                         value={addForm.reason}
-                        onChange={(e) =>
-                          setAddForm({ ...addForm, reason: e.target.value })
-                        }
+                        onChange={(e) => {
+                          setAddForm({ ...addForm, reason: e.target.value });
+                          // Clear error when user starts typing
+                          if (e.target.value.trim() && addErrors.reason) {
+                            setAddErrors(prev => ({ ...prev, reason: "" }));
+                          }
+                        }}
                         placeholder="Enter reason for resignation (max 500 characters)"
                       />
                       {addErrors.reason && <div className="text-danger">{addErrors.reason}</div>}
@@ -992,7 +1332,9 @@ const Resignation = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Notice Date</label>
+                      <label className="form-label">
+                        Notice Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -1002,12 +1344,17 @@ const Resignation = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          onChange={(_, dateString) =>
+                          value={addForm.noticeDate ? dayjs(addForm.noticeDate, "DD-MM-YYYY") : null}
+                          onChange={(_, dateString) => {
                             setAddForm({
                               ...addForm,
                               noticeDate: dateString as string,
-                            })
-                          }
+                            });
+                            // Clear error when date is selected
+                            if (dateString && addErrors.noticeDate) {
+                              setAddErrors(prev => ({ ...prev, noticeDate: "" }));
+                            }
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -1018,7 +1365,9 @@ const Resignation = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Resignation Date</label>
+                      <label className="form-label">
+                        Resignation Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -1028,12 +1377,17 @@ const Resignation = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          onChange={(_, dateString) =>
+                          value={addForm.resignationDate ? dayjs(addForm.resignationDate, "DD-MM-YYYY") : null}
+                          onChange={(_, dateString) => {
                             setAddForm({
                               ...addForm,
                               resignationDate: dateString as string,
-                            })
-                          }
+                            });
+                            // Clear error when date is selected
+                            if (dateString && addErrors.resignationDate) {
+                              setAddErrors(prev => ({ ...prev, resignationDate: "" }));
+                            }
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -1049,16 +1403,24 @@ const Resignation = () => {
                   type="button"
                   className="btn btn-white border me-2"
                   data-bs-dismiss="modal"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
                   onClick={handleAddSave}
+                  disabled={isSubmitting}
                 >
-                  Add Resignation
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Resignation"
+                  )}
                 </button>
               </div>
             </form>
@@ -1086,12 +1448,15 @@ const Resignation = () => {
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Department</label>
+                      <label className="form-label">
+                        Department <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
                         className="select"
                         options={departmentOptions}
                         value={departmentOptions.find(opt => opt.value === editForm.departmentId) || null}
                         onChange={handleEditDepartmentChange}
+                        disabled={true}
                       />
                       {editErrors.departmentId && <div className="text-danger">{editErrors.departmentId}</div>}
                     </div>
@@ -1099,19 +1464,14 @@ const Resignation = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Resigning Employee&nbsp;
+                        Resigning Employee <span className="text-danger">*</span>
                       </label>
                       <CommonSelect
                         className="select"
                         options={employeeOptions}
                         value={employeeOptions.find(opt => opt.value === editForm.employeeId) || null}
-                        onChange={(opt: any) =>
-                          setEditForm({
-                            ...editForm,
-                            employeeId: opt?.value || "",
-                            employeeName: opt?.label || "",
-                          })
-                        }
+                        onChange={handleEditEmployeeChange}
+                        disabled={true}
                       />
                       {editErrors.employeeId && <div className="text-danger">{editErrors.employeeId}</div>}
                     </div>
@@ -1119,7 +1479,9 @@ const Resignation = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <div className="d-flex justify-content-between align-items-center mb-1">
-                        <label className="form-label mb-0">Reason</label>
+                        <label className="form-label mb-0">
+                          Reason <span className="text-danger">*</span>
+                        </label>
                         <small className="text-muted">
                           {editForm.reason.length}/500 characters
                         </small>
@@ -1129,9 +1491,13 @@ const Resignation = () => {
                         rows={3}
                         maxLength={500}
                         value={editForm.reason}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, reason: e.target.value })
-                        }
+                        onChange={(e) => {
+                          setEditForm({ ...editForm, reason: e.target.value });
+                          // Clear error when user starts typing
+                          if (e.target.value.trim() && editErrors.reason) {
+                            setEditErrors(prev => ({ ...prev, reason: "" }));
+                          }
+                        }}
                         placeholder="Enter reason for resignation (max 500 characters)"
                       />
                       {editErrors.reason && <div className="text-danger">{editErrors.reason}</div>}
@@ -1139,24 +1505,30 @@ const Resignation = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Notice Date</label>
+                      <label className="form-label">
+                        Notice Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
                           format={{ format: "DD-MM-YYYY", type: "mask" }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          defaultValue={
+                          value={
                             editForm.noticeDate
                               ? dayjs(editForm.noticeDate, "DD-MM-YYYY")
                               : null
                           }
-                          onChange={(_, dateString) =>
+                          onChange={(_, dateString) => {
                             setEditForm({
                               ...editForm,
                               noticeDate: dateString as string,
-                            })
-                          }
+                            });
+                            // Clear error when date is selected
+                            if (dateString && editErrors.noticeDate) {
+                              setEditErrors(prev => ({ ...prev, noticeDate: "" }));
+                            }
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -1167,24 +1539,30 @@ const Resignation = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Resignation Date</label>
+                      <label className="form-label">
+                        Resignation Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
                           format={{ format: "DD-MM-YYYY", type: "mask" }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          defaultValue={
+                          value={
                             editForm.resignationDate
                               ? dayjs(editForm.resignationDate, "DD-MM-YYYY")
                               : null
                           }
-                          onChange={(_, dateString) =>
+                          onChange={(_, dateString) => {
                             setEditForm({
                               ...editForm,
                               resignationDate: dateString as string,
-                            })
-                          }
+                            });
+                            // Clear error when date is selected
+                            if (dateString && editErrors.resignationDate) {
+                              setEditErrors(prev => ({ ...prev, resignationDate: "" }));
+                            }
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -1200,16 +1578,24 @@ const Resignation = () => {
                   type="button"
                   className="btn btn-white border me-2"
                   data-bs-dismiss="modal"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
                   onClick={handleEditSave}
+                  disabled={isSubmitting}
                 >
-                  Save Changes
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
                 </button>
               </div>
             </form>
@@ -1217,6 +1603,39 @@ const Resignation = () => {
         </div>
       </div>
       {/* /Edit Resignation */}
+      {/* Delete Modal */}
+      <div className="modal fade" id="delete_modal">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-body text-center">
+              <span className="avatar avatar-xl bg-transparent-danger text-danger mb-3">
+                <i className="ti ti-trash-x fs-36" />
+              </span>
+              <h4 className="mb-1">Confirm Delete</h4>
+              <p className="mb-3">
+                Are you sure you want to delete this resignation? This action cannot be undone.
+              </p>
+              <div className="d-flex justify-content-center">
+                <button
+                  type="button"
+                  className="btn btn-light me-3"
+                  data-bs-dismiss="modal"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="btn btn-danger"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* /Delete Modal */}
       {/* View Resignation Details Modal */}
       <ResignationDetailsModal resignation={viewingResignation} modalId="view_resignation" />
       {/* /View Resignation Details Modal */}

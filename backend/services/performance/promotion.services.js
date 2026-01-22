@@ -1,5 +1,12 @@
 import { getTenantCollections } from "../../config/db.js";
 import { ObjectId } from "mongodb";
+import { validateEmployeeLifecycle } from "../../utils/employeeLifecycleValidator.js";
+
+const normalizeStatus = (status) => {
+  if (!status) return "Active";
+  const normalized = status.toLowerCase();
+  return normalized === "inactive" ? "Inactive" : "Active";
+};
 
 /**
  * Apply a pending promotion to employee record
@@ -39,17 +46,29 @@ async function applyPromotion(companyId, promotionId) {
       return { done: false, message: "Promotion date not yet reached" };
     }
     
-    // Update employee record
+    // Fetch department and designation names from promotionTo IDs
+    const targetDept = await collections.departments.findOne({ 
+      _id: new ObjectId(promotion.promotionTo.departmentId) 
+    });
+    const targetDesig = await collections.designations.findOne({ 
+      _id: new ObjectId(promotion.promotionTo.designationId) 
+    });
+    
+    if (!targetDept || !targetDesig) {
+      return { done: false, message: "Target department or designation not found" };
+    }
+    
+    // Update employee record with promotionTo values
     const employeeUpdate = {
-      designationId: promotion.promotionTo.designation.id,
-      designation: promotion.promotionTo.designation.name,
-      departmentId: promotion.promotionTo.department.id,
-      department: promotion.promotionTo.department.name,
+      designationId: promotion.promotionTo.designationId,
+      designation: targetDesig.name || targetDesig.designation,
+      departmentId: promotion.promotionTo.departmentId,
+      department: targetDept.name || targetDept.department || targetDept.departmentName,
       updatedAt: new Date()
     };
     
     await collections.employees.updateOne(
-      { _id: new ObjectId(promotion.employee.id) },
+      { _id: new ObjectId(promotion.employeeId) },
       { $set: employeeUpdate }
     );
     
@@ -64,7 +83,7 @@ async function applyPromotion(companyId, promotionId) {
       }
     );
     
-    console.log(`[PromotionService] Successfully applied promotion ${promotionId} for employee ${promotion.employee.id}`);
+    console.log(`[PromotionService] Successfully applied promotion ${promotionId} for employee ${promotion.employeeId}`);
     
     const updatedPromotion = await collections.promotions.findOne({ 
       _id: new ObjectId(promotionId) 
@@ -130,36 +149,16 @@ const parseDate = (d) => {
 };
 
 /**
- * Normalize promotion input data
+ * Normalize promotion input data - ONLY store IDs
  */
 const normalizePromotionInput = (input = {}) => {
   const now = new Date();
   
   return {
-    employee: {
-      id: (input.employee?.id || input.employeeId || "").trim(),
-      name: (input.employee?.name || input.employeeName || "").trim(),
-      image: (input.employee?.image || input.employeeImage || "").trim()
-    },
-    promotionFrom: {
-      department: {
-        id: (input.promotionFrom?.department?.id || input.departmentFromId || "").trim(),
-        name: (input.promotionFrom?.department?.name || input.departmentFromName || "").trim()
-      },
-      designation: {
-        id: (input.promotionFrom?.designation?.id || input.designationFrom?.id || "").trim(),
-        name: (input.promotionFrom?.designation?.name || input.designationFrom?.name || "").trim()
-      }
-    },
+    employeeId: (input.employeeId || input.employee?.id || "").trim(),
     promotionTo: {
-      department: {
-        id: (input.promotionTo?.department?.id || input.departmentId || input.targetDepartmentId || "").trim(),
-        name: (input.promotionTo?.department?.name || input.departmentName || "").trim()
-      },
-      designation: {
-        id: (input.promotionTo?.designation?.id || input.designationTo?.id || "").trim(),
-        name: (input.promotionTo?.designation?.name || input.designationTo?.name || "").trim()
-      }
+      departmentId: (input.promotionTo?.departmentId || input.promotionTo?.department?.id || input.targetDepartmentId || "").trim(),
+      designationId: (input.promotionTo?.designationId || input.promotionTo?.designation?.id || input.designationToId || "").trim()
     },
     promotionDate: parseDate(input.promotionDate) || now,
     promotionType: input.promotionType || "Regular",
@@ -172,7 +171,7 @@ const normalizePromotionInput = (input = {}) => {
     reason: (input.reason || "").trim(),
     notes: (input.notes || "").trim(),
     status: input.status || "pending", // pending, applied, cancelled
-    appliedAt: input.appliedAt || null, // When promotion was applied to employee record
+    appliedAt: input.appliedAt || null,
     createdBy: {
       userId: (input.createdBy?.userId || "").trim(),
       userName: (input.createdBy?.userName || "").trim()
@@ -191,35 +190,44 @@ const normalizePromotionInput = (input = {}) => {
  * Validate promotion data for creation
  */
 const validateCreate = async (collections, promotion, existingPromotionId = null) => {
-  if (!promotion.employee?.id) return "Employee is required";
-  if (!promotion.employee?.name) return "Employee name is required";
+  if (!promotion.employeeId) return "Employee ID is required";
   
-  if (!promotion.promotionFrom?.department?.id) return "Current department is required";
-  if (!promotion.promotionFrom?.department?.name) return "Current department name is required";
-  if (!promotion.promotionFrom?.designation?.id || !promotion.promotionFrom?.designation?.name) {
-    return "Current designation is required";
-  }
-  
-  if (!promotion.promotionTo?.department?.id) return "Target department is required";
-  if (!promotion.promotionTo?.department?.name) return "Target department name is required";
-  if (!promotion.promotionTo?.designation?.id || !promotion.promotionTo?.designation?.name) {
-    return "Target designation is required";
-  }
+  if (!promotion.promotionTo?.departmentId) return "Target department is required";
+  if (!promotion.promotionTo?.designationId) return "Target designation is required";
   
   if (!promotion.promotionDate) return "Promotion date is required";
   
-  // Validate that designations are different
-  if (promotion.promotionFrom.designation.id === promotion.promotionTo.designation.id) {
-    return "New designation must be different from current designation";
+  // Check if employee is in any active lifecycle process (resignation/termination/promotion)
+  const lifecycleValidation = await validateEmployeeLifecycle(
+    promotion.companyId,
+    promotion.employeeId,
+    'promotion',
+    existingPromotionId
+  );
+  
+  if (!lifecycleValidation.isValid) {
+    return lifecycleValidation.message;
   }
   
-  // Validate promotion date is not before employee's joining date
+  // Validate that employee exists and fetch current designation
   try {
     const employee = await collections.employees.findOne({ 
-      _id: new ObjectId(promotion.employee.id) 
+      _id: new ObjectId(promotion.employeeId),
+      isDeleted: { $ne: true }
     });
     
-    if (employee && employee.dateOfJoining) {
+    if (!employee) {
+      return "Employee not found";
+    }
+    
+    // Validate that designations are different (promotionFrom vs promotionTo)
+    // promotionFrom = employee's CURRENT designationId
+    if (employee.designationId === promotion.promotionTo.designationId) {
+      return "New designation must be different from current designation";
+    }
+    
+    // Validate promotion date is not before employee's joining date
+    if (employee.dateOfJoining) {
       const joiningDate = new Date(employee.dateOfJoining);
       const promotionDate = new Date(promotion.promotionDate);
       
@@ -233,7 +241,7 @@ const validateCreate = async (collections, promotion, existingPromotionId = null
     
     // Check for overlapping promotions (only pending promotions)
     const query = {
-      "employee.id": promotion.employee.id,
+      employeeId: promotion.employeeId,
       status: "pending",
       isDeleted: { $ne: true }
     };
@@ -250,61 +258,10 @@ const validateCreate = async (collections, promotion, existingPromotionId = null
     }
   } catch (error) {
     console.error("[PromotionService] Error in validation:", error);
-    // Continue with other validations even if this fails
+    return "Validation error: " + error.message;
   }
   
   return null;
-};
-
-/**
- * Fetch employee details to populate promotion data
- */
-const enrichPromotionWithEmployeeData = async (collections, employeeId) => {
-  try {
-    const employee = await collections.employees.findOne({ 
-      _id: new ObjectId(employeeId),
-      isDeleted: { $ne: true }
-    });
-    
-    if (!employee) {
-      return { error: "Employee not found" };
-    }
-    
-    // Fetch department details
-    let departmentName = employee.department || "";
-    if (employee.departmentId) {
-      const department = await collections.departments.findOne({ 
-        _id: new ObjectId(employee.departmentId)
-      });
-      if (department) {
-        departmentName = department.name || department.departmentName || departmentName;
-      }
-    }
-    
-    // Fetch designation details
-    let designationName = employee.designation || "";
-    if (employee.designationId) {
-      const designation = await collections.designations.findOne({ 
-        _id: new ObjectId(employee.designationId)
-      });
-      if (designation) {
-        designationName = designation.name || designation.designation || designationName;
-      }
-    }
-    
-    return {
-      employeeId: employee._id.toString(),
-      employeeName: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
-      employeeImage: employee.image || employee.profilePicture || "",
-      departmentId: employee.departmentId || "",
-      departmentName: departmentName,
-      currentDesignationId: employee.designationId || "",
-      currentDesignationName: designationName
-    };
-  } catch (error) {
-    console.error("[PromotionService] Error enriching employee data:", error);
-    return { error: error.message };
-  }
 };
 
 /**
@@ -314,28 +271,6 @@ export const createPromotion = async (companyId, data) => {
   try {
     const collections = getTenantCollections(companyId);
     console.log("[PromotionService] createPromotion", { companyId, data });
-    
-    // If only employeeId is provided, fetch employee details
-    if (data.employeeId && !data.employeeName) {
-      const enrichedData = await enrichPromotionWithEmployeeData(collections, data.employeeId);
-      if (enrichedData.error) {
-        return { done: false, error: enrichedData.error };
-      }
-      
-      // Merge enriched data with input data
-      data = {
-        ...data,
-        employeeName: enrichedData.employeeName,
-        employeeImage: enrichedData.employeeImage,
-        departmentId: enrichedData.departmentId,
-        departmentName: enrichedData.departmentName,
-        // Set designationFrom if not provided
-        designationFrom: data.designationFrom || {
-          id: enrichedData.currentDesignationId,
-          name: enrichedData.currentDesignationName
-        }
-      };
-    }
     
     const toInsert = normalizePromotionInput(data);
     toInsert.companyId = companyId;
@@ -362,12 +297,10 @@ export const createPromotion = async (companyId, data) => {
     
     if (promotionDate <= today) {
       console.log("[PromotionService] Promotion date is today or past, applying immediately");
-      // Apply promotion immediately
       try {
         await applyPromotion(companyId, result.insertedId);
       } catch (applyError) {
         console.error("[PromotionService] Error applying promotion:", applyError);
-        // Don't fail the creation if application fails - it will be picked up by scheduler
       }
     } else {
       console.log("[PromotionService] Promotion date is in future, status remains pending");
@@ -384,6 +317,7 @@ export const createPromotion = async (companyId, data) => {
 
 /**
  * Get all promotions with optional filters
+ * Uses aggregation pipeline to resolve all references (employee, departments, designations)
  */
 export const getAllPromotions = async (companyId, filters = {}) => {
   try {
@@ -398,7 +332,7 @@ export const getAllPromotions = async (companyId, filters = {}) => {
     }
     
     if (filters.departmentId) {
-      query.departmentId = filters.departmentId;
+      query['promotionTo.departmentId'] = filters.departmentId;
     }
     
     if (filters.promotionType) {
@@ -415,30 +349,200 @@ export const getAllPromotions = async (companyId, filters = {}) => {
       }
     }
     
-    // Use aggregation to lookup employee data and include employeeId and avatarUrl
+    // Aggregation pipeline to resolve all references
     const promotions = await collections.promotions.aggregate([
       { $match: query },
       { $sort: { promotionDate: -1, createdAt: -1 } },
+      
+      // Lookup employee data
       {
         $lookup: {
           from: "employees",
-          let: { empId: { $toObjectId: "$employee.id" } },
+          let: { empId: { $toObjectId: "$employeeId" } },
           pipeline: [
             { $match: { $expr: { $eq: ["$_id", "$$empId"] } } },
-            { $project: { employeeId: 1, avatarUrl: 1 } }
+            {
+              $project: {
+                _id: 1,
+                firstName: 1,
+                lastName: 1,
+                employeeId: 1,
+                image: 1,
+                profilePicture: 1,
+                avatarUrl: 1,
+                departmentId: 1,
+                designationId: 1
+              }
+            }
           ],
           as: "employeeData"
         }
       },
+      { $unwind: { path: "$employeeData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionFrom department (employee's current department)
       {
-        $addFields: {
-          "employee.employeeId": { $arrayElemAt: ["$employeeData.employeeId", 0] },
-          "employee.image": { $arrayElemAt: ["$employeeData.avatarUrl", 0] }
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$employeeData.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1, departmentName: 1 } }
+          ],
+          as: "fromDepartmentData"
         }
       },
+      { $unwind: { path: "$fromDepartmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionFrom designation (employee's current designation)
+      {
+        $lookup: {
+          from: "designations",
+          let: { desigId: { $toObjectId: "$employeeData.designationId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$desigId"] } } },
+            { $project: { _id: 1, name: 1, designation: 1 } }
+          ],
+          as: "fromDesignationData"
+        }
+      },
+      { $unwind: { path: "$fromDesignationData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionTo department
+      {
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$promotionTo.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1, departmentName: 1 } }
+          ],
+          as: "toDepartmentData"
+        }
+      },
+      { $unwind: { path: "$toDepartmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionTo designation
+      {
+        $lookup: {
+          from: "designations",
+          let: { desigId: { $toObjectId: "$promotionTo.designationId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$desigId"] } } },
+            { $project: { _id: 1, name: 1, designation: 1 } }
+          ],
+          as: "toDesignationData"
+        }
+      },
+      { $unwind: { path: "$toDesignationData", preserveNullAndEmptyArrays: true } },
+      
+      // Project final structure for frontend
       {
         $project: {
-          employeeData: 0
+          _id: 1,
+          companyId: 1,
+          employee: {
+            id: { 
+              $cond: {
+                if: { $ne: ["$employeeData._id", null] },
+                then: { $toString: "$employeeData._id" },
+                else: null
+              }
+            },
+            name: {
+              $concat: [
+                { $ifNull: ["$employeeData.firstName", ""] },
+                " ",
+                { $ifNull: ["$employeeData.lastName", ""] }
+              ]
+            },
+            image: {
+              $ifNull: [
+                "$employeeData.image",
+                { $ifNull: ["$employeeData.profilePicture", { $ifNull: ["$employeeData.avatarUrl", ""] }] }
+              ]
+            },
+            employeeId: "$employeeData.employeeId"
+          },
+          promotionFrom: {
+            department: {
+              id: { 
+                $cond: {
+                  if: { $ne: ["$fromDepartmentData._id", null] },
+                  then: { $toString: "$fromDepartmentData._id" },
+                  else: null
+                }
+              },
+              name: {
+                $ifNull: [
+                  "$fromDepartmentData.name",
+                  { $ifNull: ["$fromDepartmentData.department", { $ifNull: ["$fromDepartmentData.departmentName", ""] }] }
+                ]
+              }
+            },
+            designation: {
+              id: { 
+                $cond: {
+                  if: { $ne: ["$fromDesignationData._id", null] },
+                  then: { $toString: "$fromDesignationData._id" },
+                  else: null
+                }
+              },
+              name: {
+                $ifNull: ["$fromDesignationData.name", { $ifNull: ["$fromDesignationData.designation", ""] }]
+              }
+            }
+          },
+          promotionTo: {
+            department: {
+              id: { 
+                $cond: {
+                  if: { $ne: ["$toDepartmentData._id", null] },
+                  then: { $toString: "$toDepartmentData._id" },
+                  else: null
+                }
+              },
+              name: {
+                $ifNull: [
+                  "$toDepartmentData.name",
+                  { $ifNull: ["$toDepartmentData.department", { $ifNull: ["$toDepartmentData.departmentName", ""] }] }
+                ]
+              }
+            },
+            designation: {
+              id: { 
+                $cond: {
+                  if: { $ne: ["$toDesignationData._id", null] },
+                  then: { $toString: "$toDesignationData._id" },
+                  else: null
+                }
+              },
+              name: {
+                $ifNull: ["$toDesignationData.name", { $ifNull: ["$toDesignationData.designation", ""] }]
+              }
+            }
+          },
+          promotionDate: 1,
+          promotionType: 1,
+          salaryChange: 1,
+          reason: 1,
+          notes: 1,
+          status: 1,
+          appliedAt: 1,
+          createdBy: 1,
+          updatedBy: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      },
+      // Filter out promotions with unresolved references
+      {
+        $match: {
+          "employee.id": { $ne: null },
+          "promotionFrom.department.id": { $ne: null },
+          "promotionFrom.designation.id": { $ne: null },
+          "promotionTo.department.id": { $ne: null },
+          "promotionTo.designation.id": { $ne: null }
         }
       }
     ]).toArray();
@@ -451,7 +555,7 @@ export const getAllPromotions = async (companyId, filters = {}) => {
 };
 
 /**
- * Get promotion by ID
+ * Get promotion by ID with resolved references
  */
 export const getPromotionById = async (companyId, promotionId) => {
   try {
@@ -462,17 +566,184 @@ export const getPromotionById = async (companyId, promotionId) => {
       return { done: false, error: "Invalid promotion ID format" };
     }
     
-    const promotion = await collections.promotions.findOne({ 
-      _id: new ObjectId(promotionId),
-      companyId,
-      isDeleted: { $ne: true }
-    });
+    // Use same aggregation pipeline as getAllPromotions but filter by ID
+    const promotions = await collections.promotions.aggregate([
+      { 
+        $match: { 
+          _id: new ObjectId(promotionId),
+          companyId,
+          isDeleted: { $ne: true }
+        } 
+      },
+      
+      // Lookup employee data
+      {
+        $lookup: {
+          from: "employees",
+          let: { empId: { $toObjectId: "$employeeId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$empId"] } } },
+            {
+              $project: {
+                _id: 1,
+                firstName: 1,
+                lastName: 1,
+                employeeId: 1,
+                image: 1,
+                profilePicture: 1,
+                avatarUrl: 1,
+                departmentId: 1,
+                designationId: 1
+              }
+            }
+          ],
+          as: "employeeData"
+        }
+      },
+      { $unwind: { path: "$employeeData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionFrom department
+      {
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$employeeData.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1, departmentName: 1 } }
+          ],
+          as: "fromDepartmentData"
+        }
+      },
+      { $unwind: { path: "$fromDepartmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionFrom designation
+      {
+        $lookup: {
+          from: "designations",
+          let: { desigId: { $toObjectId: "$employeeData.designationId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$desigId"] } } },
+            { $project: { _id: 1, name: 1, designation: 1 } }
+          ],
+          as: "fromDesignationData"
+        }
+      },
+      { $unwind: { path: "$fromDesignationData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionTo department
+      {
+        $lookup: {
+          from: "departments",
+          let: { deptId: { $toObjectId: "$promotionTo.departmentId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$deptId"] } } },
+            { $project: { _id: 1, name: 1, department: 1, departmentName: 1 } }
+          ],
+          as: "toDepartmentData"
+        }
+      },
+      { $unwind: { path: "$toDepartmentData", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup promotionTo designation
+      {
+        $lookup: {
+          from: "designations",
+          let: { desigId: { $toObjectId: "$promotionTo.designationId" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$desigId"] } } },
+            { $project: { _id: 1, name: 1, designation: 1 } }
+          ],
+          as: "toDesignationData"
+        }
+      },
+      { $unwind: { path: "$toDesignationData", preserveNullAndEmptyArrays: true } },
+      
+      // Project final structure
+      {
+        $project: {
+          _id: 1,
+          companyId: 1,
+          employee: {
+            id: { $toString: "$employeeData._id" },
+            name: {
+              $concat: [
+                { $ifNull: ["$employeeData.firstName", ""] },
+                " ",
+                { $ifNull: ["$employeeData.lastName", ""] }
+              ]
+            },
+            image: {
+              $ifNull: [
+                "$employeeData.image",
+                { $ifNull: ["$employeeData.profilePicture", { $ifNull: ["$employeeData.avatarUrl", ""] }] }
+              ]
+            },
+            employeeId: "$employeeData.employeeId"
+          },
+          promotionFrom: {
+            department: {
+              id: { $toString: "$fromDepartmentData._id" },
+              name: {
+                $ifNull: [
+                  "$fromDepartmentData.name",
+                  { $ifNull: ["$fromDepartmentData.department", { $ifNull: ["$fromDepartmentData.departmentName", ""] }] }
+                ]
+              }
+            },
+            designation: {
+              id: { $toString: "$fromDesignationData._id" },
+              name: {
+                $ifNull: ["$fromDesignationData.name", { $ifNull: ["$fromDesignationData.designation", ""] }]
+              }
+            }
+          },
+          promotionTo: {
+            department: {
+              id: { $toString: "$toDepartmentData._id" },
+              name: {
+                $ifNull: [
+                  "$toDepartmentData.name",
+                  { $ifNull: ["$toDepartmentData.department", { $ifNull: ["$toDepartmentData.departmentName", ""] }] }
+                ]
+              }
+            },
+            designation: {
+              id: { $toString: "$toDesignationData._id" },
+              name: {
+                $ifNull: ["$toDesignationData.name", { $ifNull: ["$toDesignationData.designation", ""] }]
+              }
+            }
+          },
+          promotionDate: 1,
+          promotionType: 1,
+          salaryChange: 1,
+          reason: 1,
+          notes: 1,
+          status: 1,
+          appliedAt: 1,
+          createdBy: 1,
+          updatedBy: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      },
+      // Filter out promotions with unresolved references
+      {
+        $match: {
+          "employee.id": { $ne: null },
+          "promotionFrom.department.id": { $ne: null },
+          "promotionFrom.designation.id": { $ne: null },
+          "promotionTo.department.id": { $ne: null },
+          "promotionTo.designation.id": { $ne: null }
+        }
+      }
+    ]).toArray();
     
-    if (!promotion) {
-      return { done: false, error: "Promotion not found" };
+    if (!promotions || promotions.length === 0) {
+      return { done: false, error: "Promotion not found or has invalid references" };
     }
     
-    return { done: true, data: promotion };
+    return { done: true, data: promotions[0] };
   } catch (error) {
     console.error("[PromotionService] Error in getPromotionById", { error: error.message });
     return { done: false, error: error.message };
@@ -511,45 +782,26 @@ export const updatePromotion = async (companyId, promotionId, updateData) => {
     if (updateData.reason !== undefined) toUpdate.reason = updateData.reason.trim();
     if (updateData.notes !== undefined) toUpdate.notes = updateData.notes.trim();
     
-    // Handle promotionTo updates (nested structure)
+    // Handle promotionTo updates (nested structure with ONLY IDs)
     if (updateData.promotionTo) {
-      // Update department if provided
-      if (updateData.promotionTo.department) {
-        toUpdate["promotionTo.department"] = {
-          id: (updateData.promotionTo.department.id || "").trim(),
-          name: (updateData.promotionTo.department.name || "").trim()
-        };
-        
-        // Validate department
-        if (!toUpdate["promotionTo.department"].id || !toUpdate["promotionTo.department"].name) {
-          return { done: false, error: "Target department is required" };
+      // Update department ID if provided
+      if (updateData.promotionTo.departmentId || updateData.promotionTo.department?.id) {
+        const deptId = (updateData.promotionTo.departmentId || updateData.promotionTo.department?.id || "").trim();
+        if (deptId) {
+          toUpdate["promotionTo.departmentId"] = deptId;
+        } else {
+          return { done: false, error: "Target department ID is required" };
         }
       }
       
-      // Update designation if provided
-      if (updateData.promotionTo.designation) {
-        toUpdate["promotionTo.designation"] = {
-          id: (updateData.promotionTo.designation.id || "").trim(),
-          name: (updateData.promotionTo.designation.name || "").trim()
-        };
-        
-        // Validate designation
-        if (!toUpdate["promotionTo.designation"].id || !toUpdate["promotionTo.designation"].name) {
-          return { done: false, error: "New designation is required" };
+      // Update designation ID if provided
+      if (updateData.promotionTo.designationId || updateData.promotionTo.designation?.id) {
+        const desigId = (updateData.promotionTo.designationId || updateData.promotionTo.designation?.id || "").trim();
+        if (desigId) {
+          toUpdate["promotionTo.designationId"] = desigId;
+        } else {
+          return { done: false, error: "Target designation ID is required" };
         }
-      }
-    }
-    
-    // Legacy support for flat designationTo structure
-    if (updateData.designationTo && !updateData.promotionTo?.designation) {
-      toUpdate["promotionTo.designation"] = {
-        id: (updateData.designationTo.id || "").trim(),
-        name: (updateData.designationTo.name || "").trim()
-      };
-      
-      // Validate new designation
-      if (!toUpdate["promotionTo.designation"].id || !toUpdate["promotionTo.designation"].name) {
-        return { done: false, error: "New designation is required" };
       }
     }
     
@@ -572,15 +824,13 @@ export const updatePromotion = async (companyId, promotionId, updateData) => {
     toUpdate.updatedAt = now;
     
     // Validate changes if critical fields are being updated
-    if (toUpdate.promotionDate || toUpdate["promotionTo.designation"]) {
+    if (toUpdate.promotionDate || toUpdate["promotionTo.designationId"]) {
       // Create a merged object for validation
       const mergedPromotion = {
         ...existing,
-        ...toUpdate,
         promotionTo: {
-          ...existing.promotionTo,
-          designation: toUpdate["promotionTo.designation"] || existing.promotionTo.designation,
-          department: toUpdate["promotionTo.department"] || existing.promotionTo.department
+          departmentId: toUpdate["promotionTo.departmentId"] || existing.promotionTo.departmentId,
+          designationId: toUpdate["promotionTo.designationId"] || existing.promotionTo.designationId
         },
         promotionDate: toUpdate.promotionDate || existing.promotionDate
       };
@@ -627,7 +877,7 @@ export const updatePromotion = async (companyId, promotionId, updateData) => {
       }
     }
     // If already applied and department/designation changed, reapply
-    else if (updated.status === "applied" && (toUpdate["promotionTo.designation"] || toUpdate["promotionTo.department"])) {
+    else if (updated.status === "applied" && (toUpdate["promotionTo.designationId"] || toUpdate["promotionTo.departmentId"])) {
       console.log("[PromotionService] Applied promotion modified, reapplying");
       try {
         await applyPromotion(companyId, promotionId);
@@ -694,7 +944,7 @@ export const getEmployeesForPromotion = async (companyId) => {
     const employees = await collections.employees
       .find({ 
         isDeleted: { $ne: true },
-        status: { $in: ["Active", "active"] }
+        status: { $regex: "^Active$", $options: "i" }
       })
       .project({
         _id: 1,
@@ -809,7 +1059,7 @@ export const getEmployeesByDepartment = async (companyId, departmentId) => {
     
     // Query employees by department
     const query = {
-      status: { $in: ["Active", "active"] },
+      status: { $regex: "^Active$", $options: "i" },
       departmentId: departmentId,
       isDeleted: { $ne: true }
     };

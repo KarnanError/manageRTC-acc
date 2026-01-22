@@ -1,5 +1,5 @@
 import React from "react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { all_routes } from "../../router/all_routes";
 import { Link, useNavigate } from "react-router-dom";
 import Table from "../../../core/common/dataTable/index";
@@ -64,7 +64,7 @@ interface Employee {
   companyName: string;
   departmentId: string;
   designationId: string;
-  status: "Active" | "Inactive";
+  status: "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave";
   dateOfJoining: string | null;
   about: string;
   role: string;
@@ -89,11 +89,21 @@ const generateId = (prefix: string): string => {
   return `${prefix}-${paddedNum}`;
 };
 
-// Normalize status to ensure correct case (Active or Inactive)
-const normalizeStatus = (status: string | undefined): "Active" | "Inactive" => {
+// Normalize status to ensure correct case for all possible statuses
+const normalizeStatus = (status: string | undefined): "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave" => {
   if (!status) return "Active";
   const normalized = status.toLowerCase();
-  return normalized === "inactive" ? "Inactive" : "Active";
+  
+  // Map all possible status values with case-insensitive matching
+  if (normalized === "active") return "Active";
+  if (normalized === "inactive") return "Inactive";
+  if (normalized === "on notice") return "On Notice";
+  if (normalized === "resigned") return "Resigned";
+  if (normalized === "terminated") return "Terminated";
+  if (normalized === "on leave") return "On Leave";
+  
+  // Default to Active for unknown statuses
+  return "Active";
 };
 
 // Type definitions
@@ -281,6 +291,15 @@ const EmployeeList = () => {
     newJoinersCount: 0,
   });
 
+  // Lifecycle status tracking for status dropdown control
+  const [lifecycleStatus, setLifecycleStatus] = useState<{
+    hasLifecycleRecord: boolean;
+    canChangeStatus: boolean;
+    type?: string;
+    status?: string;
+    message?: string;
+  } | null>(null);
+
   // View state - 'list' or 'grid'
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
@@ -312,7 +331,7 @@ const EmployeeList = () => {
     designationId: "",
     departmentId: "",
     about: "",
-    status: "Active" as "Active" | "Inactive",
+    status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
   });
   const [permissions, setPermissions] = useState(initialState);
 
@@ -490,12 +509,22 @@ const EmployeeList = () => {
         }
         if (Array.isArray(response.data.employees)) {
           // Normalize status for all employees to ensure correct case
+<<<<<<< HEAD
           const normalizedEmployees = response.data.employees.map(
             (emp: Employee) => ({
               ...emp,
               status: normalizeStatus(emp.status),
             }),
           );
+=======
+          const normalizedEmployees = response.data.employees.map((emp: Employee) => {
+            console.log(`Employee ${emp.employeeId} - Raw status: "${emp.status}", Normalized: "${normalizeStatus(emp.status)}"`);
+            return {
+              ...emp,
+              status: normalizeStatus(emp.status)
+            };
+          });
+>>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
           setEmployees(normalizedEmployees);
         }
         setError(null);
@@ -587,6 +616,25 @@ const EmployeeList = () => {
       }
     };
 
+    const handleLifecycleStatusResponse = (response: any) => {
+      if (!isMounted) return;
+      
+      if (response.done && response.data) {
+        setLifecycleStatus(response.data);
+        
+        // Show warning if employee has lifecycle records
+        if (response.data.hasLifecycleRecord && response.data.message) {
+          toast.info(response.data.message, {
+            position: "top-right",
+            autoClose: 5000,
+          });
+        }
+      } else {
+        // Clear lifecycle status if check fails
+        setLifecycleStatus(null);
+      }
+    };
+
     socket.on("hrm/employees/add-response", handleAddEmployeeResponse);
     socket.on("hrm/designations/get-response", handleDesignationResponse);
     socket.on("hr/departments/get-response", handleDepartmentResponse);
@@ -603,6 +651,10 @@ const EmployeeList = () => {
     socket.on(
       "hrm/employees/update-permissions-response",
       handleUpdatePermissionResponse,
+    );
+    socket.on(
+      "hrm/employees/check-lifecycle-status-response",
+      handleLifecycleStatusResponse
     );
 
     return () => {
@@ -625,6 +677,10 @@ const EmployeeList = () => {
         "hrm/employees/update-permissions-response",
         handleUpdatePermissionResponse,
       );
+      socket.off(
+        "hrm/employees/check-lifecycle-status-response",
+        handleLifecycleStatusResponse
+      );
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
@@ -633,6 +689,11 @@ const EmployeeList = () => {
     if (editingEmployee && socket) {
       // Fetch designations for the employee's department
       console.log("Emitting for departmentID", editingEmployee.departmentId);
+
+      // Check lifecycle status when employee is selected for editing
+      socket.emit("hrm/employees/check-lifecycle-status", {
+        employeeId: editingEmployee.employeeId
+      });
 
       if (editingEmployee.departmentId) {
         socket.emit("hrm/designations/get", {
@@ -659,6 +720,23 @@ const EmployeeList = () => {
       setPermissions(initialState);
     }
   }, [editingEmployee]);
+
+  // Dynamically compute available status filters based on actual employee data
+  const availableStatusFilters = useMemo(() => {
+    // Get unique statuses from employees
+    const uniqueStatuses = new Set<string>();
+    employees.forEach(emp => {
+      if (emp.status) {
+        uniqueStatuses.add(normalizeStatus(emp.status));
+      }
+    });
+    
+    // Convert to filter format and sort
+    const statusOrder = ["Active", "Inactive", "On Notice", "On Leave", "Resigned", "Terminated"];
+    return Array.from(uniqueStatuses)
+      .sort((a, b) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
+      .map(status => ({ text: status, value: status }));
+  }, [employees]);
 
   // Clean up modal backdrops on component unmount or when activeTab changes
   useEffect(() => {
@@ -754,6 +832,7 @@ const EmployeeList = () => {
     {
       title: "Status",
       dataIndex: "status",
+<<<<<<< HEAD
       render: (text: string, record: any) => (
         <span
           className={`badge ${
@@ -766,6 +845,41 @@ const EmployeeList = () => {
       ),
       sorter: (a: any, b: any) =>
         (a.status || "").localeCompare(b.status || ""),
+=======
+      render: (text: string, record: any) => {
+        // Normalize status for comparison (handle case-insensitive)
+        const status = (text || "").toLowerCase();
+        
+        // Determine badge color based on status
+        let badgeClass = "badge-secondary"; // Default gray
+        
+        if (status === "active") {
+          badgeClass = "badge-success"; // Green
+        } else if (status === "on notice") {
+          badgeClass = "badge-warning"; // Yellow/Orange
+        } else if (status === "resigned") {
+          badgeClass = "badge-info"; // Blue
+        } else if (status === "terminated") {
+          badgeClass = "badge-danger"; // Red
+        } else if (status === "inactive") {
+          badgeClass = "badge-secondary"; // Gray
+        } else if (status === "on leave") {
+          badgeClass = "badge-soft-warning"; // Soft yellow
+        }
+        
+        return (
+          <span
+            className={`badge ${badgeClass} d-inline-flex align-items-center badge-xs`}
+          >
+            <i className="ti ti-point-filled me-1" />
+            {text}
+          </span>
+        );
+      },
+      sorter: (a: any, b: any) => (a.status || "").localeCompare(b.status || ""),
+      filters: availableStatusFilters,
+      onFilter: (value: any, record: any) => normalizeStatus(record.status) === value,
+>>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
     },
     {
       title: "",
@@ -1533,7 +1647,7 @@ const EmployeeList = () => {
         departmentId,
         designationId,
         about,
-        status,
+        status: normalizeStatus(status),
       };
 
       // Prepare full submission data
@@ -1571,7 +1685,12 @@ const EmployeeList = () => {
       toast.error("No employee selected for editing.");
       return;
     }
-    const payload = {
+    
+    // Lifecycle statuses that should only be set through HR workflows
+    const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
+    const currentStatus = normalizeStatus(editingEmployee.status);
+    
+    const payload: any = {
       employeeId: editingEmployee.employeeId || "",
       firstName: editingEmployee.firstName || "",
       lastName: editingEmployee.lastName || "",
@@ -1599,8 +1718,14 @@ const EmployeeList = () => {
       dateOfJoining: editingEmployee.dateOfJoining || null,
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
-      status: normalizeStatus(editingEmployee.status),
     };
+    
+    // Only include status if it's NOT a lifecycle status
+    // Lifecycle statuses should only be set through termination/resignation workflows
+    if (!lifecycleStatuses.includes(currentStatus)) {
+      payload.status = currentStatus;
+    }
+    
     console.log("update payload", payload);
 
     if (socket) {
@@ -1670,7 +1795,7 @@ const EmployeeList = () => {
       departmentId: "",
       designationId: "",
       about: "",
-      status: "Active" as "Active" | "Inactive",
+      status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
     });
 
     setPermissions(initialState);
@@ -2173,10 +2298,7 @@ const EmployeeList = () => {
                   >
                     Select status{" "}
                     {selectedStatus
-                      ? `: ${
-                          selectedStatus.charAt(0).toUpperCase() +
-                          selectedStatus.slice(1)
-                        }`
+                      ? `: ${normalizeStatus(selectedStatus)}`
                       : ": None"}
                   </a>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
@@ -2189,24 +2311,17 @@ const EmployeeList = () => {
                         All
                       </Link>
                     </li>
-                    <li>
-                      <Link
-                        to="#"
-                        className="dropdown-item rounded-1"
-                        onClick={() => onSelectStatus("Active")}
-                      >
-                        Active
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="#"
-                        className="dropdown-item rounded-1"
-                        onClick={() => onSelectStatus("Inactive")}
-                      >
-                        Inactive
-                      </Link>
-                    </li>
+                    {availableStatusFilters.map((statusOption) => (
+                      <li key={statusOption.value}>
+                        <Link
+                          to="#"
+                          className="dropdown-item rounded-1"
+                          onClick={() => onSelectStatus(statusOption.value)}
+                        >
+                          {statusOption.text}
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 </div>
                 <div className="dropdown me-3">
@@ -4016,7 +4131,7 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Status <span className="text-danger"> *</span>
                           </label>
-                          <div className="d-flex align-items-center">
+                          <div>
                             <div className="form-check form-switch">
                               <input
                                 className="form-check-input"
@@ -4024,7 +4139,20 @@ const EmployeeList = () => {
                                 role="switch"
                                 id="editStatusSwitch"
                                 checked={editingEmployee?.status === "Active"}
-                                onChange={(e) =>
+                                disabled={
+                                  editingEmployee?.status?.toLowerCase() !== "active" &&
+                                  editingEmployee?.status?.toLowerCase() !== "inactive"
+                                }
+                                onChange={(e) => {
+                                  const currentStatus = editingEmployee?.status?.toLowerCase();
+                                  // Only allow editing if status is Active or Inactive
+                                  if (currentStatus !== "active" && currentStatus !== "inactive") {
+                                    toast.warning(
+                                      `Status cannot be changed for ${editingEmployee?.status || 'this'} employees. This status is managed by HR workflow.`,
+                                      { position: "top-right", autoClose: 4000 }
+                                    );
+                                    return;
+                                  }
                                   setEditingEmployee((prev) =>
                                     prev
                                       ? {
@@ -4033,6 +4161,7 @@ const EmployeeList = () => {
                                             ? "Active"
                                             : "Inactive",
                                         }
+<<<<<<< HEAD
                                       : prev,
                                   )
                                 }
@@ -4040,6 +4169,21 @@ const EmployeeList = () => {
                               <label
                                 className="form-check-label"
                                 htmlFor="editStatusSwitch"
+=======
+                                      : prev
+                                  );
+                                }}
+                              />
+                              <label 
+                                className="form-check-label" 
+                                htmlFor="editStatusSwitch"
+                                style={{
+                                  opacity: (
+                                    editingEmployee?.status?.toLowerCase() !== "active" &&
+                                    editingEmployee?.status?.toLowerCase() !== "inactive"
+                                  ) ? 0.6 : 1
+                                }}
+>>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
                               >
                                 <span
                                   className={`badge ${
@@ -4222,10 +4366,14 @@ const EmployeeList = () => {
                     <button
                       type="button"
                       className="btn btn-primary"
-                      data-bs-toggle="modal"
-                      data-inert={true}
-                      data-bs-target="#success_modal"
-                      onClick={handlePermissionUpdateSubmit}
+                      onClick={(e) => {
+                        handlePermissionUpdateSubmit(e);
+                        // Close modal after submission
+                        if (editEmployeeModalRef.current) {
+                          editEmployeeModalRef.current.click();
+                          setTimeout(() => closeModal(), 100);
+                        }
+                      }}
                     >
                       Save{" "}
                     </button>

@@ -7,6 +7,7 @@ const promotionSchema = new mongoose.Schema({
     index: true
   },
   
+  // ONLY store employee Object ID reference
   employeeId: {
     type: String,
     required: true,
@@ -14,52 +15,15 @@ const promotionSchema = new mongoose.Schema({
     index: true
   },
   
-  // Employee details (for display)
-  employeeName: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  
-  employeeImage: {
-    type: String,
-    trim: true
-  },
-  
-  // Current department
-  departmentId: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  
-  departmentName: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  
-  // Designation transition
-  designationFrom: {
-    id: {
+  // promotionTo stores ONLY IDs (no names, no duplicated data)
+  // promotionFrom is NEVER stored - always derived from employee's current dept/designation
+  promotionTo: {
+    departmentId: {
       type: String,
       required: true,
       trim: true
     },
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    }
-  },
-  
-  designationTo: {
-    id: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    name: {
+    designationId: {
       type: String,
       required: true,
       trim: true
@@ -96,6 +60,18 @@ const promotionSchema = new mongoose.Schema({
       type: Number,
       min: 0
     }
+  },
+  
+  // Promotion status field
+  status: {
+    type: String,
+    enum: ['pending', 'applied', 'cancelled'],
+    default: 'pending'
+  },
+  
+  appliedAt: {
+    type: Date,
+    default: null
   },
   
   // Promotion reason/notes
@@ -153,7 +129,8 @@ const promotionSchema = new mongoose.Schema({
 // Indexes for better query performance
 promotionSchema.index({ companyId: 1, employeeId: 1 });
 promotionSchema.index({ companyId: 1, promotionDate: -1 });
-promotionSchema.index({ companyId: 1, departmentId: 1 });
+promotionSchema.index({ companyId: 1, 'promotionTo.departmentId': 1 });
+promotionSchema.index({ companyId: 1, status: 1 });
 promotionSchema.index({ companyId: 1, isDeleted: 1 });
 
 const Promotion = mongoose.model('Promotion', promotionSchema);

@@ -46,7 +46,42 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
   promotion, 
   modalId = "view_promotion_details" 
 }) => {
-  if (!promotion) return null;
+  // Always render modal structure, just show empty/loading state when no data
+  if (!promotion) {
+    return (
+      <div className="modal fade" id={modalId}>
+        <div className="modal-dialog modal-dialog-centered modal-lg">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Promotion Details</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <div className="modal-body pb-0">
+              <div className="text-center py-5">
+                <p className="text-muted">No promotion selected</p>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-bs-dismiss="modal"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal fade" id={modalId}>
@@ -69,15 +104,16 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
               <div className="col-md-12 mb-4">
                 <div className="d-flex align-items-center">
                   <div className="avatar avatar-lg me-3">
-                    {promotion.employee.image ? (
+                    {promotion.employee.image && promotion.employee.image.trim() !== '' ? (
                       <ImageWithBasePath
                         src={promotion.employee.image}
-                        className="rounded-circle"
+                        className="rounded-circle img-fluid"
                         alt={promotion.employee.name}
+                        isLink={true}
                       />
                     ) : (
-                      <div className="avatar-title bg-primary-transparent rounded-circle text-primary fs-20">
-                        {promotion.employee.name.charAt(0)}
+                      <div className="avatar-title bg-primary-transparent rounded-circle text-primary">
+                        {promotion.employee.name?.charAt(0)?.toUpperCase() || 'U'}
                       </div>
                     )}
                   </div>

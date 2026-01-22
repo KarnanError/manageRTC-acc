@@ -76,7 +76,7 @@ const resignationController = (socket, io) => {
         companyId,
         resignation
       );
-      // socket.emit("hr/resignation/add-resignation-response", res);
+      socket.emit("hr/resignation/add-resignation-response", res);
       if (res.done) {
         console.log("Added");
         const updatedList = await resignationService.getResignations(
@@ -140,6 +140,87 @@ const resignationController = (socket, io) => {
       }
     } catch (error) {
       socket.emit("hr/resignation/delete-resignation-response", toErr(error));
+    }
+  });
+
+  // Approve resignation
+  socket.on("hr/resignation/approve-resignation", async (payload) => {
+    try {
+      const { resignationId, userId } = payload;
+      const res = await resignationService.approveResignation(
+        companyId,
+        resignationId,
+        userId || socket.user?.sub
+      );
+      socket.emit("hr/resignation/approve-resignation-response", res);
+      if (res.done) {
+        const updatedList = await resignationService.getResignations(
+          companyId,
+          {}
+        );
+        socket.emit("hr/resignation/resignationlist-response", updatedList);
+        io.to("hr_room").emit(
+          "hr/resignation/resignationlist-response",
+          updatedList
+        );
+        await Broadcast();
+      }
+    } catch (error) {
+      socket.emit("hr/resignation/approve-resignation-response", toErr(error));
+    }
+  });
+
+  // Reject resignation
+  socket.on("hr/resignation/reject-resignation", async (payload) => {
+    try {
+      const { resignationId, userId, reason } = payload;
+      const res = await resignationService.rejectResignation(
+        companyId,
+        resignationId,
+        userId || socket.user?.sub,
+        reason
+      );
+      socket.emit("hr/resignation/reject-resignation-response", res);
+      if (res.done) {
+        const updatedList = await resignationService.getResignations(
+          companyId,
+          {}
+        );
+        socket.emit("hr/resignation/resignationlist-response", updatedList);
+        io.to("hr_room").emit(
+          "hr/resignation/resignationlist-response",
+          updatedList
+        );
+        await Broadcast();
+      }
+    } catch (error) {
+      socket.emit("hr/resignation/reject-resignation-response", toErr(error));
+    }
+  });
+
+  // Process resignation effective date
+  socket.on("hr/resignation/process-resignation", async (payload) => {
+    try {
+      const { resignationId } = payload;
+      const res = await resignationService.processResignationEffectiveDate(
+        companyId,
+        resignationId
+      );
+      socket.emit("hr/resignation/process-resignation-response", res);
+      if (res.done) {
+        const updatedList = await resignationService.getResignations(
+          companyId,
+          {}
+        );
+        socket.emit("hr/resignation/resignationlist-response", updatedList);
+        io.to("hr_room").emit(
+          "hr/resignation/resignationlist-response",
+          updatedList
+        );
+        await Broadcast();
+      }
+    } catch (error) {
+      socket.emit("hr/resignation/process-resignation-response", toErr(error));
     }
   });
 };

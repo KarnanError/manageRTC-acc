@@ -647,79 +647,34 @@ const Promotion = () => {
       return;
     }
 
-    const employee = employees.find(emp => emp.id === newPromotion.employeeId);
-    const designationTo = designations.find(des => des.id === newPromotion.designationToId);
-    const targetDepartment = departments.find(dept => dept._id === newPromotion.targetDepartmentId);
-    
-    // Get current department from the sourceDepartmentId (where we fetched employees from)
-    const currentDepartment = departments.find(dept => dept._id === newPromotion.sourceDepartmentId);
-
-    console.log("[Promotion] Found employee:", employee);
-    console.log("[Promotion] Found designation:", designationTo);
-    console.log("[Promotion] Found target department:", targetDepartment);
-    console.log("[Promotion] Found current department:", currentDepartment);
-
-    if (!employee) {
-      toast.error("Selected employee not found. Please refresh and try again.");
-      console.error("[Promotion] Employee not found:", newPromotion.employeeId);
+    // Validation: Ensure required IDs exist
+    if (!newPromotion.employeeId) {
+      toast.error("Please select an employee");
       return;
     }
 
-    if (!designationTo) {
-      toast.error("Selected designation not found. Please refresh and try again.");
-      console.error("[Promotion] Designation not found:", newPromotion.designationToId);
+    if (!newPromotion.targetDepartmentId) {
+      toast.error("Please select a target department");
       return;
     }
 
-    if (!targetDepartment) {
-      toast.error("Target department not found. Please refresh and try again.");
-      console.error("[Promotion] Target department not found:", newPromotion.targetDepartmentId);
+    if (!newPromotion.designationToId) {
+      toast.error("Please select a target designation");
       return;
     }
 
-    if (!currentDepartment) {
-      toast.error("Current department not found. Please refresh and try again.");
-      console.error("[Promotion] Current department not found:", newPromotion.sourceDepartmentId);
-      return;
-    }
-
-    if (!employee.designationId || !employee.designation) {
-      toast.error("Employee's current designation is missing. Cannot create promotion.");
-      console.error("[Promotion] Employee missing designation:", employee);
-      return;
-    }
-
+    // Send ONLY IDs to backend (normalized data model)
     const promotionData = {
-      employee: {
-        id: employee.id,
-        name: employee.name,
-        image: employee.image
-      },
-      promotionFrom: {
-        department: {
-          id: currentDepartment._id,
-          name: currentDepartment.department
-        },
-        designation: {
-          id: employee.designationId,
-          name: employee.designation
-        }
-      },
+      employeeId: newPromotion.employeeId,
       promotionTo: {
-        department: {
-          id: targetDepartment._id,
-          name: targetDepartment.department
-        },
-        designation: {
-          id: designationTo.id,
-          name: designationTo.name
-        }
+        departmentId: newPromotion.targetDepartmentId,
+        designationId: newPromotion.designationToId
       },
       promotionDate: newPromotion.promotionDate.toISOString(),
       promotionType: newPromotion.promotionType,
     };
 
-    console.log("[Promotion] Adding promotion:", promotionData);
+    console.log("[Promotion] Adding promotion with normalized data:", promotionData);
 
     // Set up timeout for response
     const timeoutId = setTimeout(() => {
@@ -732,14 +687,12 @@ const Promotion = () => {
       clearTimeout(timeoutId);
       console.log("[Promotion] Create response:", response);
       if (response.done) {
-        // Success! Show toast first, then close modal
+        // Success! Show toast first
         toast.success("Promotion added successfully!");
         
-        // Update the list immediately
-        if (response.data) {
-          setPromotions((prev) => [response.data, ...prev]);
-          setPromotedEmployeeIds((prev) => new Set(prev).add(response.data.employee.id));
-        }
+        // Re-fetch promotions list to ensure fully resolved data
+        console.log("[Promotion] Re-fetching promotions after create");
+        socket.emit("promotion:getAll", {});
         
         // Close modal with delay for animation
         setTimeout(() => {
@@ -768,7 +721,15 @@ const Promotion = () => {
           }, 300);
         }, 100);
       } else {
-        toast.error(response.error || "Failed to add promotion");
+        // Handle field-level errors from backend validation
+        const errorMessage = response.error || "Failed to add promotion";
+        
+        // Check if it's an employee lifecycle conflict
+        if (errorMessage.includes("promotion") || errorMessage.includes("resignation") || errorMessage.includes("termination")) {
+          setAddErrors(prev => ({ ...prev, employeeId: errorMessage }));
+        }
+        
+        toast.error(errorMessage);
         console.error("[Promotion] Create failed:", response);
       }
     });
@@ -777,6 +738,14 @@ const Promotion = () => {
   // Handle edit promotion
   const handleEditClick = (promotion: Promotion) => {
     console.log("[Promotion] Edit clicked:", promotion);
+    
+    // Validate promotion structure before proceeding
+    if (!promotion.promotionTo?.department?.id || !promotion.promotionTo?.designation?.id) {
+      toast.error("Invalid promotion data. Please refresh the page and try again.");
+      console.error("[Promotion] Invalid promotion structure:", promotion);
+      return;
+    }
+    
     setEditingPromotion(promotion);
     setEditForm({
       departmentId: promotion.promotionTo.department.id,
@@ -810,37 +779,28 @@ const Promotion = () => {
       return;
     }
 
-    const designationTo = designations.find(des => des.id === editForm.designationToId);
-    const department = departments.find(dept => dept._id === editForm.departmentId);
-    console.log("[Promotion] Found designation for update:", designationTo);
-    console.log("[Promotion] Found department for update:", department);
-
-    if (!designationTo) {
-      toast.error("Invalid designation selected");
+    // Validation: Ensure required IDs exist
+    if (!editForm.departmentId) {
+      toast.error("Please select a department");
       return;
     }
 
-    if (!department) {
-      toast.error("Invalid department selected");
+    if (!editForm.designationToId) {
+      toast.error("Please select a designation");
       return;
     }
 
+    // Send ONLY IDs to backend (normalized data model)
     const updateData = {
       promotionTo: {
-        department: {
-          id: department._id,
-          name: department.department
-        },
-        designation: {
-          id: designationTo.id,
-          name: designationTo.name
-        }
+        departmentId: editForm.departmentId,
+        designationId: editForm.designationToId
       },
       promotionDate: editForm.promotionDate.toISOString(),
       promotionType: editForm.promotionType,
     };
 
-    console.log("[Promotion] Updating promotion:", { promotionId: editingPromotion._id, update: updateData });
+    console.log("[Promotion] Updating promotion with normalized data:", { promotionId: editingPromotion._id, update: updateData });
 
     const timeoutId = setTimeout(() => {
       toast.error("Update timeout. Please try again.");
@@ -855,15 +815,12 @@ const Promotion = () => {
       clearTimeout(timeoutId);
       console.log("[Promotion] Update response:", response);
       if (response.done) {
-        // Success! Show toast first, then close modal
+        // Success! Show toast first
         toast.success("Promotion updated successfully!");
         
-        // Update the list immediately
-        if (response.data) {
-          setPromotions((prev) =>
-            prev.map((p) => (p._id === response.data._id ? response.data : p))
-          );
-        }
+        // Re-fetch promotions list to ensure fully resolved data
+        console.log("[Promotion] Re-fetching promotions after update");
+        socket.emit("promotion:getAll", {});
         
         // Close modal with delay for animation
         setTimeout(() => {
@@ -888,8 +845,38 @@ const Promotion = () => {
           }, 300);
         }, 100);
       } else {
-        toast.error(response.error || "Failed to update promotion");
+        const errorMsg = response.error || "Failed to update promotion";
         console.error("[Promotion] Update failed:", response);
+        
+        // Map backend errors to form fields for inline display
+        const newErrors = {
+          departmentId: "",
+          designationToId: "",
+          promotionDate: "",
+          promotionType: "",
+        };
+        
+        // Check error message and set appropriate field error
+        const errorLower = errorMsg.toLowerCase();
+        if (errorLower.includes("designation") && errorLower.includes("different")) {
+          newErrors.designationToId = errorMsg;
+        } else if (errorLower.includes("designation")) {
+          newErrors.designationToId = errorMsg;
+        } else if (errorLower.includes("department")) {
+          newErrors.departmentId = errorMsg;
+        } else if (errorLower.includes("date")) {
+          newErrors.promotionDate = errorMsg;
+        } else if (errorLower.includes("type")) {
+          newErrors.promotionType = errorMsg;
+        } else {
+          // Generic error - show as toast only
+          toast.error(errorMsg);
+        }
+        
+        // Set inline errors if any field-specific error was detected
+        if (Object.values(newErrors).some(err => err !== "")) {
+          setEditErrors(newErrors);
+        }
       }
     });
   };
@@ -927,18 +914,9 @@ const Promotion = () => {
         // Show toast first
         toast.success("Promotion deleted successfully!");
         
-        // Update the list immediately
-        const deletedPromotion = promotions.find(p => p._id === deletingPromotionId);
-        setPromotions((prev) => prev.filter((p) => p._id !== deletingPromotionId));
-        
-        // Remove from promoted employee IDs
-        if (deletedPromotion) {
-          setPromotedEmployeeIds((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(deletedPromotion.employee.id);
-            return newSet;
-          });
-        }
+        // Re-fetch promotions list to ensure consistency
+        console.log("[Promotion] Re-fetching promotions after delete");
+        socket.emit("promotion:getAll", {});
         
         // Close modal with delay for animation
         setTimeout(() => {
@@ -1002,23 +980,31 @@ const Promotion = () => {
     return "";
   };
 
-  const data = promotions.map(promotion => {
-    // Look up the actual employee from employees array to get the correct employeeId
-    const employee = employees.find(emp => emp.id === promotion.employee.id);
-    const displayEmployeeId = promotion.employee.employeeId || employee?.employeeId || promotion.employee.id;
-    
-    return {
-      key: promotion._id,
-      Employee_ID: displayEmployeeId,
-      Promoted_Employee: promotion.employee.name,
-      Image: promotion.employee.image,
-      Department: promotion.promotionFrom.department.name,
-      Designation_From: promotion.promotionFrom.designation.name,
-      Designation_To: promotion.promotionTo.designation.name,
-      Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
-      _original: promotion,
-    };
-  });
+  const data = promotions
+    .filter(promotion => {
+      // Filter out promotions with incomplete data structure
+      return promotion?.employee?.id && 
+             promotion?.promotionFrom?.department?.name && 
+             promotion?.promotionFrom?.designation?.name &&
+             promotion?.promotionTo?.designation?.name;
+    })
+    .map(promotion => {
+      // Look up the actual employee from employees array to get the correct employeeId
+      const employee = employees.find(emp => emp.id === promotion.employee.id);
+      const displayEmployeeId = promotion.employee.employeeId || employee?.employeeId || promotion.employee.id;
+      
+      return {
+        key: promotion._id,
+        Employee_ID: displayEmployeeId,
+        Promoted_Employee: promotion.employee.name,
+        Image: promotion.employee.image,
+        Department: promotion.promotionFrom.department.name,
+        Designation_From: promotion.promotionFrom.designation.name,
+        Designation_To: promotion.promotionTo.designation.name,
+        Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
+        _original: promotion,
+      };
+    });
 
   const columns = [
     {
