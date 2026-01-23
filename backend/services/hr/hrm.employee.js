@@ -1205,6 +1205,7 @@ export const addEmployee = async (
 
     const createdUser = await clerkClient.users.createUser({
       emailAddress: [employeeData.contact.email],
+      username: employeeData.account.userName || employeeData.contact.email.split('@')[0],
       password: password,
       publicMetadata: {
         role: role_assigned,

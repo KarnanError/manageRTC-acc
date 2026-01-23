@@ -55,6 +55,7 @@ interface Employee {
   avatarUrl: string;
   account?: {
     role: string;
+    userName?: string;
   };
   contact?: {
     email: string;
@@ -329,6 +330,7 @@ const EmployeeList = () => {
     },
     account: {
       role: "",
+      userName: "",
     },
     personal: {
       gender: "",
@@ -951,7 +953,7 @@ const EmployeeList = () => {
           [name]: value,
         },
       }));
-    } else if (name === "role") {
+    } else if (name === "role" || name === "userName") {
       setFormData((prev) => ({
         ...prev,
         account: {
@@ -1475,6 +1477,11 @@ const EmployeeList = () => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(value)) return "Enter a valid email";
         break;
+      case "userName":
+        if (!value || !value.trim()) return "Username is required";
+        if (value.length < 3) return "Username must be at least 3 characters";
+        if (!/^[a-zA-Z0-9_]+$/.test(value)) return "Username can only contain letters, numbers, and underscores";
+        break;
       case "role":
         if (!value || !value.trim()) return "role is required";
         break;
@@ -1546,6 +1553,14 @@ const EmployeeList = () => {
       }
     }
 
+    if (!formData.account.userName || !formData.account.userName.trim()) {
+      errors.userName = "Username is required";
+    } else if (formData.account.userName.length < 3) {
+      errors.userName = "Username must be at least 3 characters";
+    } else if (!/^[a-zA-Z0-9_]+$/.test(formData.account.userName)) {
+      errors.userName = "Username can only contain letters, numbers, and underscores";
+    }
+
     if (!formData.contact.phone || !formData.contact.phone.trim()) {
       errors.phone = "Phone number is required";
     } else if (
@@ -1605,7 +1620,7 @@ const EmployeeList = () => {
         lastName,
         dateOfJoining,
         contact: { email, phone },
-        account: { role },
+        account: { role, userName: userNameField },
         personal,
         companyName,
         departmentId,
@@ -1614,13 +1629,19 @@ const EmployeeList = () => {
         status,
       } = formData;
 
+      // Use provided username or generate from email as fallback
+      const userName = userNameField || email.split('@')[0];
+
       const basicInfo = {
         employeeId,
         avatarUrl,
         firstName,
         lastName,
         dateOfJoining,
-        account: { role },
+        account: { 
+          role,
+          userName 
+        },
         contact: { email, phone },
         personal: {
           gender: personal?.gender || "",
@@ -1686,6 +1707,7 @@ const EmployeeList = () => {
       lastName: editingEmployee.lastName || "",
       account: {
         role: editingEmployee.account?.role || "",
+        userName: editingEmployee.account?.userName || "",
       },
       contact: {
         email: editingEmployee.contact?.email || "",
@@ -1769,6 +1791,7 @@ const EmployeeList = () => {
       },
       account: {
         role: "",
+        userName: "",
       },
       personal: {
         gender: "",
@@ -2932,6 +2955,29 @@ const EmployeeList = () => {
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">
+                            Username <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.userName ? "is-invalid" : ""}`}
+                            name="userName"
+                            value={formData.account.userName || ""}
+                            onChange={handleChange}
+                            onFocus={() => clearFieldError("userName")}
+                            onBlur={(e) =>
+                              handleFieldBlur("userName", e.target.value)
+                            }
+                          />
+                          {fieldErrors.userName && (
+                            <div className="invalid-feedback d-block">
+                              {fieldErrors.userName}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
                             Email <span className="text-danger"> *</span>
                           </label>
                           <input
@@ -3769,6 +3815,31 @@ const EmployeeList = () => {
                                 );
                               }
                             }}
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Username <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={editingEmployee?.account?.userName || ""}
+                            onChange={(e) =>
+                              setEditingEmployee((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      account: {
+                                        ...prev.account,
+                                        userName: e.target.value,
+                                      },
+                                    }
+                                  : prev,
+                              )
+                            }
                           />
                         </div>
                       </div>
