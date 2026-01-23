@@ -2115,144 +2115,6 @@ const EmployeeList = () => {
     document.body.style.paddingRight = "";
   };
 
-  // Handle "Save and Next" - validate with backend before going to permissions tab
-  const handleNext = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Clear previous errors
-    setFieldErrors({});
-    setError(null);
-
-    // First run frontend validation (fast, synchronous)
-    if (!validateForm()) {
-      return;
-    }
-
-    // Check if socket is available
-    if (!socket) {
-      setFieldErrors({
-        general: "Connection unavailable. Please refresh the page.",
-      });
-      return;
-    }
-
-    // Show validating state
-    setIsValidating(true);
-
-    // Check for duplicate email, phone, and username with backend
-    try {
-      // Create a promise to wait for backend response
-      const checkDuplicates = new Promise<{
-        done: boolean;
-        error?: string;
-        field?: string;
-      }>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error("timeout"));
-        }, 15000); // 15 second timeout
-
-        // Listen for duplicate check response
-        const responseHandler = (response: any) => {
-          console.log(
-            "=== FRONTEND: Received response from backend ===",
-            response,
-          );
-          clearTimeout(timeoutId);
-          resolve(response);
-        };
-
-        socket.once("hrm/employees/check-duplicates-response", responseHandler);
-
-        // Emit duplicate check request
-        const requestData = {
-          email: formData.contact.email,
-          phone: formData.contact.phone,
-        };
-
-        console.log("=== FRONTEND: Emitting check-duplicates ===", requestData);
-
-        socket.emit("hrm/employees/check-duplicates", requestData);
-      });
-
-      const result = await checkDuplicates;
-      setIsValidating(false);
-
-      console.log("Check duplicates result:", result);
-
-      if (!result.done) {
-        // Duplicate found - backend returns field and error
-        const fieldName = result.field || "general";
-        const errorMessage = result.error || "Validation failed";
-
-        console.log("Setting field error:", fieldName, errorMessage);
-
-        // Use parseBackendError to get user-friendly message
-        const errorInfo = parseBackendError(errorMessage);
-
-        if (errorInfo && errorInfo.field !== "general") {
-          // Set error for specific field
-          setFieldErrors((prev) => ({
-            ...prev,
-            [errorInfo.field]: errorInfo.message,
-          }));
-
-          // Also show toast as backup
-          toast.error(errorInfo.message, {
-            position: "top-right",
-            autoClose: 5000,
-          });
-
-          // Scroll to error field
-          setTimeout(() => {
-            const errorElement =
-              document.querySelector(`[name="${errorInfo.field}"]`) ||
-              document.querySelector(`#${errorInfo.field}`) ||
-              document.querySelector(".is-invalid");
-            if (errorElement) {
-              errorElement.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
-              });
-              (errorElement as HTMLElement).focus?.();
-            }
-          }, 100);
-        } else {
-          // General error
-          setFieldErrors({ general: errorMessage });
-          toast.error(errorMessage, {
-            position: "top-right",
-            autoClose: 5000,
-          });
-        }
-
-        return; // Don't proceed to next tab
-      }
-
-      // All validation passed - mark as validated and proceed to permissions tab
-      setIsBasicInfoValidated(true);
-      setActiveTab("address");
-    } catch (error: any) {
-      console.error("Validation error:", error);
-      setIsValidating(false);
-      if (error.message === "timeout") {
-        const errorMsg =
-          "Validation is taking longer than expected. Please check your connection and try again.";
-        setFieldErrors({ general: errorMsg });
-        toast.error(errorMsg, {
-          position: "top-right",
-          autoClose: 5000,
-        });
-      } else {
-        const errorMsg = "Unable to validate. Please try again.";
-        setFieldErrors({ general: errorMsg });
-        toast.error(errorMsg, {
-          position: "top-right",
-          autoClose: 5000,
-        });
-      }
-    }
-  };
-
   const allPermissionsSelected = () => {
     return MODULES.every((module) =>
       ACTIONS.every((action) => permissions.permissions[module][action]),
@@ -3987,8 +3849,8 @@ const EmployeeList = () => {
                                 prev
                                   ? { ...prev, firstName: e.target.value }
                                   : prev,
-                              )
-                            }
+                              );
+                            }}
                           />
                           {fieldErrors.firstName && (
                             <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>
@@ -4008,8 +3870,8 @@ const EmployeeList = () => {
                                 prev
                                   ? { ...prev, lastName: e.target.value }
                                   : prev,
-                              )
-                            }
+                              );
+                            }}
                           />
                           {fieldErrors.lastName && (
                             <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>
@@ -4124,8 +3986,8 @@ const EmployeeList = () => {
                                       },
                                     }
                                   : prev,
-                              )
-                            }
+                              );
+                            }}
                           />
                           {fieldErrors.email && (
                             <div className="invalid-feedback d-block">{fieldErrors.email}</div>
@@ -4361,8 +4223,8 @@ const EmployeeList = () => {
                                       },
                                     }
                                   : prev,
-                              )
-                            }
+                              );
+                            }}
                           />
                         </div>
                       </div>
