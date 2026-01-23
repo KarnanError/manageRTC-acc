@@ -89,7 +89,7 @@ const taskController = (socket, io) => {
   
   socket.on("task:getByProject", async ({ projectId, filters = {} }) => {
     try {
-      console.log("[Task] task:getByProject event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, projectId, filters });
+
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTasksByProject(companyId, projectId, filters);
       if (!result.done) {
@@ -111,11 +111,22 @@ const taskController = (socket, io) => {
   });
 
   
-  socket.on("task:update", async ({ taskId, update }) => {
+  socket.on("task:update", async (payload) => {
     try {
+      // Support both shapes: { taskId, update } and { taskId, assignee, ... }
+      const taskId = payload?.taskId;
+      const update = payload?.update || (() => {
+        const { taskId: _tid, update: _up, ...rest } = payload || {};
+        return rest; // treat remaining fields as update object
+      })();
+
       console.log("[Task] task:update event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, taskId, update });
       if (!isAuthorized) throw new Error("Unauthorized: Admin or HR only");
       const companyId = validateCompanyAccess(socket);
+      if (!taskId || !update || Object.keys(update).length === 0) {
+        throw new Error("Invalid update payload");
+      }
+
       const result = await taskService.updateTask(companyId, taskId, update);
       if (!result.done) {
         console.error("[Task] Failed to update task", { error: result.error });
@@ -269,6 +280,35 @@ const taskController = (socket, io) => {
     } catch (error) {
       console.error("[Task] Error in task:addStatus", { error: error.message });
       socket.emit("task:addStatus-response", { done: false, error: error.message });
+    }
+  });
+
+  // Update task status board (the status itself, not a task's status)
+  socket.on("task:updateStatusBoard", async (payload = {}) => {
+    try {
+      console.log("[Task] task:updateStatusBoard event", { user: socket.user?.sub, companyId: socket.companyId, payload });
+      const companyId = validateCompanyAccess(socket);
+      const { statusId, ...updateData } = payload;
+      
+      if (!statusId) {
+        throw new Error("Status ID is required");
+      }
+
+      const result = await taskService.updateStatusBoard(companyId, statusId, updateData);
+      if (!result.done) {
+        console.error("[Task] Failed to update task status board", { error: result.error });
+      }
+      socket.emit("task:updateStatusBoard-response", result);
+
+      // Broadcast to all connected clients in the company
+      io.to(`company_${companyId}`).emit("task:statusBoard-updated", {
+        statusId,
+        updatedData: result.data,
+        updatedBy: socket.user?.sub
+      });
+    } catch (error) {
+      console.error("[Task] Error in task:updateStatusBoard", { error: error.message });
+      socket.emit("task:updateStatusBoard-response", { done: false, error: error.message });
     }
   });
 };

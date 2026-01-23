@@ -1,19 +1,10 @@
 import mongoose from 'mongoose';
 
 const projectNoteSchema = new mongoose.Schema({
-  _id: {
-    type: String,
-    required: true,
-    default: () => `project_note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  },
   projectId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
     required: true,
     ref: 'Project'
-  },
-  companyId: {
-    type: String,
-    required: true
   },
   title: {
     type: String,
@@ -53,8 +44,8 @@ const projectNoteSchema = new mongoose.Schema({
 });
 
 
-projectNoteSchema.index({ companyId: 1, projectId: 1 });
-projectNoteSchema.index({ companyId: 1, createdBy: 1 });
+projectNoteSchema.index({ projectId: 1 });
+projectNoteSchema.index({ createdBy: 1 });
 projectNoteSchema.index({ createdAt: -1 });
 
 

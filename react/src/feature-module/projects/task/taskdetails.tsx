@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useCallback } from "react";
-import dayjs from "dayjs";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import dayjs, { Dayjs } from "dayjs";
 import { useParams } from "react-router-dom";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { Link } from "react-router-dom";
 import { all_routes } from "../../router/all_routes";
 import CommonSelect from "../../../core/common/commonSelect";
-import { label } from "yet-another-react-lightbox/*";
+import Select from "react-select";
 import { DatePicker } from "antd";
 import CommonTagsInput from "../../../core/common/Taginput";
-import CommonTextEditor from "../../../core/common/textEditor";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import { useSocket } from "../../../SocketContext";
 import Footer from "../../../core/common/footer";
@@ -22,6 +21,22 @@ const TaskDetails = () => {
   const [error, setError] = useState<string | null>(null);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [assigneeDetails, setAssigneeDetails] = useState<any[]>([]);
+  const [projectDetails, setProjectDetails] = useState<any>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [editPriority, setEditPriority] = useState('');
+  const [editDueDate, setEditDueDate] = useState<Dayjs | null>(null);
+  const [editAssignees, setEditAssignees] = useState<string[]>([]);
+  const [editModalError, setEditModalError] = useState<string | null>(null);
+  const [editFieldErrors, setEditFieldErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [selectedNewAssignees, setSelectedNewAssignees] = useState<string[]>([]);
+  const [isSavingAssignees, setIsSavingAssignees] = useState(false);
+  const [assigneeModalError, setAssigneeModalError] = useState<string | null>(null);
+  const [tags1, setTags1] = useState<string[]>([]);
+  const [taskStatuses, setTaskStatuses] = useState<any[]>([]);
 
   const loadTask = useCallback(() => {
     if (!taskId || !socket) return;
@@ -37,25 +52,48 @@ const TaskDetails = () => {
     socket.emit("project:getMembers", { projectId: task.projectId });
   }, [task?.projectId, socket]);
 
+  const loadTaskStatuses = useCallback(() => {
+    if (!socket) return;
+    socket.emit("task:getStatuses");
+  }, [socket]);
+
   const handleTaskResponse = useCallback((response: any) => {
     setLoading(false);
     if (response.done && response.data) {
-      setTask(response.data);
+      const taskData = response.data;
+      setTask(taskData);
+      setEditTitle(taskData.title || '');
+      setEditDescription(taskData.description || '');
+      setEditStatus(taskData.status || '');
+      setEditPriority(taskData.priority || '');
+      setEditDueDate(taskData.dueDate ? dayjs(taskData.dueDate) : null);
+      setEditAssignees(Array.isArray(taskData.assignee) ? taskData.assignee.map((a: any) => a?.toString()) : []);
+      setTags1(Array.isArray(taskData.tags) ? taskData.tags : []);
+      
+      if (taskData.assigneeDetails && Array.isArray(taskData.assigneeDetails)) {
+        setAssigneeDetails(taskData.assigneeDetails);
+      }
+      
+      if (taskData.projectId && socket) {
+        const projectId = typeof taskData.projectId === 'string' ? taskData.projectId : taskData.projectId?._id || taskData.projectId;
+        socket.emit('project:getById', projectId);
+      }
     } else {
       setError(response.error || "Failed to load task details");
     }
-  }, [taskId, socket]);
+  }, [socket]);
 
   useEffect(() => {
     if (socket) {
       socket.on("task:getById-response", handleTaskResponse);
       loadTask();
+      loadTaskStatuses();
 
       return () => {
         socket.off("task:getById-response", handleTaskResponse);
       };
     }
-  }, [socket, handleTaskResponse, loadTask]);
+  }, [socket, handleTaskResponse, loadTask, loadTaskStatuses]);
 
   useEffect(() => {
     if (task?.projectId) {
@@ -72,10 +110,34 @@ const TaskDetails = () => {
         }
       };
 
+      const handleProjectByIdResponse = (response: any) => {
+        if (response?.done && response.data) {
+          setProjectDetails(response.data);
+        }
+      };
+
+      const handleEmployeesByIdsResponse = (response: any) => {
+        if (response?.done && response.data) {
+          setAssigneeDetails(Array.isArray(response.data) ? response.data : []);
+        }
+      };
+
+      const handleTaskStatusesResponse = (response: any) => {
+        if (response?.done && Array.isArray(response.data)) {
+          setTaskStatuses(response.data);
+        }
+      };
+
       socket.on("project:getMembers-response", handleProjectMembersResponse);
+      socket.on("project:getById-response", handleProjectByIdResponse);
+      socket.on("employee:getByIds-response", handleEmployeesByIdsResponse);
+      socket.on("task:getStatuses-response", handleTaskStatusesResponse);
 
       return () => {
         socket.off("project:getMembers-response", handleProjectMembersResponse);
+        socket.off("project:getById-response", handleProjectByIdResponse);
+        socket.off("employee:getByIds-response", handleEmployeesByIdsResponse);
+        socket.off("task:getStatuses-response", handleTaskStatusesResponse);
       };
     }
   }, [socket]);
@@ -85,32 +147,268 @@ const TaskDetails = () => {
     return modalElement ? modalElement : document.body;
   };
 
-  const projectChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Office Management", label: "Office Management" },
-    { value: "Clinic Management", label: "Clinic Management" },
-    { value: "Educational Platform", label: "Educational Platform" },
-  ];
-  const statusChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Inprogress", label: "Inprogress" },
-    { value: "Completed", label: "Completed" },
-    { value: "Pending", label: "Pending" },
-    { value: "Onhold", label: "Onhold" },
-  ];
+  const statusChoose = useMemo(() => {
+    const baseOption = [{ value: "Select", label: "Select" }];
+    if (!taskStatuses || taskStatuses.length === 0) {
+      return baseOption;
+    }
+    return [
+      ...baseOption,
+      ...taskStatuses.map(status => ({
+        value: status.key,
+        label: status.name || status.key
+      }))
+    ];
+  }, [taskStatuses]);
+
   const priorityChoose = [
     { value: "Select", label: "Select" },
     { value: "Medium", label: "Medium" },
     { value: "High", label: "High" },
     { value: "Low", label: "Low" },
   ];
-  const [tags, setTags] = useState<string[]>([
-    "Jerald",
-    "Andrew",
-    "Philip",
-    "Davis",
-  ]);
-  const [tags1, setTags1] = useState<string[]>(["Collab", "Rated"]);
+
+  const assigneeSelectOptions = useMemo(() => (
+    (projectMembers || []).map((member) => {
+      const rawValue = member?._id || member?.id || member?.employeeId;
+      const value = rawValue ? rawValue.toString() : "";
+      return {
+        value,
+        label: member.employeeId
+          ? `${member.employeeId} - ${member.firstName || ""} ${member.lastName || ""}`.trim()
+          : `${member.firstName || ""} ${member.lastName || "Unknown"}`.trim(),
+      };
+    })
+  ), [projectMembers]);
+
+  const validateEditField = useCallback((field: string, value: any) => {
+    switch (field) {
+      case 'title':
+        return value && value.trim() ? '' : 'Title is required';
+      case 'description':
+        return value && value.trim() ? '' : 'Description is required';
+      case 'status':
+        return value ? '' : 'Status is required';
+      case 'priority':
+        return value ? '' : 'Priority is required';
+      case 'assignees':
+        return Array.isArray(value) && value.length > 0 ? '' : 'Select at least one assignee';
+      default:
+        return '';
+    }
+  }, []);
+
+  const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
+    if (!taskStatus || !statuses || statuses.length === 0) {
+      return "";
+    }
+
+    const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
+    
+    const exactMatch = statuses.find(s => s.key.toLowerCase() === normalizedTaskStatus);
+    if (exactMatch) return exactMatch.key;
+    
+    const nameMatch = statuses.find(s => 
+      s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
+    );
+    if (nameMatch) return nameMatch.key;
+    
+    const partialMatch = statuses.find(s => {
+      const key = s.key.toLowerCase();
+      const name = s.name.toLowerCase();
+      return key.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(key) ||
+             name.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(name);
+    });
+    if (partialMatch) return partialMatch.key;
+    
+    return "";
+  }, []);
+
+  const validateEditForm = useCallback(() => {
+    const errors: Record<string, string> = {};
+
+    const titleError = validateEditField('title', editTitle);
+    if (titleError) errors.title = titleError;
+
+    const descError = validateEditField('description', editDescription);
+    if (descError) errors.description = descError;
+
+    const statusError = validateEditField('status', editStatus);
+    if (statusError) errors.status = statusError;
+
+    const priorityError = validateEditField('priority', editPriority);
+    if (priorityError) errors.priority = priorityError;
+
+    const assigneeError = validateEditField('assignees', editAssignees);
+    if (assigneeError) errors.assignees = assigneeError;
+
+    setEditFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [editAssignees, editDescription, editPriority, editStatus, editTitle, validateEditField]);
+
+  const handleOpenEditTaskModal = useCallback(() => {
+    if (!task) return;
+
+    setEditTitle(task.title || '');
+    setEditDescription(task.description || '');
+    const matchedStatus = findMatchingStatus(task.status, taskStatuses);
+    setEditStatus(matchedStatus);
+    setEditPriority(task.priority || '');
+    setEditDueDate(task.dueDate ? dayjs(task.dueDate) : null);
+    setEditAssignees(Array.isArray(task.assignee) ? task.assignee.map((a: any) => a?.toString()) : []);
+    setTags1(Array.isArray(task.tags) ? task.tags : []);
+    setEditModalError(null);
+    setEditFieldErrors({});
+  }, [task, taskStatuses, findMatchingStatus]);
+
+  const handleSaveTask = useCallback(() => {
+    if (!taskId || !socket) return;
+
+    if (!validateEditForm()) return;
+    
+    setIsSaving(true);
+    const validTags = tags1.filter(tag => tag && tag.trim() !== '');
+
+    const updateData = {
+      title: editTitle.trim(),
+      description: editDescription,
+      status: editStatus,
+      priority: editPriority,
+      dueDate: editDueDate ? editDueDate.toDate() : null,
+      tags: validTags,
+      assignee: editAssignees,
+    };
+    
+    socket.emit('task:update', { taskId, update: updateData });
+  }, [taskId, socket, editTitle, editDescription, editStatus, editPriority, editDueDate, tags1, editAssignees, validateEditForm]);
+
+  const handleSaveAssignees = useCallback(() => {
+    if (!socket || !taskId) return;
+
+    setIsSavingAssignees(true);
+    setAssigneeModalError(null);
+
+    // Directly send selected assignees (matches project add-team-members pattern)
+    socket.emit('task:update', {
+      taskId,
+      assignee: selectedNewAssignees,
+    });
+  }, [socket, taskId, selectedNewAssignees]);
+
+  const handleAssigneeUpdateResponse = useCallback((response: any) => {
+    setIsSavingAssignees(false);
+    if (response.done) {
+      // Close modal
+      const modalElement = document.getElementById('add_assignee_modal');
+      if (modalElement) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalElement);
+        if (modal) modal.hide();
+      }
+      // Reset state
+      setSelectedNewAssignees([]);
+      setAssigneeModalError(null);
+      // Reload task
+      loadTask();
+    } else {
+      setAssigneeModalError(response.error || 'Failed to add assignees');
+    }
+  }, [loadTask]);
+
+  useEffect(() => {
+    if (socket) {
+      const handleUpdateResponse = (response: any) => {
+        if (response.done) {
+          // Check if assignee modal is open
+          const assigneeModalElement = document.getElementById('add_assignee_modal');
+          const editTaskModalElement = document.getElementById('edit_task');
+          
+          if (assigneeModalElement) {
+            const assigneeModal = (window as any).bootstrap.Modal.getInstance(assigneeModalElement);
+            if (assigneeModal?._element?.classList.contains('show')) {
+              // This is an assignee update
+              setIsSavingAssignees(false);
+              setAssigneeModalError(null);
+              assigneeModal.hide();
+              setSelectedNewAssignees([]);
+              setAssigneeModalError(null);
+              loadTask();
+              return;
+            }
+          }
+          
+          // Otherwise, it's a task edit update
+          setIsSaving(false);
+          setEditModalError(null);
+          setEditFieldErrors({});
+          if (editTaskModalElement) {
+            const editTaskModal = (window as any).bootstrap.Modal.getInstance(editTaskModalElement);
+            if (editTaskModal) editTaskModal.hide();
+          }
+          loadTask();
+        } else {
+          setIsSaving(false);
+          setIsSavingAssignees(false);
+          const assigneeModalElement = document.getElementById('add_assignee_modal');
+          const isAssigneeModalOpen = assigneeModalElement?.classList.contains('show');
+
+          if (isAssigneeModalOpen) {
+            setAssigneeModalError(response.error || 'Failed to update');
+          } else {
+            setEditModalError(response.error || 'Failed to update task');
+          }
+        }
+      };
+      
+      socket.on('task:update-response', handleUpdateResponse);
+      return () => {
+        socket.off('task:update-response', handleUpdateResponse);
+      };
+    }
+  }, [socket, loadTask]);
+
+  // Handle Add Assignee Modal Show - Load team members and pre-select assigned employees
+  useEffect(() => {
+    const assigneeModal = document.getElementById('add_assignee_modal');
+    if (!assigneeModal || !socket) return;
+
+    const handleModalShow = () => {
+      // Set up listener for project members response
+      const handleProjectMembersResponse = (response: any) => {
+        if (response?.done) {
+          setProjectMembers(response.data?.members || response.data || []);
+        }
+      };
+
+      socket.on("project:getMembers-response", handleProjectMembersResponse);
+
+      // Load project members when modal opens
+      if (task?.projectId) {
+        socket.emit("project:getMembers", { projectId: task.projectId });
+      }
+
+      // Pre-select already assigned employees
+      if (task?.assignee && Array.isArray(task.assignee)) {
+        setSelectedNewAssignees(task.assignee);
+      }
+
+      // Cleanup listener on modal hide
+      const handleModalHide = () => {
+        socket.off("project:getMembers-response", handleProjectMembersResponse);
+      };
+
+      assigneeModal.addEventListener('hide.bs.modal', handleModalHide);
+
+      return () => {
+        assigneeModal.removeEventListener('hide.bs.modal', handleModalHide);
+      };
+    };
+
+    assigneeModal.addEventListener('show.bs.modal', handleModalShow);
+
+    return () => {
+      assigneeModal.removeEventListener('show.bs.modal', handleModalShow);
+    };
+  }, [task?.projectId, task?.assignee, socket]);
 
   if (loading) {
     return (
@@ -182,6 +480,7 @@ const TaskDetails = () => {
                     className="btn btn-primary"
                     data-bs-toggle="modal"
                     data-bs-target="#edit_task"
+                    onClick={handleOpenEditTaskModal}
                   >
                     <i className="ti ti-edit me-1" />
                     Edit Task
@@ -267,76 +566,26 @@ const TaskDetails = () => {
                     </div>
                     <div className="col-sm-3">
                       <p className="d-flex align-items-center mb-3">
-                        <i className="ti ti-users-group me-2" />
-                        Team
-                      </p>
-                    </div>
-                    <div className="col-sm-9">
-                      <div className="d-flex align-items-center mb-3 flex-wrap">
-                        {task.team && task.team.length > 0 ? (
-                          task.team.map((member: any, index: number) => {
-                            const memberData = projectMembers.find(m => m._id === member._id || m.id === member.id) || member;
-                            return (
-                              <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2 mb-2">
-                                <Link
-                                  to="#"
-                                  className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
-                                  title={memberData.name || memberData.firstName}
-                                >
-                                  <ImageWithBasePath
-                                    src={memberData.profileImage || memberData.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
-                                    alt="Img"
-                                  />
-                                </Link>
-                                <h6 className="fs-12 mb-0">
-                                  <Link to="#">{memberData.name || memberData.firstName || 'Unknown'}</Link>
-                                </h6>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="text-muted mb-0">No team members assigned</p>
-                        )}
-                        <div>
-                          <Link
-                            to="#"
-                            className="d-flex align-items-center fs-12"
-                          >
-                            <i className="ti ti-circle-plus me-1" />
-                            Add New
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="col-sm-3">
-                      <p className="d-flex align-items-center mb-3">
                         <i className="ti ti-user-shield me-2" />
                         Assignee
                       </p>
                     </div>
                     <div className="col-sm-9">
                       <div className="d-flex align-items-center mb-3 flex-wrap">
-                        {task.assignee && task.assignee.length > 0 ? (
-                          task.assignee.map((assignee: any, index: number) => {
-                            const assigneeData = projectMembers.find(m => m._id === assignee._id || m.id === assignee.id) || assignee;
-                            return (
-                              <div key={index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2 mb-2">
-                                <Link
-                                  to="#"
-                                  className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
-                                  title={assigneeData.name || assigneeData.firstName}
-                                >
-                                  <ImageWithBasePath
-                                    src={assigneeData.profileImage || assigneeData.avatar || `assets/img/profiles/avatar-${(index % 10) + 1}.jpg`}
-                                    alt="Img"
-                                  />
-                                </Link>
-                                <h6 className="fs-12 mb-0">
-                                  <Link to="#">{assigneeData.name || assigneeData.firstName || 'Unknown'}</Link>
-                                </h6>
-                              </div>
-                            );
-                          })
+                        {assigneeDetails && assigneeDetails.length > 0 ? (
+                          assigneeDetails.map((member: any, index: number) => (
+                            <div key={member._id || index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
+                              <span className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2">
+                                <ImageWithBasePath
+                                  src={`assets/img/users/user-${42 + index}.jpg`}
+                                  alt="Img"
+                                />
+                              </span>
+                              <h6 className="fs-12">
+                                <Link to="#">{member.employeeId} - {member.firstName} {member.lastName} </Link>
+                              </h6>
+                            </div>
+                          ))
                         ) : (
                           <p className="text-muted mb-0">No assignee assigned</p>
                         )}
@@ -344,6 +593,8 @@ const TaskDetails = () => {
                           <Link
                             to="#"
                             className="d-flex align-items-center fs-12"
+                            data-bs-toggle="modal"
+                            data-bs-target="#add_assignee_modal"
                           >
                             <i className="ti ti-circle-plus me-1" />
                             Add New
@@ -385,7 +636,17 @@ const TaskDetails = () => {
                   <div className="d-flex flex-column">
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Project</p>
-                      <h6 className="fw-normal">{task.projectName || task.project || 'No project assigned'}</h6>
+                      <h6 className="fw-normal">{projectDetails?.projectId || task.projectId || ''} - {projectDetails?.title || projectDetails?.name || task.projectName || task.project || 'No project assigned'}</h6>
+                    </div>
+                    <div className="d-flex align-items-center justify-content-between border-bottom p-3">
+                      <p className="mb-0">Status</p>
+                      <span className={`badge ${task.status === 'Completed' ? 'badge-success' :
+                        task.status === 'Inprogress' ? 'badge-warning' :
+                          task.status === 'Onhold' ? 'badge-secondary' :
+                            'badge-info'}`}>
+                        <i className="ti ti-point-filled me-1" />
+                        {task.status || 'Pending'}
+                      </span>
                     </div>
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Created on</p>
@@ -506,7 +767,7 @@ const TaskDetails = () => {
 
       {/* Edit Task */}
       <div className="modal fade" id="edit_task">
-        <div className="modal-dialog modal-dialog-centered modal-lg">
+        <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content">
             <div className="modal-header">
               <h4 className="modal-title">Edit Task</h4>
@@ -521,20 +782,83 @@ const TaskDetails = () => {
             </div>
             <form action={all_routes.tasks}>
               <div className="modal-body">
+                {editModalError && (
+                  <div className="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i className="ti ti-alert-circle me-2"></i>
+                    {editModalError}
+                  </div>
+                )}
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Title</label>
+                      <label className="form-label">Task Title <span className="text-danger">*</span></label>
                       <input
                         type="text"
-                        className="form-control"
-                        defaultValue={task.title || ''}
+                        className={`form-control ${editFieldErrors.title ? 'is-invalid' : ''}`}
+                        value={editTitle}
+                        onChange={(e) => {
+                          setEditTitle(e.target.value);
+                          setEditFieldErrors((prev) => ({ ...prev, title: '' }));
+                        }}
+                        placeholder="Enter task title"
+                      />
+                      {editFieldErrors.title && (
+                        <div className="invalid-feedback">{editFieldErrors.title}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-12">
+                    <div className="mb-3">
+                      <label className="form-label">Tags</label>
+                      <CommonTagsInput
+                        value={tags1}
+                        onChange={setTags1}
+                        placeholder="Add new"
+                        className="custom-input-class"
                       />
                     </div>
                   </div>
+
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Due Date</label>
+                      <label className="form-label">Priority <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className={`select ${editFieldErrors.priority ? 'is-invalid' : ''}`}
+                        options={priorityChoose}
+                        value={priorityChoose.find(p => p.value === editPriority)}
+                        onChange={(option: any) => {
+                          setEditPriority(option?.value || '');
+                          setEditFieldErrors((prev) => ({ ...prev, priority: '' }));
+                        }}
+                      />
+                      {editFieldErrors.priority && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.priority}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Status <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className={`select ${editFieldErrors.status ? 'is-invalid' : ''}`}
+                        options={statusChoose}
+                        value={statusChoose.find(s => s.value === editStatus) || statusChoose[0]}
+                        onChange={(option: any) => {
+                          setEditStatus(option?.value || '');
+                          setEditFieldErrors((prev) => ({ ...prev, status: '' }));
+                        }}
+                      />
+                      {editFieldErrors.status && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.status}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Due Date <span className="text-danger">*</span></label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -544,7 +868,8 @@ const TaskDetails = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          defaultValue={task.dueDate ? dayjs(task.dueDate) : undefined}
+                          value={editDueDate}
+                          onChange={(value) => setEditDueDate(value)}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -552,146 +877,44 @@ const TaskDetails = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="col-md-6">
+
+                  <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Project</label>
-                      <CommonSelect
-                        className="select"
-                        options={projectChoose}
-                        defaultValue={projectChoose.find(p => p.value === task.projectName || p.value === task.project) || projectChoose[0]}
+                      <label className="form-label">Description <span className="text-danger">*</span></label>
+                      <textarea
+                        className={`form-control ${editFieldErrors.description ? 'is-invalid' : ''}`}
+                        rows={4}
+                        value={editDescription}
+                        onChange={(e) => {
+                          setEditDescription(e.target.value);
+                          setEditFieldErrors((prev) => ({ ...prev, description: '' }));
+                        }}
+                        placeholder="Enter task description"
                       />
+                      {editFieldErrors.description && (
+                        <div className="invalid-feedback">{editFieldErrors.description}</div>
+                      )}
                     </div>
                   </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label me-2">Team Members</label>
-                      <CommonTagsInput
-                        value={task.team ? task.team.map((member: any) => member.name || member).filter(Boolean) : []}
-                        onChange={setTags}
-                        placeholder="Add new"
-                        className="custom-input-class"
+
+                  <div className="col-12">
+                    <div className="mb-0">
+                      <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
+                      <Select
+                        isMulti
+                        className={`basic-multi-select ${editFieldErrors.assignees ? 'is-invalid' : ''}`}
+                        classNamePrefix="select"
+                        options={assigneeSelectOptions}
+                        value={assigneeSelectOptions.filter(opt => editAssignees.includes(opt.value))}
+                        onChange={(opts) => {
+                          setEditAssignees((opts || []).map((opt: any) => opt.value));
+                          setEditFieldErrors((prev) => ({ ...prev, assignees: '' }));
+                        }}
+                        placeholder={assigneeSelectOptions.length === 0 ? "No team members available" : "Select assignees"}
+                        isDisabled={assigneeSelectOptions.length === 0}
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Tag</label>
-                      <CommonTagsInput
-                        value={task.tags || []}
-                        onChange={setTags1}
-                        placeholder="Add new"
-                        className="custom-input-class"
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Status</label>
-                      <CommonSelect
-                        className="select"
-                        options={statusChoose}
-                        defaultValue={statusChoose.find(s => s.value.toLowerCase() === (task.status || '').toLowerCase()) || statusChoose[0]}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Priority</label>
-                      <CommonSelect
-                        className="select"
-                        options={priorityChoose}
-                        defaultValue={priorityChoose.find(p => p.value.toLowerCase() === (task.priority || '').toLowerCase()) || priorityChoose[0]}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Who Can See this Task?</label>
-                    <div className="d-flex align-items-center mb-3">
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault1"
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault1"
-                        >
-                          Public
-                        </label>
-                      </div>
-                      <div className="form-check me-3">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault2"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault2"
-                        >
-                          Private
-                        </label>
-                      </div>
-                      <div className="form-check ">
-                        <input
-                          className="form-check-input"
-                          type="radio"
-                          name="flexRadioDefault"
-                          id="flexRadioDefault3"
-                          defaultChecked
-                        />
-                        <label
-                          className="form-check-label text-dark"
-                          htmlFor="flexRadioDefault3"
-                        >
-                          Admin Only
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-lg-12">
-                    <div className="mb-3">
-                      <label className="form-label">Descriptions</label>
-                      <CommonTextEditor
-                        defaultValue={task.description || ''}
-                        onChange={() => { }}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Upload Attachment</label>
-                    <div className="bg-light rounded p-2">
-                      <div className="profile-uploader border-bottom mb-2 pb-2">
-                        <div className="drag-upload-btn btn btn-sm btn-white border px-3">
-                          Select File
-                          <input
-                            type="file"
-                            className="form-control image-sign"
-                            multiple
-                          />
-                        </div>
-                      </div>
-                      {task.attachments && task.attachments.length > 0 ? (
-                        task.attachments.map((attachment: any, index: number) => (
-                          <div key={index} className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                            <div className="d-flex align-items-center">
-                              <h6 className="fs-12 fw-medium me-1">{attachment.name || attachment.filename}</h6>
-                              <span className="badge badge-soft-info">{attachment.size || 'Unknown size'}</span>
-                            </div>
-                            <Link to="#" className="btn btn-sm btn-icon">
-                              <i className="ti ti-trash" />
-                            </Link>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-center py-3">
-                          <i className="ti ti-file-x fs-2 text-muted mb-2"></i>
-                          <p className="text-muted mb-0">No attachments uploaded</p>
-                        </div>
+                      {editFieldErrors.assignees && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.assignees}</div>
                       )}
                     </div>
                   </div>
@@ -700,23 +923,84 @@ const TaskDetails = () => {
               <div className="modal-footer">
                 <button
                   type="button"
-                  className="btn btn-light me-2"
+                  className="btn btn-outline-light border me-2"
                   data-bs-dismiss="modal"
+                  disabled={isSaving}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleSaveTask}
+                  disabled={isSaving}
                 >
-                  Save
+                  {isSaving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       </div>
+      {/* /Edit Task */}
+
+      {/* Add Assignee Modal */}
+      <div className="modal fade" id="add_assignee_modal" role="dialog">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h5 className="modal-title">Add Assignee</h5>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="mb-3">
+                <label className="form-label">Select Assignees</label>
+                <Select
+                  isMulti
+                  className="basic-multi-select"
+                  classNamePrefix="select"
+                  options={assigneeSelectOptions}
+                  value={assigneeSelectOptions.filter(opt => selectedNewAssignees.includes(opt.value))}
+                  onChange={(opts) => setSelectedNewAssignees((opts || []).map((opt: any) => opt.value))}
+                  placeholder={projectMembers.length === 0 ? "No team members available" : "Select assignees"}
+                  isDisabled={projectMembers.length === 0}
+                />
+              </div>
+              {assigneeModalError && (
+                <div className="alert alert-danger" role="alert">
+                  {assigneeModalError}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-outline-light border me-2"
+                data-bs-dismiss="modal"
+                disabled={isSavingAssignees}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveAssignees}
+                disabled={isSavingAssignees || selectedNewAssignees.length === 0}
+              >
+                {isSavingAssignees ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* /Add Assignee Modal */}
     </>
   );
 };

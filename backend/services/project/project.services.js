@@ -4,7 +4,25 @@ import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
 import fs from "fs";
 import path from "path";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
+
+// Helper function to parse DD-MM-YYYY format
+const parseDateFromString = (dateString) => {
+  if (!dateString) return undefined;
+  try {
+    // Try parsing DD-MM-YYYY format first
+    const parsed = parse(dateString, "dd-MM-yyyy", new Date());
+    if (isNaN(parsed.getTime())) {
+      // Fall back to Date constructor for ISO format
+      const fallback = new Date(dateString);
+      return isNaN(fallback.getTime()) ? undefined : fallback;
+    }
+    return parsed;
+  } catch (error) {
+    console.error("[ProjectService] Error parsing date:", { dateString, error });
+    return undefined;
+  }
+};
 
 // Helper function to generate next project ID
 const generateNextProjectId = async (companyId) => {
@@ -52,9 +70,16 @@ export const createProject = async (companyId, projectData) => {
       
       priority: projectData.priority || "medium",
       progress: projectData.progress || 0,
-      teamMembers: projectData.teamMembers || [],
+      teamMembers: projectData.teamMembers ? projectData.teamMembers.map(id => new ObjectId(id)) : [],
+      teamLeader: projectData.teamLeader ? projectData.teamLeader.map(id => new ObjectId(id)) : [],
+      projectManager: projectData.projectManager ? projectData.projectManager.map(id => new ObjectId(id)) : [],
       tags: projectData.tags || [],
+      startDate: parseDateFromString(projectData.startDate),
+      dueDate: parseDateFromString(projectData.endDate || projectData.dueDate),
     };
+    
+    // Remove endDate if it exists (we use dueDate in schema)
+    delete newProject.endDate;
 
     const result = await collections.projects.insertOne(newProject);
     console.log("[ProjectService] insertOne result", { result });
@@ -128,11 +153,12 @@ export const getProjects = async (companyId, filters = {}) => {
     const taskCounts = await Promise.all(
       projects.map(async (project) => {
         const count = await collections.tasks.countDocuments({
-          projectId: project.projectId.toString(),
+          projectId: new ObjectId(project._id),
+          isDeleted: { $ne: true },
         });
 
         return {
-          projectId: project.projectId.toString(),
+          projectId: project.projectId?.toString?.() || String(project.projectId || project._id),
           taskCount: count,
         };
       })
@@ -147,10 +173,10 @@ export const getProjects = async (companyId, filters = {}) => {
         const teamleads = await collections.employees
           .find(
             {
-              employeeId: { $in: teamleadIds },
+              _id: { $in: teamleadIds.map(id => new ObjectId(id)) },
               status: "Active",
             },
-            { projection: { employeeId: 1, firstName: 1, lastName: 1, _id: 0 } }
+            { projection: { employeeId: 1, firstName: 1, lastName: 1, _id: 1 } }
           )
           .toArray();
 
@@ -166,8 +192,9 @@ export const getProjects = async (companyId, filters = {}) => {
     const completedtaskcounts = await Promise.all(
       projects.map(async (project) => {
         const count = await collections.tasks.countDocuments({
-          projectId: project.projectId.toString(),
+          projectId: new ObjectId(project._id),
           status: { $in: ["Completed", "completed", "COMPLETED"] },
+          isDeleted: { $ne: true }
         });
         return {
           projectId: project.projectId.toString(),
@@ -194,14 +221,44 @@ export const getProjects = async (companyId, filters = {}) => {
         createdAt: project.createdAt ? new Date(project.createdAt) : null,
         updatedAt: project.updatedAt ? new Date(project.updatedAt) : null,
         startDate: project.startDate ? new Date(project.startDate) : null,
-        endDate: project.endDate ? new Date(project.endDate) : null,
+        endDate: project.dueDate ? new Date(project.dueDate) : null,
         taskCount: taskEntry?.taskCount || 0,
         completedtaskCount: completedTaskEntry?.completedtaskCount || 0,
-        teamleadName: teamLeadEntry?.teamleadName || []
+        teamleadName: teamLeadEntry?.teamleadName || [],
+        teamMembersdetail: [] // Initialize empty, will be populated below
       };
     });
 
-    return { done: true, data: processedProjects };
+    // Fetch team members details for each project
+    const projectsWithTeamMembers = await Promise.all(
+      processedProjects.map(async (project) => {
+        const teamMembersArray = Array.isArray(project.teamMembers) ? project.teamMembers : [];
+        if (teamMembersArray.length > 0) {
+          const employees = await collections.employees
+            .find(
+              {
+                _id: { $in: teamMembersArray.map(id => new ObjectId(id)) },
+                status: "Active",
+              },
+              {
+                projection: {
+                  employeeId: 1,
+                  firstName: 1,
+                  lastName: 1,
+                  _id: 1
+                }
+              }
+            )
+            .toArray();
+          project.teamMembersdetail = employees;
+        } else {
+          project.teamMembersdetail = [];
+        }
+        return project;
+      })
+    );
+
+    return { done: true, data: projectsWithTeamMembers };
   } catch (error) {
     console.error("[ProjectService] Error in getProjects", {
       error: error.message,
@@ -237,7 +294,7 @@ export const getProjectById = async (companyId, projectId) => {
       ? await collections.employees
           .find(
             {
-              employeeId: { $in: teamMembersArray },
+              _id: { $in: teamMembersArray.map(id => new ObjectId(id)) },
               status: "Active",
             },
             {
@@ -245,7 +302,7 @@ export const getProjectById = async (companyId, projectId) => {
                 employeeId: 1,
                 firstName: 1,
                 lastName: 1,
-                _id: 0
+                _id: 1
               }
             }
           )
@@ -260,7 +317,7 @@ export const getProjectById = async (companyId, projectId) => {
       ? await collections.employees
           .find(
             {
-              employeeId: { $in: teamLeaderArray },
+              _id: { $in: teamLeaderArray.map(id => new ObjectId(id)) },
               status: "Active",
             },
             {
@@ -268,7 +325,7 @@ export const getProjectById = async (companyId, projectId) => {
                 employeeId: 1,
                 firstName: 1,
                 lastName: 1,
-                _id: 0
+                _id: 1
               }
             }
           )
@@ -283,7 +340,7 @@ export const getProjectById = async (companyId, projectId) => {
       ? await collections.employees
           .find(
             {
-              employeeId: { $in: projectManagerArray },
+              _id: { $in: projectManagerArray.map(id => new ObjectId(id)) },
               status: "Active",
             },
             {
@@ -291,7 +348,7 @@ export const getProjectById = async (companyId, projectId) => {
                 employeeId: 1,
                 firstName: 1,
                 lastName: 1,
-                _id: 0
+                _id: 1
               }
             }
           )
@@ -304,6 +361,8 @@ export const getProjectById = async (companyId, projectId) => {
       ...project,
       createdAt: project.createdAt ? new Date(project.createdAt) : null,
       updatedAt: project.updatedAt ? new Date(project.updatedAt) : null,
+      startDate: project.startDate ? new Date(project.startDate) : null,
+      endDate: project.dueDate ? new Date(project.dueDate) : null,
     };
 
     return { done: true, data: processedProject };
@@ -350,6 +409,33 @@ export const updateProject = async (companyId, projectId, updateData) => {
       updatedAt: new Date(),
     };
 
+    // Map start/end dates to schema fields
+    if (updateData.startDate) {
+      updateFields.startDate = parseDateFromString(updateData.startDate);
+    }
+    if (updateData.endDate) {
+      updateFields.dueDate = parseDateFromString(updateData.endDate);
+      delete updateFields.endDate;
+    }
+
+    // Convert teamMembers, teamLeader, and projectManager to ObjectId arrays if provided
+    if (updateData.teamMembers) {
+      updateFields.teamMembers = updateData.teamMembers.map(id => new ObjectId(id));
+    }
+    if (updateData.teamLeader) {
+      updateFields.teamLeader = updateData.teamLeader.map(id => new ObjectId(id));
+    }
+    if (updateData.projectManager) {
+      updateFields.projectManager = updateData.projectManager.map(id => new ObjectId(id));
+    }
+
+    // Ensure tags is an array
+    if (updateData.tags !== undefined) {
+      updateFields.tags = Array.isArray(updateData.tags) ? updateData.tags : [];
+    }
+
+    console.log("[ProjectService] Before update - tags in updateData:", updateData.tags);
+    console.log("[ProjectService] Before update - updateFields.tags:", updateFields.tags);
     console.log("[ProjectService] updateFields", { updateFields });
 
     
@@ -357,7 +443,6 @@ export const updateProject = async (companyId, projectId, updateData) => {
       { _id: new ObjectId(projectId) },
       { $set: updateFields }
     );
-
     console.log("[ProjectService] update result", { result });
 
     if (result.matchedCount === 0) {
@@ -371,6 +456,7 @@ export const updateProject = async (companyId, projectId, updateData) => {
     const updatedProject = await collections.projects.findOne({
       _id: new ObjectId(projectId),
     });
+    console.log("[ProjectService] updated project - tags field:", updatedProject.tags);
     console.log("[ProjectService] updated project", { updatedProject });
 
     return { done: true, data: updatedProject };
@@ -463,7 +549,7 @@ export const getProjectStats = async (companyId) => {
               $cond: [
                 {
                   $and: [
-                    { $lt: ["$endDate", new Date()] },
+                    { $lt: ["$dueDate", new Date()] },
                     { $ne: ["$status", "completed"] },
                   ],
                 },
@@ -546,11 +632,14 @@ export const getProjectClients = async (companyId) => {
 export const getProjectTeamMembers = async (companyId, projectId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ProjectService] getProjectTeamMembers", { companyId, projectId });
+
+    if (!ObjectId.isValid(projectId)) {
+      return { done: false, error: "Invalid project ID format" };
+    }
 
     // Get the project
     const project = await collections.projects.findOne({
-     projectId: projectId
+      _id: new ObjectId(projectId)
     });
 
     if (!project) {
@@ -558,7 +647,7 @@ export const getProjectTeamMembers = async (companyId, projectId) => {
     }
 
     // Get team members array (stored as employee IDs)
-    const teamMemberIds = project.teamMembers || [];
+    const teamMemberIds = Array.isArray(project.teamMembers) ? project.teamMembers : [];
 
     if (teamMemberIds.length === 0) {
       return { done: true, data: { teamMembers: [] } };
@@ -566,12 +655,25 @@ export const getProjectTeamMembers = async (companyId, projectId) => {
 
     // Fetch employee details for each team member ID
     const employees = await collections.employees
-      .find({
-        employeeId: { $in: teamMemberIds },
-        status: "Active",
-      })
+      .find(
+        {
+          _id: { $in: teamMemberIds.map(id => new ObjectId(id)) },
+          status: "Active",
+        },
+        {
+          projection: {
+            employeeId: 1,
+            firstName: 1,
+            lastName: 1,
+            email: 1,
+            _id: 1
+          }
+        }
+      )
       .sort({ firstName: 1 })
       .toArray();
+
+    console.log("[ProjectService] Found employees:", employees.length);
 
     return {
       done: true,

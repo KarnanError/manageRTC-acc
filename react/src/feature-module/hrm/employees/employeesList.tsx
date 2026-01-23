@@ -562,6 +562,12 @@ const EmployeeList = () => {
 
     const handleUpdatePermissionResponse = (response: any) => {
       if (response.done) {
+        // Close the modal on success
+        if (editEmployeeModalRef.current) {
+          editEmployeeModalRef.current.click();
+          setTimeout(() => closeModal(), 100);
+        }
+        
         toast.success("Employee permissions updated successfully!", {
           position: "top-right",
           autoClose: 3000,
@@ -571,6 +577,7 @@ const EmployeeList = () => {
         if (socket) {
           socket.emit("hrm/employees/get-employee-stats");
         }
+        setEditingEmployee(null); // Reset editing state
         setError(null);
         setLoading(false);
       } else {
@@ -878,7 +885,7 @@ const EmployeeList = () => {
       ),
     },
   ];
-  console.log("Editing employee", editingEmployee);
+  // console.log("Editing employee", editingEmployee);
 
   const [passwordVisibility, setPasswordVisibility] = useState({
     password: false,
@@ -1496,261 +1503,80 @@ const EmployeeList = () => {
     return true;
   };
 
-  // Handle form submission (final save - validation already done in handleNext)
-  const handleSubmit = async (e: React.FormEvent) => {
-    console.log("Submitting form and permissions");
-    e.preventDefault();
+  // Validate edit form before submission - validates editingEmployee data
+  const validateEditForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    console.log("Validating edit form for", editingEmployee);
+    // return false;
+    if (!editingEmployee) {
+      errors.general = "No employee data to validate";
+      setFieldErrors(errors);
+      return false;
+    }
 
-    try {
-      setError(null);
-      setLoading(true);
+    // Required fields (must match backend requiredStringFields)
+    if (!editingEmployee.firstName || !editingEmployee.firstName.trim()) {
+      errors.firstName = "First name is required";
+    }
 
-      // Extract basic info fields
-      const {
-        employeeId,
-        avatarUrl,
-        firstName,
-        lastName,
-        dateOfJoining,
-        contact: { email, phone },
-        account: { userName, password },
-        personal,
-        companyName,
-        departmentId,
-        designationId,
-        about,
-        status,
-      } = formData;
+    if (!editingEmployee.lastName || !editingEmployee.lastName.trim()) {
+      errors.lastName = "Last name is required";
+    }
 
-      const basicInfo = {
-        employeeId,
-        avatarUrl,
-        firstName,
-        lastName,
-        dateOfJoining,
-        account: { userName, password },
-        contact: { email, phone },
-        personal: {
-          gender: personal?.gender || "",
-          birthday: personal?.birthday || null,
-          address: {
-            street: personal?.address?.street || "",
-            city: personal?.address?.city || "",
-            state: personal?.address?.state || "",
-            postalCode: personal?.address?.postalCode || "",
-            country: personal?.address?.country || "",
-          },
-        },
-        companyName,
-        departmentId,
-        designationId,
-        about,
-        status,
-      };
+    if (!editingEmployee.departmentId || !editingEmployee.departmentId.trim()) {
+      errors.departmentId = "Department is required";
+    }
 
-      // Prepare full submission data
-      const submissionData = {
-        employeeData: basicInfo,
-        permissionsData: {
-          permissions: permissions.permissions,
-          enabledModules: permissions.enabledModules,
-        },
-      };
+    if (!editingEmployee.designationId || !editingEmployee.designationId.trim()) {
+      errors.designationId = "Designation is required";
+    }
 
-      console.log("Full Submission Data:", submissionData);
+    // Account fields (required by backend)
+    if (!editingEmployee.account?.userName || !editingEmployee.account.userName.trim()) {
+      errors.userName = "Username is required";
+    }
 
-      if (!socket) {
-        console.log("Socket connection is not available");
-        setError("Socket connection is not available.");
-        setLoading(false);
-        return;
+    // Contact fields (required by backend)
+    if (!editingEmployee.contact?.email || !editingEmployee.contact.email.trim()) {
+      errors.email = "Email is required";
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(editingEmployee.contact.email)) {
+        errors.email = "Enter a valid email";
       }
+    }
 
-      // Directly save - validation already done in handleNext
-      socket.emit("hrm/employees/add", submissionData);
+    if (!editingEmployee.contact?.phone || !editingEmployee.contact.phone.trim()) {
+      errors.phone = "Phone number is required";
+    } else if (!/^\d{10,15}$/.test(editingEmployee.contact.phone.replace(/[\s\-\(\)]/g, ''))) {
+      errors.phone = "Enter a valid phone number";
+    }
+
+    // Date of joining (required by backend)
+    if (!editingEmployee.dateOfJoining) {
+      errors.dateOfJoining = "Joining date is required";
+    }
+
+    // Set errors in state
+    setFieldErrors(errors);
+
+    // If there are errors, scroll to first error field
+    if (Object.keys(errors).length > 0) {
+      setTimeout(() => {
+        const firstErrorField = Object.keys(errors)[0];
+        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
+                            document.querySelector(`#${firstErrorField}`) ||
+                            document.querySelector(`.field-${firstErrorField}`);
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (errorElement as HTMLElement).focus?.();
+        }
+      }, 100);
       
-    } catch (error) {
-      console.error("Error submitting form and permissions:", error);
-      setError("An error occurred while submitting data.");
-      setLoading(false);
+      return false;
     }
-  };
 
-  // 1. Update basic info
-  const handleUpdateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingEmployee) {
-      toast.error("No employee selected for editing.");
-      return;
-    }
-    
-    // Lifecycle statuses that should only be set through HR workflows
-    const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
-    const currentStatus = normalizeStatus(editingEmployee.status);
-    
-    const payload: any = {
-      employeeId: editingEmployee.employeeId || "",
-      firstName: editingEmployee.firstName || "",
-      lastName: editingEmployee.lastName || "",
-      account: {
-        userName: editingEmployee.account?.userName || "",
-      },
-      contact: {
-        email: editingEmployee.contact?.email || "",
-        phone: editingEmployee.contact?.phone || "",
-      },
-      personal: {
-        gender: editingEmployee.personal?.gender || "",
-        birthday: editingEmployee.personal?.birthday || null,
-        address: editingEmployee.personal?.address || {
-          street: "",
-          city: "",
-          state: "",
-          postalCode: "",
-          country: "",
-        },
-      },
-      companyName: editingEmployee.companyName || "",
-      departmentId: editingEmployee.departmentId || "",
-      designationId: editingEmployee.designationId || "",
-      dateOfJoining: editingEmployee.dateOfJoining || null,
-      about: editingEmployee.about || "",
-      avatarUrl: editingEmployee.avatarUrl || "",
-    };
-    
-    // Only include status if it's NOT a lifecycle status
-    // Lifecycle statuses should only be set through termination/resignation workflows
-    if (!lifecycleStatuses.includes(currentStatus)) {
-      payload.status = currentStatus;
-    }
-    
-    console.log("update payload", payload);
-
-    if (socket) {
-      socket.emit("hrm/employees/update", payload);
-      // Success toast will be shown in handleUpdateEmployeeResponse when backend confirms update
-    } else {
-      toast.error("Socket connection is not available.", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-    }
-  };
-
-  // 2. Update permissions
-  const handlePermissionUpdateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!editingEmployee) {
-      console.log("****he**-**");
-      toast.error("No employee selected for editing.");
-      return;
-    }
-    const payload = {
-      employeeId: editingEmployee._id,
-      permissions: permissions.permissions,
-      enabledModules: permissions.enabledModules,
-    };
-    console.log("edit perm payload", payload);
-
-    if (socket) {
-      socket.emit("hrm/employees/update-permissions", payload);
-      // toast.success("Employee permissions update request sent.");
-      setPermissions(initialState);
-    } else {
-      console.log(error);
-      return;
-      // toast.error("Socket connection is not available.");
-    }
-  };
-  console.log("editing employee", editingEmployee);
-  const handleResetFormData = () => {
-    setFormData({
-      employeeId: generateId("EMP"),
-      avatarUrl: "",
-      firstName: "",
-      lastName: "",
-      dateOfJoining: "",
-      contact: {
-        email: "",
-        phone: "",
-      },
-      account: {
-        userName: "",
-        password: "",
-      },
-      personal: {
-        gender: "",
-        birthday: "",
-        address: {
-          street: "",
-          city: "",
-          state: "",
-          postalCode: "",
-          country: "",
-        },
-      },
-      companyName: "",
-      departmentId: "",
-      designationId: "",
-      about: "",
-      status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
-    });
-
-    setPermissions(initialState);
-    setError("");
-    setFieldErrors({});
-    setConfirmPassword("");
-    setIsBasicInfoValidated(false);
-  };
-
-  // Helper function to safely prepare employee for editing
-  const prepareEmployeeForEdit = (emp: Employee): Employee => {
-    return {
-      ...emp,
-      account: emp.account || { userName: "" },
-      contact: emp.contact || { email: "", phone: "" },
-      personal: emp.personal || {
-        gender: "",
-        birthday: null,
-        address: {
-          street: "",
-          city: "",
-          state: "",
-          postalCode: "",
-          country: "",
-        },
-      },
-      firstName: emp.firstName || "",
-      lastName: emp.lastName || "",
-      companyName: emp.companyName || "",
-      departmentId: emp.departmentId || "",
-      designationId: emp.designationId || "",
-      about: emp.about || "",
-      avatarUrl: emp.avatarUrl || "",
-      status: normalizeStatus(emp.status),
-      dateOfJoining: emp.dateOfJoining || null,
-    };
-  };
-
-  // Modal container helper (for DatePicker positioning)
-  const getModalContainer = (): HTMLElement => {
-    const modalElement = document.getElementById("modal-datepicker");
-    return modalElement ? modalElement : document.body;
-  };
-
-  // Utility function to properly close modal and remove backdrop
-  const closeModal = () => {
-    // Remove all modal backdrops
-    const backdrops = document.querySelectorAll('.modal-backdrop');
-    backdrops.forEach(backdrop => backdrop.remove());
-    
-    // Remove modal-open class from body
-    document.body.classList.remove('modal-open');
-    
-    // Reset body style
-    document.body.style.overflow = '';
-    document.body.style.paddingRight = '';
+    return true;
   };
 
   // Handle "Save and Next" - validate with backend before going to permissions tab
@@ -1876,6 +1702,273 @@ const EmployeeList = () => {
         });
       }
     }
+  };
+
+  // Handle form submission (final save - validation already done in handleNext)
+  const handleSubmit = async (e: React.FormEvent) => {
+    console.log("Submitting form and permissions");
+    e.preventDefault();
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      // Extract basic info fields
+      const {
+        employeeId,
+        avatarUrl,
+        firstName,
+        lastName,
+        dateOfJoining,
+        contact: { email, phone },
+        account: { userName, password },
+        personal,
+        companyName,
+        departmentId,
+        designationId,
+        about,
+        status,
+      } = formData;
+
+      const basicInfo = {
+        employeeId,
+        avatarUrl,
+        firstName,
+        lastName,
+        dateOfJoining,
+        account: { userName, password },
+        contact: { email, phone },
+        personal: {
+          gender: personal?.gender || "",
+          birthday: personal?.birthday || null,
+          address: {
+            street: personal?.address?.street || "",
+            city: personal?.address?.city || "",
+            state: personal?.address?.state || "",
+            postalCode: personal?.address?.postalCode || "",
+            country: personal?.address?.country || "",
+          },
+        },
+        companyName,
+        departmentId,
+        designationId,
+        about,
+        status,
+      };
+
+      // Prepare full submission data
+      const submissionData = {
+        employeeData: basicInfo,
+        permissionsData: {
+          permissions: permissions.permissions,
+          enabledModules: permissions.enabledModules,
+        },
+      };
+
+      console.log("Full Submission Data:", submissionData);
+
+      if (!socket) {
+        console.log("Socket connection is not available");
+        setError("Socket connection is not available.");
+        setLoading(false);
+        return;
+      }
+
+      // Directly save - validation already done in handleNext
+      socket.emit("hrm/employees/add", submissionData);
+      
+    } catch (error) {
+      console.error("Error submitting form and permissions:", error);
+      setError("An error occurred while submitting data.");
+      setLoading(false);
+    }
+  };
+
+  // 1. Update basic info
+  const handleUpdateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Clear previous errors
+    setFieldErrors({});
+    setError(null);
+
+    if (!editingEmployee) {
+      toast.error("No employee selected for editing.");
+      return;
+    }
+
+    // Validate form data
+    if (!validateEditForm()) {
+      return;
+    }
+    
+    // Lifecycle statuses that should only be set through HR workflows
+    const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
+    const currentStatus = normalizeStatus(editingEmployee.status);
+    
+    const payload: any = {
+      employeeId: editingEmployee.employeeId || "",
+      firstName: editingEmployee.firstName || "",
+      lastName: editingEmployee.lastName || "",
+      account: {
+        userName: editingEmployee.account?.userName || "",
+      },
+      contact: {
+        email: editingEmployee.contact?.email || "",
+        phone: editingEmployee.contact?.phone || "",
+      },
+      personal: {
+        gender: editingEmployee.personal?.gender || "",
+        birthday: editingEmployee.personal?.birthday || null,
+        address: editingEmployee.personal?.address || {
+          street: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "",
+        },
+      },
+      companyName: editingEmployee.companyName || "",
+      departmentId: editingEmployee.departmentId || "",
+      designationId: editingEmployee.designationId || "",
+      dateOfJoining: editingEmployee.dateOfJoining || null,
+      about: editingEmployee.about || "",
+      avatarUrl: editingEmployee.avatarUrl || "",
+    };
+    
+    // Only include status if it's NOT a lifecycle status
+    // Lifecycle statuses should only be set through termination/resignation workflows
+    if (!lifecycleStatuses.includes(currentStatus)) {
+      payload.status = currentStatus;
+    }
+    
+    console.log("update payload", payload);
+
+    if (socket) {
+      socket.emit("hrm/employees/update", payload);
+      // Success toast will be shown in handleUpdateEmployeeResponse when backend confirms update
+    } else {
+      toast.error("Socket connection is not available.", {
+        position: "top-right",
+        autoClose: 3000,
+      });
+    }
+  };
+
+  // 2. Update permissions
+  const handlePermissionUpdateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!editingEmployee) {
+      console.log("****he**-**");
+      toast.error("No employee selected for editing.");
+      return;
+    }
+    const payload = {
+      employeeId: editingEmployee._id,
+      permissions: permissions.permissions,
+      enabledModules: permissions.enabledModules,
+    };
+    console.log("edit perm payload", payload);
+
+    if (socket) {
+      socket.emit("hrm/employees/update-permissions", payload);
+      // toast.success("Employee permissions update request sent.");
+      setPermissions(initialState);
+    } else {
+      console.log(error);
+      return;
+      // toast.error("Socket connection is not available.");
+    }
+  };
+  // console.log("editing employee", editingEmployee);
+  const handleResetFormData = () => {
+    setFormData({
+      employeeId: generateId("EMP"),
+      avatarUrl: "",
+      firstName: "",
+      lastName: "",
+      dateOfJoining: "",
+      contact: {
+        email: "",
+        phone: "",
+      },
+      account: {
+        userName: "",
+        password: "",
+      },
+      personal: {
+        gender: "",
+        birthday: "",
+        address: {
+          street: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "",
+        },
+      },
+      companyName: "",
+      departmentId: "",
+      designationId: "",
+      about: "",
+      status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
+    });
+
+    setPermissions(initialState);
+    setError("");
+    setFieldErrors({});
+    setConfirmPassword("");
+    setIsBasicInfoValidated(false);
+  };
+
+  // Helper function to safely prepare employee for editing
+  const prepareEmployeeForEdit = (emp: Employee): Employee => {
+    return {
+      ...emp,
+      account: emp.account || { userName: "" },
+      contact: emp.contact || { email: "", phone: "" },
+      personal: emp.personal || {
+        gender: "",
+        birthday: null,
+        address: {
+          street: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "",
+        },
+      },
+      firstName: emp.firstName || "",
+      lastName: emp.lastName || "",
+      companyName: emp.companyName || "",
+      departmentId: emp.departmentId || "",
+      designationId: emp.designationId || "",
+      about: emp.about || "",
+      avatarUrl: emp.avatarUrl || "",
+      status: normalizeStatus(emp.status),
+      dateOfJoining: emp.dateOfJoining || null,
+    };
+  };
+
+  // Modal container helper (for DatePicker positioning)
+  const getModalContainer = (): HTMLElement => {
+    const modalElement = document.getElementById("modal-datepicker");
+    return modalElement ? modalElement : document.body;
+  };
+
+  // Utility function to properly close modal and remove backdrop
+  const closeModal = () => {
+    // Remove all modal backdrops
+    const backdrops = document.querySelectorAll('.modal-backdrop');
+    backdrops.forEach(backdrop => backdrop.remove());
+    
+    // Remove modal-open class from body
+    document.body.classList.remove('modal-open');
+    
+    // Reset body style
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
   };
 
   const allPermissionsSelected = () => {
@@ -2496,7 +2589,7 @@ const EmployeeList = () => {
               data-bs-dismiss="modal"
               style={{ display: "none" }}
             />
-            <form action={all_routes.employeeList} onSubmit={handleSubmit}>
+            <form action={all_routes.employeeList}>
               <div className="contact-grids-tab">
                 <ul className="nav nav-underline" id="myTab" role="tablist">
                   <li className="nav-item" role="presentation">
@@ -3073,6 +3166,15 @@ const EmployeeList = () => {
                                     departmentId: option.value,
                                   });
                                 }
+                              } else {
+                                // Clear selection
+                                handleSelectChange("departmentId", "");
+                                handleSelectChange("designationId", "");
+                                setSelectedDepartment("");
+                                setSelectedDesignation("");
+                                setDesignation([{ value: "", label: "Select" }]);
+                                clearFieldError('departmentId');
+                                clearFieldError('designationId');
                               }
                             }}
                           />
@@ -3094,6 +3196,10 @@ const EmployeeList = () => {
                                   "designationId",
                                   option.value
                                 );
+                                clearFieldError('designationId');
+                              } else {
+                                handleSelectChange("designationId", "");
+                                setSelectedDesignation("");
                                 clearFieldError('designationId');
                               }
                             }}
@@ -3306,8 +3412,9 @@ const EmployeeList = () => {
                       Cancel
                     </button>
                     <button
-                      type="submit"
+                      type="button"
                       className="btn btn-primary"
+                      onClick={handleSubmit}
                       disabled={isValidating || loading}
                     >
                       {isValidating ? (
@@ -3518,16 +3625,22 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            name="firstName"
+                            className={`form-control ${fieldErrors.firstName ? 'is-invalid' : ''}`}
                             value={editingEmployee?.firstName || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setEditingEmployee((prev) =>
                                 prev
                                   ? { ...prev, firstName: e.target.value }
                                   : prev
-                              )
-                            }
+                              );
+                              clearFieldError('firstName');
+                            }}
+                            onBlur={(e) => handleFieldBlur('firstName', e.target.value)}
                           />
+                          {fieldErrors.firstName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -3535,16 +3648,22 @@ const EmployeeList = () => {
                           <label className="form-label">Last Name</label>
                           <input
                             type="text"
-                            className="form-control"
+                            name="lastName"
+                            className={`form-control ${fieldErrors.lastName ? 'is-invalid' : ''}`}
                             value={editingEmployee?.lastName || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setEditingEmployee((prev) =>
                                 prev
                                   ? { ...prev, lastName: e.target.value }
                                   : prev
-                              )
-                            }
+                              );
+                              clearFieldError('lastName');
+                            }}
+                            onBlur={(e) => handleFieldBlur('lastName', e.target.value)}
                           />
+                          {fieldErrors.lastName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -3565,9 +3684,9 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Joining Date <span className="text-danger"> *</span>
                           </label>
-                          <div className="input-icon-end position-relative">
+                          <div className={`input-icon-end position-relative ${fieldErrors.dateOfJoining ? 'has-error' : ''}`}>
                             <DatePicker
-                              className="form-control datetimepicker"
+                              className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? 'is-invalid' : ''}`}
                               format="DD-MM-YYYY"
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
@@ -3588,12 +3707,16 @@ const EmployeeList = () => {
                                       }
                                     : prev
                                 );
+                                clearFieldError('dateOfJoining');
                               }}
                             />
                             <span className="input-icon-addon">
                               <i className="ti ti-calendar text-gray-7" />
                             </span>
                           </div>
+                          {fieldErrors.dateOfJoining && (
+                            <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -3603,9 +3726,10 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            name="userName"
+                            className={`form-control ${fieldErrors.userName ? 'is-invalid' : ''}`}
                             value={editingEmployee?.account?.userName || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setEditingEmployee((prev) =>
                                 prev
                                   ? {
@@ -3616,9 +3740,14 @@ const EmployeeList = () => {
                                       },
                                     }
                                   : prev
-                              )
-                            }
+                              );
+                              clearFieldError('userName');
+                            }}
+                            onBlur={(e) => handleFieldBlur('userName', e.target.value)}
                           />
+                          {fieldErrors.userName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.userName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -3628,9 +3757,10 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="email"
-                            className="form-control"
+                            name="email"
+                            className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
                             value={editingEmployee?.contact?.email || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setEditingEmployee((prev) =>
                                 prev
                                   ? {
@@ -3641,9 +3771,14 @@ const EmployeeList = () => {
                                       },
                                     }
                                   : prev
-                              )
-                            }
+                              );
+                              clearFieldError('email');
+                            }}
+                            onBlur={(e) => handleFieldBlur('email', e.target.value)}
                           />
+                          {fieldErrors.email && (
+                            <div className="invalid-feedback d-block">{fieldErrors.email}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -3860,9 +3995,10 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            name="phone"
+                            className={`form-control ${fieldErrors.phone ? 'is-invalid' : ''}`}
                             value={editingEmployee?.contact?.phone || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setEditingEmployee((prev) =>
                                 prev
                                   ? {
@@ -3873,42 +4009,27 @@ const EmployeeList = () => {
                                       },
                                     }
                                   : prev
-                              )
-                            }
+                              );
+                              clearFieldError('phone');
+                            }}
+                            onBlur={(e) => handleFieldBlur('phone', e.target.value)}
                           />
+                          {fieldErrors.phone && (
+                            <div className="invalid-feedback d-block">{fieldErrors.phone}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">
-                            Company<span className="text-danger"> *</span>
-                          </label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            value={editingEmployee?.companyName || ""}
-                            onChange={(e) =>
-                              setEditingEmployee((prev) =>
-                                prev
-                                  ? { ...prev, companyName: e.target.value }
-                                  : prev
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Department</label>
+                          <label className="form-label">Department <span className="text-danger">*</span></label>
                           <CommonSelect
                             key={`dept-${editingEmployee?._id}-${editingEmployee?.departmentId}`}
-                            className="select"
+                            className={`select ${fieldErrors.departmentId ? 'is-invalid' : ''}`}
                             options={department}
                             defaultValue={
                               department.find(
-                                (dep) =>
-                                  dep.value === editingEmployee?.departmentId
-                              ) || { value: "", label: "Select" }
+                                (dep) => dep.value === editingEmployee?.departmentId
+                              ) || EMPTY_OPTION
                             }
                             onChange={(option) => {
                               if (option) {
@@ -3923,36 +4044,48 @@ const EmployeeList = () => {
                                     : prev
                                 );
                                 setSelectedDesignation("");
-                                if (socket && option.value) {
-                                  console.log(
-                                    "Fetching designations for department:",
-                                    option.value
-                                  );
+                                // reset designation options when department changes
+                                setDesignation([{ value: "", label: "Select" }]);
+                                // clear related errors
+                                clearFieldError('departmentId');
+                                clearFieldError('designationId');
+                                // fetch designations for selected department
+                                if (socket) {
                                   socket.emit("hrm/designations/get", {
                                     departmentId: option.value,
                                   });
-                                } else {
-                                  setDesignation([
-                                    { value: "", label: "Select" },
-                                  ]);
                                 }
+                              } else {
+                                // clear selection
+                                setSelectedDepartment("");
+                                setSelectedDesignation("");
+                                setDesignation([{ value: "", label: "Select" }]);
+                                setEditingEmployee((prev) =>
+                                  prev
+                                    ? { ...prev, departmentId: "", designationId: "" }
+                                    : prev
+                                );
+                                clearFieldError('departmentId');
+                                clearFieldError('designationId');
                               }
                             }}
                           />
+                          {fieldErrors.departmentId && (
+                            <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Designation</label>
+                          <label className="form-label">Designation <span className="text-danger">*</span></label>
                           <CommonSelect
                             key={`desig-${editingEmployee?._id}-${editingEmployee?.designationId}`}
-                            className="select"
+                            className={`select ${fieldErrors.designationId ? 'is-invalid' : ''}`}
                             options={designation}
                             defaultValue={
                               designation.find(
-                                (dep) =>
-                                  dep.value === editingEmployee?.designationId
-                              ) || { value: "", label: "Select" }
+                                (dep) => dep.value === editingEmployee?.designationId
+                              ) || EMPTY_OPTION
                             }
                             onChange={(option) => {
                               if (option) {
@@ -3962,9 +4095,21 @@ const EmployeeList = () => {
                                     ? { ...prev, designationId: option.value }
                                     : prev
                                 );
+                                clearFieldError('designationId');
+                              } else {
+                                setSelectedDesignation("");
+                                setEditingEmployee((prev) =>
+                                  prev
+                                    ? { ...prev, designationId: "" }
+                                    : prev
+                                );
+                                clearFieldError('designationId');
                               }
                             }}
                           />
+                          {fieldErrors.designationId && (
+                            <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -4059,7 +4204,6 @@ const EmployeeList = () => {
                     </button>
                     <button
                       type="button"
-                      data-bs-dismiss="modal"
                       className="btn btn-primary"
                       onClick={handleUpdateSubmit}
                     >
@@ -4193,14 +4337,7 @@ const EmployeeList = () => {
                     <button
                       type="button"
                       className="btn btn-primary"
-                      onClick={(e) => {
-                        handlePermissionUpdateSubmit(e);
-                        // Close modal after submission
-                        if (editEmployeeModalRef.current) {
-                          editEmployeeModalRef.current.click();
-                          setTimeout(() => closeModal(), 100);
-                        }
-                      }}
+                      onClick={handlePermissionUpdateSubmit}
                     >
                       Save{" "}
                     </button>

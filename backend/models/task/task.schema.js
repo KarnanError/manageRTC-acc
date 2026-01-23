@@ -2,9 +2,9 @@ import mongoose from 'mongoose';
 
 const taskSchema = new mongoose.Schema({
   _id: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
     required: true,
-    default: () => `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    auto: true
   },
   title: {
     type: String,
@@ -16,13 +16,9 @@ const taskSchema = new mongoose.Schema({
     trim: true
   },
   projectId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
     required: true,
     ref: 'Project'
-  },
-  companyId: {
-    type: String,
-    required: true
   },
   status: {
     type: String,
@@ -35,7 +31,7 @@ const taskSchema = new mongoose.Schema({
     default: 'Medium'
   },
   assignee: [{
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
     trim: true
   }],
   tags: [{
@@ -83,8 +79,8 @@ const taskSchema = new mongoose.Schema({
 });
 
 
-taskSchema.index({ companyId: 1, projectId: 1, status: 1 });
-taskSchema.index({ companyId: 1, assignee: 1 });
+taskSchema.index({ projectId: 1, status: 1 });
+taskSchema.index({ projectId: 1, assignee: 1 });
 taskSchema.index({ createdAt: -1 });
 
 

@@ -5,6 +5,7 @@ import { all_routes } from '../../router/all_routes'
 import CommonSelect from '../../../core/common/commonSelect'
 import { label } from 'yet-another-react-lightbox/*'
 import { DatePicker } from 'antd'
+import Footer from "../../../core/common/footer";
 import CommonTagsInput from '../../../core/common/Taginput'
 import CommonTextEditor from '../../../core/common/textEditor'
 import dragula, { Drake } from "dragula";
@@ -12,6 +13,8 @@ import "dragula/dist/dragula.css";
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header'
 import { useSocket } from '../../../SocketContext'
 import { toast } from 'react-toastify'
+import Select from 'react-select'
+import dayjs, { Dayjs } from 'dayjs'
 
 const TaskBoard = () => {
     const socket = useSocket();
@@ -27,6 +30,27 @@ const TaskBoard = () => {
     const [savingBoard, setSavingBoard] = useState(false);
     const addBoardModalRef = useRef<any>(null);
     const addBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
+    const [editBoardData, setEditBoardData] = useState<any>(null);
+    const [editBoardName, setEditBoardName] = useState("");
+    const [editBoardColor, setEditBoardColor] = useState("purple");
+    const editBoardModalRef = useRef<any>(null);
+    const editBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
+    const [editingTask, setEditingTask] = useState<any>(null);
+    const [editTaskTitle, setEditTaskTitle] = useState("");
+    const [editTaskDescription, setEditTaskDescription] = useState("");
+    const [editTaskPriority, setEditTaskPriority] = useState("Medium");
+    const [editTaskDueDate, setEditTaskDueDate] = useState<Dayjs | null>(null);
+    const [editTaskStatus, setEditTaskStatus] = useState("");
+    const [editTaskTags, setEditTaskTags] = useState<string[]>([]);
+    const [editTaskAssignees, setEditTaskAssignees] = useState<string[]>([]);
+    const [isSavingEditTask, setIsSavingEditTask] = useState(false);
+    const [editTaskModalError, setEditTaskModalError] = useState<string | null>(null);
+    const [editTaskFieldErrors, setEditTaskFieldErrors] = useState<Record<string, string>>({});
+    const editTaskCloseButtonRef = useRef<HTMLButtonElement>(null);
+    const [sortBy, setSortBy] = useState<"createdDate" | "dueDate">("createdDate");
+    const [filterPriority, setFilterPriority] = useState<string>("All");
+    const [dueDateFilterFrom, setDueDateFilterFrom] = useState<Dayjs | null>(null);
+    const [dueDateFilterTo, setDueDateFilterTo] = useState<Dayjs | null>(null);
     const [pendingStatusChange, setPendingStatusChange] = useState<{
         taskId: string;
         newStatus: string;
@@ -71,7 +95,7 @@ const TaskBoard = () => {
     const projectChoose = [
         { value: "Select", label: "Select" },
         ...projects.map(project => ({
-            value: project.projectId || project._id,
+            value: project._id,
             label: project.projectId ? `${project.name} (${project.projectId})` : project.name
         }))
     ];
@@ -90,6 +114,33 @@ const TaskBoard = () => {
         { value: "Low", label: "Low" },
 
     ];
+
+    // Dynamic assignee options from current project's team members
+    const assigneeChoose = useMemo(() => {
+        const baseOption = [{ value: "Select", label: "Select" }];
+        const currentProject = projects.find(p => p._id === selectedProject || p.projectId === selectedProject);
+        
+        if (!currentProject?.teamMembersdetail || currentProject.teamMembersdetail.length === 0) {
+            return baseOption;
+        }
+
+        const seen = new Set<string>();
+        const teamOptions = currentProject.teamMembersdetail.reduce((acc: any[], member: any) => {
+            const value = (member?._id || member?.id || member?.employeeId || "").toString();
+            if (!value || seen.has(value)) return acc;
+            seen.add(value);
+            acc.push({
+                value,
+                label: `${member?.employeeId || ''} - ${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
+                employeeId: member?.employeeId || '',
+                name: `${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
+            });
+            return acc;
+        }, []);
+
+        return [...baseOption, ...teamOptions];
+    }, [projects, selectedProject]);
+
     const [tags, setTags] = useState<string[]>(["Jerald", "Andrew", "Philip", "Davis"]);
     const [tags1, setTags1] = useState<string[]>(["Collab", "Rated"]);
 
@@ -113,10 +164,54 @@ const TaskBoard = () => {
         red: "#dc3545",
     }), []);
 
+    // Sort and filter tasks based on selected sort option and priority filter
+    const sortedTasks = useMemo(() => {
+        let tasksCopy = [...tasks];
+        
+        // Filter by priority
+        if (filterPriority !== "All") {
+            tasksCopy = tasksCopy.filter(task => task.priority === filterPriority);
+        }
+        
+        // Filter by due date range
+        if (dueDateFilterFrom || dueDateFilterTo) {
+            tasksCopy = tasksCopy.filter(task => {
+                if (!task.dueDate) return false;
+                const taskDueDate = dayjs(task.dueDate);
+                
+                if (dueDateFilterFrom && taskDueDate.isBefore(dueDateFilterFrom, 'day')) {
+                    return false;
+                }
+                
+                if (dueDateFilterTo && taskDueDate.isAfter(dueDateFilterTo, 'day')) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        if (sortBy === "dueDate") {
+            // Sort by due date in ascending order (earliest first)
+            return tasksCopy.sort((a, b) => {
+                const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                return dateA - dateB;
+            });
+        } else {
+            // Sort by created date in ascending order (earliest first)
+            return tasksCopy.sort((a, b) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : Infinity;
+                return dateA - dateB;
+            });
+        }
+    }, [tasks, sortBy, filterPriority, dueDateFilterFrom, dueDateFilterTo]);
+
     // Dynamic status count helper
     const getStatusCount = useCallback((statusKey: string) => {
         const target = normalizeKey(statusKey);
-        return tasks.filter((task) => {
+        return sortedTasks.filter((task) => {
             const taskStatus = normalizeKey(task.status);
             return taskStatus === target;
         }).length;
@@ -227,6 +322,209 @@ const TaskBoard = () => {
             colorHex: colorHexMap[newBoardColor] || "",
         });
     }, [socket, newBoardName, newBoardColor, colorHexMap]);
+
+    const handleEditBoardClick = useCallback((status: any) => {
+        setEditBoardData(status);
+        setEditBoardName(status.name || "");
+        setEditBoardColor(status.colorName || "purple");
+    }, []);
+
+    const handleEditBoardSubmit = useCallback((e: React.FormEvent) => {
+        e.preventDefault();
+        if (!socket) return;
+        if (!editBoardName.trim()) {
+            toast.error("Board name is required");
+            return;
+        }
+        if (!editBoardData?._id) {
+            toast.error("Invalid board data");
+            return;
+        }
+
+        setSavingBoard(true);
+        socket.emit("task:updateStatusBoard", {
+            statusId: editBoardData._id,
+            name: editBoardName.trim(),
+            colorName: editBoardColor,
+            colorHex: colorHexMap[editBoardColor] || "",
+        });
+    }, [socket, editBoardName, editBoardColor, editBoardData, colorHexMap]);
+
+    // Edit Task Functions
+    const closeModalById = useCallback((modalId: string) => {
+        const modalElement = document.getElementById(modalId);
+        if (modalElement) {
+            const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+        }
+    }, []);
+
+    const clearEditTaskFieldError = (fieldName: string) => {
+        setEditTaskFieldErrors(prev => {
+            const newErrors = { ...prev };
+            delete newErrors[fieldName];
+            return newErrors;
+        });
+    };
+
+    const validateTaskField = (fieldName: string, value: any): string => {
+        switch (fieldName) {
+            case "taskTitle":
+                if (!value || !value.trim()) return "Task title is required";
+                if (value.trim().length < 3) return "Task title must be at least 3 characters";
+                break;
+            case "taskDescription":
+                if (!value || !value.trim()) return "Task description is required";
+                if (value.trim().length < 10) return "Task description must be at least 10 characters";
+                break;
+            case "taskPriority":
+                if (!value || value === "Select") return "Please select a priority level";
+                break;
+            case "taskStatus":
+                if (!value || value === "Select") return "Please select a status";
+                break;
+            case "taskAssignees":
+                if (!Array.isArray(value) || value.length === 0) return "Please select at least one assignee";
+                break;
+            case "taskDueDate":
+                if (!value) return "Due date is required";
+                // Get current project
+                const currentProject = projects.find(p => p._id === selectedProject || p.projectId === selectedProject);
+                if (currentProject?.endDate && dayjs(value).isAfter(dayjs(currentProject.endDate))) {
+                    return `Due date cannot exceed project end date (${dayjs(currentProject.endDate).format('DD-MM-YYYY')})`;
+                }
+                // Check if due date is in the past
+                if (dayjs(value).isBefore(dayjs(), 'day')) {
+                    return "Due date cannot be in the past";
+                }
+                break;
+        }
+        return "";
+    };
+
+    const validateEditTaskForm = useCallback((): boolean => {
+        const errors: Record<string, string> = {};
+
+        const titleError = validateTaskField("taskTitle", editTaskTitle.trim());
+        if (titleError) errors.taskTitle = titleError;
+
+        const descriptionError = validateTaskField("taskDescription", editTaskDescription.trim());
+        if (descriptionError) errors.taskDescription = descriptionError;
+
+        const priorityError = validateTaskField("taskPriority", editTaskPriority);
+        if (priorityError) errors.taskPriority = priorityError;
+
+        const statusError = validateTaskField("taskStatus", editTaskStatus);
+        if (statusError) errors.taskStatus = statusError;
+
+        const assigneeError = validateTaskField("taskAssignees", editTaskAssignees);
+        if (assigneeError) errors.taskAssignees = assigneeError;
+
+        const dueDateError = validateTaskField("taskDueDate", editTaskDueDate);
+        if (dueDateError) errors.taskDueDate = dueDateError;
+
+        setEditTaskFieldErrors(errors);
+
+        if (Object.keys(errors).length > 0) {
+            setTimeout(() => {
+                const firstErrorField = Object.keys(errors)[0];
+                const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
+                                    document.querySelector(`#${firstErrorField}`) ||
+                                    document.querySelector(`.field-${firstErrorField}`);
+                if (errorElement) {
+                    errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    (errorElement as HTMLElement).focus?.();
+                }
+            }, 100);
+            
+            return false;
+        }
+
+        return true;
+    }, [editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskDueDate, editTaskAssignees, projects, selectedProject]);
+
+    const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
+        if (!taskStatus || !statuses || statuses.length === 0) {
+            return "";
+        }
+
+        const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
+        
+        const exactMatch = statuses.find(s => s.key.toLowerCase() === normalizedTaskStatus);
+        if (exactMatch) return exactMatch.key;
+        
+        const nameMatch = statuses.find(s => 
+            s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
+        );
+        if (nameMatch) return nameMatch.key;
+        
+        const partialMatch = statuses.find(s => {
+            const key = s.key.toLowerCase();
+            const name = s.name.toLowerCase();
+            return key.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(key) ||
+                   name.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(name);
+        });
+        if (partialMatch) return partialMatch.key;
+        
+        return "";
+    }, []);
+
+    const handleOpenEditTask = useCallback((task: any) => {
+        setEditingTask(task);
+        setEditTaskTitle(task.title || "");
+        setEditTaskDescription(task.description || "");
+        setEditTaskPriority(task.priority || "Medium");
+        setEditTaskDueDate(task.dueDate ? dayjs(task.dueDate) : null);
+        const matchedStatus = findMatchingStatus(task.status, taskStatuses);
+        setEditTaskStatus(matchedStatus);
+        setEditTaskTags(Array.isArray(task.tags) ? task.tags : []);
+        setEditTaskAssignees(Array.isArray(task.assignee) ? task.assignee.map((a: any) => a.toString()) : []);
+        setEditTaskModalError(null);
+        setEditTaskFieldErrors({});
+    }, [findMatchingStatus, taskStatuses]);
+
+    const closeEditTaskModal = useCallback(() => {
+        setEditingTask(null);
+        setEditTaskTitle("");
+        setEditTaskDescription("");
+        setEditTaskPriority("Medium");
+        setEditTaskDueDate(null);
+        setEditTaskStatus("");
+        setEditTaskTags([]);
+        setEditTaskAssignees([]);
+        setEditTaskModalError(null);
+        setEditTaskFieldErrors({});
+        closeModalById("edit_task");
+    }, [closeModalById]);
+
+    const handleSaveEditTask = useCallback(() => {
+        if (!socket || !editingTask?._id) return;
+
+        if (!validateEditTaskForm()) {
+            return;
+        }
+
+        const validTags = editTaskTags.filter(tag => tag && tag.trim() !== '');
+
+        setIsSavingEditTask(true);
+        setEditTaskModalError(null);
+        setEditTaskFieldErrors({});
+
+        socket.emit("task:update", {
+            taskId: editingTask._id,
+            update: {
+                title: editTaskTitle,
+                description: editTaskDescription,
+                priority: editTaskPriority,
+                status: editTaskStatus,
+                tags: validTags,
+                assignee: editTaskAssignees,
+                dueDate: editTaskDueDate ? editTaskDueDate.toDate() : null,
+            }
+        });
+    }, [socket, editingTask, editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskTags, editTaskAssignees, editTaskDueDate, validateEditTaskForm]);
 
     // Dynamically create container refs based on taskStatuses count
     const containerRefs = useMemo(
@@ -390,12 +688,48 @@ const TaskBoard = () => {
             }
         };
 
+        const handleUpdateStatusResponse = (response: any) => {
+            setSavingBoard(false);
+            if (response?.done) {
+                toast.success("Board updated successfully");
+                setEditBoardData(null);
+                setEditBoardName("");
+                setEditBoardColor("purple");
+                loadTaskStatuses();
+                
+                // Close modal by clicking the close button
+                if (editBoardCloseButtonRef.current) {
+                    editBoardCloseButtonRef.current.click();
+                }
+            } else {
+                toast.error(response?.error || "Failed to update board");
+            }
+        };
+
+        const handleTaskUpdateResponse = (response: any) => {
+            setIsSavingEditTask(false);
+            if (response?.done) {
+                toast.success("Task updated successfully");
+                closeEditTaskModal();
+                if (selectedProject !== "Select") {
+                    loadprojecttasks(selectedProject);
+                }
+            } else {
+                setEditTaskModalError(response?.error || "Failed to update task");
+                toast.error(response?.error || "Failed to update task");
+            }
+        };
+
         socket.on("task:addStatus-response", handleAddStatusResponse);
+        socket.on("task:updateStatusBoard-response", handleUpdateStatusResponse);
+        socket.on("task:update-response", handleTaskUpdateResponse);
 
         return () => {
             socket.off("task:addStatus-response", handleAddStatusResponse);
+            socket.off("task:updateStatusBoard-response", handleUpdateStatusResponse);
+            socket.off("task:update-response", handleTaskUpdateResponse);
         };
-    }, [socket, loadTaskStatuses]);
+    }, [socket, loadTaskStatuses, closeEditTaskModal, selectedProject, loadprojecttasks]);
 
     return (
         <>
@@ -647,49 +981,6 @@ const TaskBoard = () => {
                                 </div>
                                 <div className="col-lg-8">
                                     <div className="d-flex align-items-center justify-content-lg-end flex-wrap row-gap-3 mb-3">
-                                        <div className="dropdown me-2">
-                                            <Link
-                                                to="#"
-                                                className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
-                                                data-bs-toggle="dropdown"
-                                            >
-                                                Clients
-                                            </Link>
-                                            <ul className="dropdown-menu  dropdown-menu-end p-3">
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                    >
-                                                        Clients
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                    >
-                                                        Sophie
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                    >
-                                                        Cameron
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                    >
-                                                        Doris
-                                                    </Link>
-                                                </li>
-                                            </ul>
-                                        </div>
                                         <div className="input-icon w-120 position-relative me-2">
                                             <span className="input-icon-addon">
                                                 <i className="ti ti-calendar" />
@@ -701,7 +992,9 @@ const TaskBoard = () => {
                                                     type: "mask",
                                                 }}
                                                 getPopupContainer={getModalContainer}
-                                                placeholder="Created Date"
+                                                placeholder="From Date"
+                                                value={dueDateFilterFrom}
+                                                onChange={(date) => setDueDateFilterFrom(date)}
                                             />
                                         </div>
                                         <div className="input-icon w-120 position-relative me-2">
@@ -715,7 +1008,9 @@ const TaskBoard = () => {
                                                     type: "mask",
                                                 }}
                                                 getPopupContainer={getModalContainer}
-                                                placeholder="Due Date"
+                                                placeholder="To Date"
+                                                value={dueDateFilterTo}
+                                                onChange={(date) => setDueDateFilterTo(date)}
                                             />
                                         </div>
                                         <div className="dropdown me-2">
@@ -724,31 +1019,43 @@ const TaskBoard = () => {
                                                 className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                                                 data-bs-toggle="dropdown"
                                             >
-                                                Select Status
+                                                Priority: {filterPriority}
                                             </Link>
-                                            <ul className="dropdown-menu  dropdown-menu-end p-3">
+                                            <ul className="dropdown-menu dropdown-menu-end p-3">
                                                 <li>
                                                     <Link
                                                         to="#"
                                                         className="dropdown-item rounded-1"
+                                                        onClick={() => setFilterPriority("All")}
                                                     >
-                                                        Inprogress
+                                                        All
                                                     </Link>
                                                 </li>
                                                 <li>
                                                     <Link
                                                         to="#"
                                                         className="dropdown-item rounded-1"
+                                                        onClick={() => setFilterPriority("High")}
                                                     >
-                                                        On-hold
+                                                        High
                                                     </Link>
                                                 </li>
                                                 <li>
                                                     <Link
                                                         to="#"
                                                         className="dropdown-item rounded-1"
+                                                        onClick={() => setFilterPriority("Medium")}
                                                     >
-                                                        Completed
+                                                        Medium
+                                                    </Link>
+                                                </li>
+                                                <li>
+                                                    <Link
+                                                        to="#"
+                                                        className="dropdown-item rounded-1"
+                                                        onClick={() => setFilterPriority("Low")}
+                                                    >
+                                                        Low
                                                     </Link>
                                                 </li>
                                             </ul>
@@ -761,13 +1068,14 @@ const TaskBoard = () => {
                                                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center border-0 bg-transparent p-0 text-dark"
                                                     data-bs-toggle="dropdown"
                                                 >
-                                                    Created Date
+                                                    {sortBy === "dueDate" ? "Due Date" : "Created Date"}
                                                 </Link>
-                                                <ul className="dropdown-menu  dropdown-menu-end p-3">
+                                                <ul className="dropdown-menu dropdown-menu-end p-3">
                                                     <li>
                                                         <Link
                                                             to="#"
                                                             className="dropdown-item rounded-1"
+                                                            onClick={() => setSortBy("createdDate")}
                                                         >
                                                             Created Date
                                                         </Link>
@@ -776,16 +1084,9 @@ const TaskBoard = () => {
                                                         <Link
                                                             to="#"
                                                             className="dropdown-item rounded-1"
+                                                            onClick={() => setSortBy("dueDate")}
                                                         >
-                                                            High
-                                                        </Link>
-                                                    </li>
-                                                    <li>
-                                                        <Link
-                                                            to="#"
-                                                            className="dropdown-item rounded-1"
-                                                        >
-                                                            Medium
+                                                            Due Date
                                                         </Link>
                                                     </li>
                                                 </ul>
@@ -838,7 +1139,8 @@ const TaskBoard = () => {
                                                                             to="#"
                                                                             className="dropdown-item rounded-1"
                                                                             data-bs-toggle="modal" data-inert={true}
-                                                                            data-bs-target="#edit_task"
+                                                                            data-bs-target="#edit_board"
+                                                                            onClick={() => handleEditBoardClick(status)}
                                                                         >
                                                                             <i className="ti ti-edit me-2" />
                                                                             Edit
@@ -860,7 +1162,7 @@ const TaskBoard = () => {
                                                         </div>
                                                     </div>
                                                     <div className="kanban-drag-wrap" ref={containerRef} style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                                        {tasks
+                                                        {sortedTasks
                                                             .filter(t => {
                                                                 const taskStatus = normalizeKey(t.status);
                                                                 const targetKey = normalizeKey(statusKey);
@@ -892,6 +1194,7 @@ const TaskBoard = () => {
                                                                                                 className="dropdown-item rounded-1"
                                                                                                 data-bs-toggle="modal" data-inert={true}
                                                                                                 data-bs-target="#edit_task"
+                                                                                                onClick={() => handleOpenEditTask(t)}
                                                                                             >
                                                                                                 <i className="ti ti-edit me-2" />
                                                                                                 Edit
@@ -972,15 +1275,7 @@ const TaskBoard = () => {
                         </div>
                     </div>
                 </div>
-                <div className="footer d-sm-flex align-items-center justify-content-between border-top bg-white p-3">
-                    <p className="mb-0">2014 - 2025 © SmartHR.</p>
-                    <p>
-                        Designed &amp; Developed By{" "}
-                        <Link to="#" className="text-primary">
-                            Dreams
-                        </Link>
-                    </p>
-                </div>
+                <Footer />
             </div>
             {/* /Page Wrapper */}
 
@@ -1188,202 +1483,183 @@ const TaskBoard = () => {
             {/* /Add Task */}
             {/* Edit Task */}
             <div className="modal fade" id="edit_task">
-                <div className="modal-dialog modal-dialog-centered modal-lg">
+                <div className="modal-dialog modal-dialog-centered">
                     <div className="modal-content">
                         <div className="modal-header">
                             <h4 className="modal-title">Edit Task</h4>
                             <button
+                                ref={editTaskCloseButtonRef}
                                 type="button"
                                 className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
                                 aria-label="Close"
+                                onClick={closeEditTaskModal}
                             >
                                 <i className="ti ti-x" />
                             </button>
                         </div>
-                        <form>
-                            <div className="modal-body">
-                                <div className="row">
-                                    <div className="col-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Title</label>
-                                            <input type="text" className="form-control" />
-                                        </div>
+                        <div className="modal-body">
+                            {editTaskModalError && (
+                                <div className="alert alert-danger alert-dismissible fade show" role="alert">
+                                    {editTaskModalError}
+                                </div>
+                            )}
+                            <div className="row">
+                                <div className="col-12">
+                                    <div className="mb-3">
+                                        <label className="form-label">Task Title <span className="text-danger">*</span></label>
+                                        <input
+                                            type="text"
+                                            name="taskTitle"
+                                            className={`form-control ${editTaskFieldErrors.taskTitle ? 'is-invalid' : ''}`}
+                                            value={editTaskTitle}
+                                            onChange={(e) => {
+                                                setEditTaskTitle(e.target.value);
+                                                clearEditTaskFieldError("taskTitle");
+                                            }}
+                                            placeholder="Enter task title"
+                                        />
+                                        {editTaskFieldErrors.taskTitle && (
+                                            <div className="invalid-feedback">{editTaskFieldErrors.taskTitle}</div>
+                                        )}
                                     </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Due Date</label>
-                                            <div className="input-icon-end position-relative">
-                                                <DatePicker
-                                                    className="form-control datetimepicker"
-                                                    format={{
-                                                        format: "DD-MM-YYYY",
-                                                        type: "mask",
-                                                    }}
-                                                    getPopupContainer={getModalContainer}
-                                                    placeholder="DD-MM-YYYY"
-                                                />
-                                                <span className="input-icon-addon">
-                                                    <i className="ti ti-calendar text-gray-7" />
-                                                </span>
-                                            </div>
-                                        </div>
+                                </div>
+                                <div className="col-12">
+                                    <div className="mb-3">
+                                        <label className="form-label">Tag</label>
+                                        <CommonTagsInput
+                                            value={editTaskTags}
+                                            onChange={(tags: string[]) => setEditTaskTags(tags)}
+                                            className="form-control"
+                                        />
                                     </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Project</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={projectChoose}
-                                                defaultValue={projectChoose[1]}
+                                </div>
+                                <div className="col-6">
+                                    <div className="mb-3">
+                                        <label className="form-label">Priority <span className="text-danger">*</span></label>
+                                        <CommonSelect
+                                            className={`select ${editTaskFieldErrors.taskPriority ? 'is-invalid' : ''}`}
+                                            options={priorityChoose}
+                                            value={priorityChoose.find(opt => opt.value === editTaskPriority)}
+                                            onChange={(option: any) => {
+                                                setEditTaskPriority(option?.value || "Medium");
+                                                clearEditTaskFieldError("taskPriority");
+                                            }}
+                                        />
+                                        {editTaskFieldErrors.taskPriority && (
+                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskPriority}</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="col-6">
+                                    <div className="mb-3">
+                                        <label className="form-label">Status <span className="text-danger">*</span></label>
+                                        <CommonSelect
+                                            className={`select ${editTaskFieldErrors.taskStatus ? 'is-invalid' : ''}`}
+                                            options={taskStatuses.map(status => ({
+                                                value: status.key,
+                                                label: status.name
+                                            }))}
+                                            value={taskStatuses.find(status => status.key === editTaskStatus) 
+                                                ? { value: editTaskStatus, label: taskStatuses.find(status => status.key === editTaskStatus)?.name }
+                                                : { value: "", label: "" }}
+                                            onChange={(option: any) => {
+                                                setEditTaskStatus(option?.value || "");
+                                                clearEditTaskFieldError("taskStatus");
+                                            }}
+                                        />
+                                        {editTaskFieldErrors.taskStatus && (
+                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskStatus}</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="col-12">
+                                    <div className="mb-3">
+                                        <label className="form-label">Description <span className="text-danger">*</span></label>
+                                        <textarea
+                                            name="taskDescription"
+                                            className={`form-control ${editTaskFieldErrors.taskDescription ? 'is-invalid' : ''}`}
+                                            rows={4}
+                                            value={editTaskDescription}
+                                            onChange={(e) => {
+                                                setEditTaskDescription(e.target.value);
+                                                clearEditTaskFieldError("taskDescription");
+                                            }}
+                                            placeholder="Enter task description"
+                                        />
+                                        {editTaskFieldErrors.taskDescription && (
+                                            <div className="invalid-feedback">{editTaskFieldErrors.taskDescription}</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="col-12">
+                                    <div className="mb-3">
+                                        <label className="form-label">Due Date <span className="text-danger">*</span></label>
+                                        <div className="input-icon-end position-relative">
+                                            <DatePicker
+                                                className="form-control datetimepicker"
+                                                format={{
+                                                    format: "DD-MM-YYYY",
+                                                    type: "mask",
+                                                }}
+                                                getPopupContainer={() => document.getElementById("edit_task") || document.body}
+                                                placeholder="DD-MM-YYYY"
+                                                value={editTaskDueDate}
+                                                onChange={(value) => {
+                                                    setEditTaskDueDate(value);
+                                                    clearEditTaskFieldError("taskDueDate");
+                                                }}
                                             />
+                                            <span className="input-icon-addon">
+                                                <i className="ti ti-calendar text-gray-7" />
+                                            </span>
                                         </div>
+                                        {editTaskFieldErrors.taskDueDate && (
+                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskDueDate}</div>
+                                        )}
                                     </div>
-                                    <div className="col-md-12">
-                                        <div className="mb-3">
-                                            <label className="form-label me-2">Team Members</label>
-                                            <CommonTagsInput
-                                                value={tags}
-                                                onChange={setTags}
-                                                placeholder="Add new"
-                                                className="custom-input-class" // Optional custom class
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Tag</label>
-                                            <CommonTagsInput
-                                                value={tags1}
-                                                onChange={setTags1}
-                                                placeholder="Add new"
-                                                className="custom-input-class" // Optional custom class
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Status</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={statusChoose}
-                                                defaultValue={statusChoose[1]}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Priority</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={priorityChoose}
-                                                defaultValue={priorityChoose[1]}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <label className="form-label">Who Can See this Task?</label>
-                                        <div className="d-flex align-items-center mb-3">
-                                            <div className="form-check me-3">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault1"
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault1"
-                                                >
-                                                    Public
-                                                </label>
-                                            </div>
-                                            <div className="form-check me-3">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault2"
-                                                    defaultChecked
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault2"
-                                                >
-                                                    Private
-                                                </label>
-                                            </div>
-                                            <div className="form-check ">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault3"
-                                                    defaultChecked
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault3"
-                                                >
-                                                    Admin Only
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-lg-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Descriptions</label>
-                                            <div className="summernote" />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <label className="form-label">Upload Attachment</label>
-                                        <div className="bg-light rounded p-2">
-                                            <div className="profile-uploader border-bottom mb-2 pb-2">
-                                                <div className="drag-upload-btn btn btn-sm btn-white border px-3">
-                                                    Select File
-                                                    <input
-                                                        type="file"
-                                                        className="form-control image-sign"
-                                                        multiple
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                                                <div className="d-flex align-items-center">
-                                                    <h6 className="fs-12 fw-medium me-1">Logo.zip</h6>
-                                                    <span className="badge badge-soft-info">21MB </span>
-                                                </div>
-                                                <Link to="#" className="btn btn-sm btn-icon">
-                                                    <i className="ti ti-trash" />
-                                                </Link>
-                                            </div>
-                                            <div className="d-flex align-items-center justify-content-between">
-                                                <div className="d-flex align-items-center">
-                                                    <h6 className="fs-12 fw-medium me-1">Files.zip</h6>
-                                                    <span className="badge badge-soft-info">25MB </span>
-                                                </div>
-                                                <Link to="#" className="btn btn-sm btn-icon">
-                                                    <i className="ti ti-trash" />
-                                                </Link>
-                                            </div>
-                                        </div>
+                                </div>
+                                <div className="col-12">
+                                    <div className="mb-0">
+                                        <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
+                                        <Select
+                                            isMulti
+                                            className={`basic-multi-select ${editTaskFieldErrors.taskAssignees ? 'is-invalid' : ''}`}
+                                            classNamePrefix="select"
+                                            options={assigneeChoose.filter(opt => opt.value !== "Select")}
+                                            value={assigneeChoose.filter(opt => editTaskAssignees.includes(opt.value))}
+                                            onChange={(opts) => {
+                                                setEditTaskAssignees((opts || []).map((opt) => opt.value));
+                                                clearEditTaskFieldError("taskAssignees");
+                                            }}
+                                            placeholder="Select assignees"
+                                        />
+                                        {editTaskFieldErrors.taskAssignees && (
+                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskAssignees}</div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
-                            <div className="modal-footer">
-                                <button
-                                    type="button"
-                                    className="btn btn-light me-2"
-                                    data-bs-dismiss="modal"
-                                >
-                                    Cancel
-                                </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
-                                    Save
-                                </button>
-                            </div>
-                        </form>
+                        </div>
+                        <div className="modal-footer">
+                            <button
+                                type="button"
+                                className="btn btn-light me-2"
+                                data-bs-dismiss="modal"
+                                onClick={closeEditTaskModal}
+                                disabled={isSavingEditTask}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn btn-primary"
+                                onClick={handleSaveEditTask}
+                                disabled={isSavingEditTask}
+                            >
+                                {isSavingEditTask ? "Saving..." : "Save Changes"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1585,6 +1861,99 @@ const TaskBoard = () => {
                 </div>
             </div>
             {/* /Add Board */}
+
+            {/* Edit Board */}
+            <div className="modal fade" id="edit_board" ref={editBoardModalRef}>
+                <div className="modal-dialog modal-dialog-centered">
+                    <div className="modal-content">
+                        <div className="modal-header">
+                            <h4 className="modal-title">Edit Board</h4>
+                            <button
+                                ref={editBoardCloseButtonRef}
+                                type="button"
+                                className="btn-close custom-btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"
+                            >
+                                <i className="ti ti-x" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleEditBoardSubmit}>
+                            <div className="modal-body">
+                                <div className="mb-3">
+                                    <label className="form-label">Board Name</label>
+                                    <input
+                                        type="text"
+                                        className="form-control"
+                                        value={editBoardName}
+                                        onChange={(e) => setEditBoardName(e.target.value)}
+                                    />
+                                </div>
+                                <label className="form-label">Board Color</label>
+                                <div className="d-flex align-items-center flex-wrap row-gap-3">
+                                    <div className="theme-colors mb-4">
+                                        <ul className="d-flex align-items-center">
+                                            {[
+                                                { key: "purple", className: "bg-purple" },
+                                                { key: "pink", className: "bg-pink" },
+                                                { key: "blue", className: "bg-info" },
+                                                { key: "yellow", className: "bg-warning" },
+                                                { key: "green", className: "bg-success" },
+                                                { key: "orange", className: "bg-orange" },
+                                                { key: "red", className: "bg-danger" },
+                                            ].map((c) => {
+                                                const selected = editBoardColor === c.key;
+                                                return (
+                                                    <li key={c.key} className="text-center">
+                                                        <button
+                                                            type="button"
+                                                            className="themecolorset border-0 bg-transparent p-0"
+                                                            onClick={() => setEditBoardColor(c.key)}
+                                                            title={c.key}
+                                                            aria-pressed={selected}
+                                                        >
+                                                            <span
+                                                                className={`primecolor ${c.className} d-inline-flex align-items-center justify-content-center`}
+                                                                style={{
+                                                                    width: '36px',
+                                                                    height: '36px',
+                                                                    borderRadius: '8px',
+                                                                    border: selected ? '2px solid #111' : '1px solid #e0e0e0',
+                                                                    boxShadow: selected ? '0 0 0 2px rgba(0,0,0,0.08)' : 'none',
+                                                                }}
+                                                            >
+                                                                {selected && (
+                                                                    <i className="ti ti-check text-white fs-14" />
+                                                                )}
+                                                            </span>
+                                                        </button>
+                                                        <small className="d-block mt-1 text-muted text-capitalize" style={{ fontSize: '11px' }}>
+                                                            {c.key}
+                                                        </small>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button
+                                    type="button"
+                                    className="btn btn-light me-2"
+                                    data-bs-dismiss="modal"
+                                >
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={savingBoard}>
+                                    {savingBoard ? "Saving..." : "Update Board"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {/* /Edit Board */}
 
             {/* Status Change Confirmation Modal */}
             {showStatusModal && (

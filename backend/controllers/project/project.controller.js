@@ -77,6 +77,7 @@ const projectController = (socket, io) => {
       if (!result.done) {
         console.error("[Project] Failed to get project", { error: result.error });
       }
+      console.log("[Project] project:getById-response sent", result); 
       socket.emit("project:getById-response", result);
     } catch (error) {
       console.error("[Project] Error in project:getById", { error: error.message });
@@ -260,7 +261,7 @@ const projectController = (socket, io) => {
 
       // Transform employees to { value, label, position } format
       const transformedEmployees = (employees || []).map(emp => ({
-        value: emp.employeeId || emp._id?.toString() || emp._id,
+        value: emp._id?.toString() || emp._id,
         employeeId: emp.employeeId || emp._id?.toString() || emp._id,
         label: emp.firstName && emp.lastName ? `${emp.firstName} ${emp.lastName}` : emp.name || "Unknown",
         position: emp.position || "N/A",

@@ -24,6 +24,7 @@ const CommonTagsInput: React.FC<CommonTagsInputProps> = ({
                     input: 'custom-tag-input',
                     tag: 'custom-tag-chip'
                 }}
+                separators={[',',' ', 'Enter']}
             />
         </div>
     );

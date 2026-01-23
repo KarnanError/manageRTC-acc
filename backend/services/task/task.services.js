@@ -8,9 +8,24 @@ export const createTask = async (companyId, taskData) => {
     const collections = getTenantCollections(companyId);
 
     const now = new Date();
+    
+    // Convert assignee strings to ObjectId array, matching project team member storage pattern
     const normalizedAssignees = Array.isArray(taskData.assignee)
-      ? taskData.assignee.filter(Boolean)
+      ? taskData.assignee
+          .filter(id => id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id))
       : [];
+
+    console.log("[Task] Normalized assignees:", normalizedAssignees, "from:", taskData.assignee);
+
+    // Convert projectId to ObjectId if it's a string
+    let projectIdValue = taskData.projectId;
+    if (typeof projectIdValue === 'string') {
+      if (!ObjectId.isValid(projectIdValue)) {
+        throw new Error(`Invalid projectId: "${projectIdValue}" is not a valid MongoDB ObjectId`);
+      }
+      projectIdValue = new ObjectId(projectIdValue);
+    }
 
     const normalizedAttachments = Array.isArray(taskData.attachments)
       ? taskData.attachments.map(att => ({
@@ -24,8 +39,7 @@ export const createTask = async (companyId, taskData) => {
       _id: new ObjectId(),
       title: taskData.title,
       description: taskData.description || '',
-      projectId: taskData.projectId,
-      companyId,
+      projectId: projectIdValue,
       status: taskData.status || 'Pending',
       priority: taskData.priority || 'Medium',
       assignee: normalizedAssignees,
@@ -79,6 +93,31 @@ export const getTaskById = async (companyId, taskId) => {
       };
     }
 
+    // Fetch assignee details if array exists
+    const assigneeArray = Array.isArray(task.assignee) ? task.assignee : [];
+    const assigneeDetails = assigneeArray.length > 0
+      ? await collections.employees
+          .find(
+            {
+              _id: { $in: assigneeArray.map(id => id instanceof ObjectId ? id : new ObjectId(id)) },
+              status: { $regex: /^active$/i },
+            },
+            {
+              projection: {
+                employeeId: 1,
+                firstName: 1,
+                lastName: 1,
+                email: 1,
+                phone: 1,
+                _id: 1
+              }
+            }
+          )
+          .toArray()
+      : [];
+
+    task.assigneeDetails = assigneeDetails;
+
     return {
       done: true,
       data: task,
@@ -109,6 +148,35 @@ export const updateTask = async (companyId, taskId, updateData) => {
   try {
     const collections = getTenantCollections(companyId);
 
+    // Convert assignee strings to ObjectId array if provided
+    if (updateData.assignee && Array.isArray(updateData.assignee)) {
+      const normalizedAssignees = updateData.assignee
+        .filter(id => {
+          if (!id) return false;
+          const isValid = ObjectId.isValid(id);
+          if (!isValid) {
+            console.warn(`[Task Service] Invalid assignee ObjectId: ${id}`);
+          }
+          return isValid;
+        })
+        .map(id => new ObjectId(id));
+      
+      updateData.assignee = normalizedAssignees;
+      console.log(`[Task Service] Converted ${normalizedAssignees.length} assignees to ObjectId`);
+    }
+
+    // Convert projectId to ObjectId if provided
+    if (updateData.projectId) {
+      if (!ObjectId.isValid(updateData.projectId)) {
+        console.error(`[Task Service] Invalid projectId: ${updateData.projectId}`);
+        return {
+          done: false,
+          error: 'Invalid projectId format'
+        };
+      }
+      updateData.projectId = new ObjectId(updateData.projectId);
+    }
+
     const updatedTask = await collections.tasks.findOneAndUpdate(
       {
         _id: new ObjectId(taskId),
@@ -120,7 +188,7 @@ export const updateTask = async (companyId, taskId, updateData) => {
           updatedAt: new Date()
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!updatedTask) {
@@ -212,7 +280,8 @@ export const getTasksByProject = async (companyId, projectId, filters = {}) => {
     const collections = getTenantCollections(companyId);
 
     const query = {
-      projectId: projectId,
+      projectId: new ObjectId(projectId),
+      isDeleted: { $ne: true }  // Exclude deleted tasks
     };
 
 
@@ -450,6 +519,66 @@ export const createTaskStatus = async (companyId, payload) => {
     return { done: true, data: doc, message: "Task status created" };
   } catch (error) {
     console.error("Error creating task status:", error);
+    return { done: false, error: error.message };
+  }
+};
+
+export const updateStatusBoard = async (companyId, statusId, payload) => {
+  try {
+    const collections = getTenantCollections(companyId);
+
+    if (!statusId || !ObjectId.isValid(statusId)) {
+      return { done: false, error: "Valid status ID is required" };
+    }
+
+    const updateFields = {};
+    
+    if (payload?.name) {
+      updateFields.name = payload.name.trim();
+      // Update key based on new name if provided
+      updateFields.key = payload.name
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, "");
+    }
+    
+    if (payload?.colorName) {
+      updateFields.colorName = payload.colorName.trim().toLowerCase();
+    }
+    
+    if (payload?.colorHex) {
+      updateFields.colorHex = payload.colorHex;
+    }
+    
+    if (typeof payload?.order === 'number') {
+      updateFields.order = payload.order;
+    }
+    
+    if (typeof payload?.active === 'boolean') {
+      updateFields.active = payload.active;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return { done: false, error: "No valid fields to update" };
+    }
+
+    updateFields.updatedAt = new Date();
+
+    const result = await collections.taskstatus.updateOne(
+      { _id: new ObjectId(statusId) },
+      { $set: updateFields }
+    );
+
+    if (result.matchedCount === 0) {
+      return { done: false, error: "Task status not found" };
+    }
+
+    const updated = await collections.taskstatus.findOne({ _id: new ObjectId(statusId) });
+
+    return { done: true, data: updated, message: "Task status updated successfully" };
+  } catch (error) {
+    console.error("Error updating task status:", error);
     return { done: false, error: error.message };
   }
 };

@@ -7,7 +7,6 @@ import CollapseHeader from "../../../core/common/collapse-header/collapse-header
 import { useSocket } from "../../../SocketContext";
 import { toast } from "react-toastify";
 import CommonSelect, { Option } from "../../../core/common/commonSelect";
-import CommonTextEditor from "../../../core/common/textEditor";
 import CommonTagsInput from "../../../core/common/Taginput";
 import Select from "react-select";
 import { DatePicker, TimePicker } from "antd";
@@ -23,6 +22,9 @@ interface Project {
   priority: string;
   client?: string;
   teamMembers?: string[];
+  teamLeader?: string[];
+  projectManager?: string[];
+  projectValue?: number;
   startDate?: Date;
   endDate?: Date;
   createdAt?: Date;
@@ -48,8 +50,8 @@ interface FormData {
   extraTime: string;
   description: string;
   teamMembers: Array<{ value: string; label: string }>;
-  teamLeader: { value: string; label: string } | null;
-  projectManager: { value: string; label: string } | null;
+  teamLeader: Array<{ value: string; label: string }>;
+  projectManager: Array<{ value: string; label: string }>;
   status: string;
   tags: string[];
 }
@@ -65,8 +67,8 @@ const initialFormData: FormData = {
   extraTime: "",
   description: "",
   teamMembers: [],
-  teamLeader: null,
-  projectManager: null,
+  teamLeader: [],
+  projectManager: [],
   status: "Active",
   tags: [],
 };
@@ -80,7 +82,7 @@ const ProjectList = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [stats, setStats] = useState<ProjectStats>({ total: 0, active: 0, completed: 0, onHold: 0, overdue: 0 });
   const [clients, setClients] = useState<Array<{ value: string; label: string }>>([]);
-  const [employees, setEmployees] = useState<Array<{ value: string; label: string; position: string; department: string }>>([]);
+  const [employees, setEmployees] = useState<Array<{ value: string; label: string; position: string; department: string; employeeId?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState({
@@ -95,6 +97,7 @@ const ProjectList = () => {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -252,30 +255,229 @@ const ProjectList = () => {
     return modal || document.body;
   };
 
-  const handleNext = () => {
-    if (!formData.name) {
-      setFormError("Project name is required");
-      return;
-    }
-    if (!formData.client) {
-      setFormError("Client name is required");
-      return;
-    }
-    if (!formData.startDate) {
-      setFormError("Start date is required");
-      return;
-    }
-    if (!formData.endDate) {
-      setFormError("End date is required");
-      return;
-    }
-    if (formData.startDate && formData.endDate) {
-      const startDate = dayjs(formData.startDate, "DD-MM-YYYY");
-      const endDate = dayjs(formData.endDate, "DD-MM-YYYY");
-      if (!endDate.isAfter(startDate)) {
-        setFormError("End date must be after start date");
-        return;
+  const validateProjectField = useCallback((fieldName: string, value: any): string => {
+    switch (fieldName) {
+      case "name":
+        if (!value || !value.trim()) return "Project name is required";
+        break;
+      case "client":
+        if (!value || !value.trim()) return "Client is required";
+        break;
+      case "startDate":
+        if (!value) return "Start date is required";
+        break;
+      case "endDate":
+        if (!value) return "End date is required";
+        break;
+      case "priority":
+        if (!value || value === "") return "Priority is required";
+        break;
+      case "projectValue": {
+        if (value === undefined || value === null || value === "") return "Project value is required";
+        const num = Number(value);
+        if (Number.isNaN(num) || num < 0) return "Project value must be a positive number";
+        break;
       }
+      case "description":
+        if (!value || !value.trim()) return "Description is required";
+        break;
+      case "teamMembers":
+        if (!value || (Array.isArray(value) && value.length === 0)) return "Team members are required";
+        break;
+      case "teamLeader":
+        if (!value || (Array.isArray(value) && value.length === 0)) return "Team leader is required";
+        break;
+      case "projectManager":
+        if (!value || (Array.isArray(value) && value.length === 0)) return "Project manager is required";
+        break;
+    }
+    return "";
+  }, []);
+
+  const handleEditFieldBlur = useCallback((fieldName: string, value: any) => {
+    const error = validateProjectField(fieldName, value);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (error) {
+        next[fieldName] = error;
+      } else {
+        delete next[fieldName];
+      }
+      return next;
+    });
+  }, [validateProjectField]);
+
+  const clearFieldError = useCallback((fieldName: string) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[fieldName];
+      return next;
+    });
+  }, []);
+
+  const computeProjectErrors = useCallback((data: FormData): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
+    const nameError = validateProjectField("name", data.name);
+    if (nameError) errors.name = nameError;
+
+    const clientError = validateProjectField("client", data.client);
+    if (clientError) errors.client = clientError;
+
+    const startError = validateProjectField("startDate", data.startDate);
+    if (startError) errors.startDate = startError;
+
+    const endError = validateProjectField("endDate", data.endDate);
+    if (endError) errors.endDate = endError;
+
+    const priorityError = validateProjectField("priority", data.priority);
+    if (priorityError) errors.priority = priorityError;
+
+    const valueError = validateProjectField("projectValue", data.projectValue);
+    if (valueError) errors.projectValue = valueError;
+
+    const descriptionError = validateProjectField("description", data.description);
+    if (descriptionError) errors.description = descriptionError;
+
+    const teamMembersError = validateProjectField("teamMembers", data.teamMembers);
+    if (teamMembersError) errors.teamMembers = teamMembersError;
+
+    const teamLeaderError = validateProjectField("teamLeader", data.teamLeader);
+    if (teamLeaderError) errors.teamLeader = teamLeaderError;
+
+    const projectManagerError = validateProjectField("projectManager", data.projectManager);
+    if (projectManagerError) errors.projectManager = projectManagerError;
+
+    if (data.startDate && data.endDate) {
+      const start = dayjs(data.startDate, "DD-MM-YYYY");
+      const end = dayjs(data.endDate, "DD-MM-YYYY");
+      if (start.isValid() && end.isValid() && !end.isAfter(start)) {
+        errors.endDate = "End date must be after start date";
+      }
+    }
+
+    return errors;
+  }, [validateProjectField]);
+
+  const focusFirstError = useCallback((errors: Record<string, string>) => {
+    setTimeout(() => {
+      const firstErrorField = Object.keys(errors)[0];
+      const errorElement = document.querySelector(`[name="${firstErrorField}"]`) ||
+        document.querySelector(`[data-field="${firstErrorField}"]`);
+      if (errorElement) {
+        errorElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        (errorElement as HTMLElement).focus?.();
+      }
+    }, 100);
+  }, []);
+
+  const validateEditBasicInfo = useCallback((): boolean => {
+    const errors = computeProjectErrors(formData);
+    const basicInfoFields = ["name", "client", "startDate", "endDate", "priority", "projectValue", "description"];
+    const basicInfoErrors: Record<string, string> = {};
+    basicInfoFields.forEach((field) => {
+      if (errors[field]) {
+        basicInfoErrors[field] = errors[field];
+      }
+    });
+
+    setFieldErrors(basicInfoErrors);
+
+    if (Object.keys(basicInfoErrors).length > 0) {
+      setFormError(null);
+      focusFirstError(basicInfoErrors);
+      return false;
+    }
+
+    setFormError(null);
+    return true;
+  }, [computeProjectErrors, focusFirstError, formData]);
+
+  const validateEditTeamMembers = useCallback((): boolean => {
+    const errors = computeProjectErrors(formData);
+    const teamFields = ["teamMembers", "teamLeader", "projectManager"];
+    const teamErrors: Record<string, string> = {};
+    teamFields.forEach((field) => {
+      if (errors[field]) {
+        teamErrors[field] = errors[field];
+      }
+    });
+
+    setFieldErrors(teamErrors);
+
+    if (Object.keys(teamErrors).length > 0) {
+      setFormError(null);
+      focusFirstError(teamErrors);
+      return false;
+    }
+
+    setFormError(null);
+    return true;
+  }, [computeProjectErrors, focusFirstError, formData]);
+
+  const validateEditProjectForm = useCallback((): boolean => {
+    const errors = computeProjectErrors(formData);
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setFormError(null);
+      focusFirstError(errors);
+      return false;
+    }
+
+    setFormError(null);
+    return true;
+  }, [computeProjectErrors, focusFirstError, formData]);
+
+  const validateAddProjectForm = useCallback((): boolean => {
+    const errors = computeProjectErrors(formData);
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setFormError(null);
+      focusFirstError(errors);
+      return false;
+    }
+
+    setFormError(null);
+    return true;
+  }, [computeProjectErrors, focusFirstError, formData]);
+
+  const validateAddStepOne = useCallback((): boolean => {
+    const errors = computeProjectErrors(formData);
+    const stepFields = ["name", "client", "startDate", "endDate", "priority", "projectValue", "description"];
+    const stepErrors: Record<string, string> = {};
+    stepFields.forEach((field) => {
+      if (errors[field]) {
+        stepErrors[field] = errors[field];
+      }
+    });
+
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      stepFields.forEach((field) => {
+        if (stepErrors[field]) {
+          next[field] = stepErrors[field];
+        } else {
+          delete next[field];
+        }
+      });
+      return next;
+    });
+
+    if (Object.keys(stepErrors).length > 0) {
+      setFormError(null);
+      focusFirstError(stepErrors);
+      return false;
+    }
+
+    setFormError(null);
+    return true;
+  }, [computeProjectErrors, focusFirstError, formData]);
+
+  const handleNext = () => {
+    if (!validateAddStepOne()) {
+      return;
     }
     setFormError(null);
     setCurrentStep(2);
@@ -287,12 +489,7 @@ const ProjectList = () => {
   };
 
   const handleModalSubmit = () => {
-    if (!formData.teamLeader) {
-      setFormError("Team leader is required");
-      return;
-    }
-    if (!formData.projectManager) {
-      setFormError("Project manager is required");
+    if (!validateAddProjectForm()) {
       return;
     }
 
@@ -306,12 +503,66 @@ const ProjectList = () => {
       priority: formData.priority,
       projectValue: formData.projectValue,
       description: formData.description,
-      teamMembers: formData.teamMembers,
-      teamLeader: formData.teamLeader,
-      projectManager: formData.projectManager,
+      teamMembers: formData.teamMembers.map((member: any) => member.value),
+      teamLeader: formData.teamLeader.map((leader: any) => leader.value),
+      projectManager: formData.projectManager.map((manager: any) => manager.value),
       status: formData.status,
       tags: formData.tags,
       logo: logo,
+    });
+  };
+
+  const handleEditBasicInfoSave = () => {
+    if (!editingProject) return;
+
+    if (!validateEditBasicInfo()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+
+    socket?.emit("project:update", {
+      projectId: editingProject._id,
+      update: {
+        name: formData.name.trim(),
+        client: formData.client.trim(),
+        status: formData.status,
+        priority: formData.priority,
+        projectValue: formData.projectValue,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        description: formData.description,
+      }
+    });
+  };
+
+  const handleEditProjectSubmit = () => {
+    if (!editingProject) return;
+
+    if (!validateEditTeamMembers()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+
+    socket?.emit("project:update", {
+      projectId: editingProject._id,
+      update: {
+        name: formData.name.trim(),
+        client: formData.client.trim(),
+        status: formData.status,
+        priority: formData.priority,
+        projectValue: formData.projectValue,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        description: formData.description,
+        teamMembers: (formData.teamMembers || []).map((member: any) => member.value),
+        teamLeader: (formData.teamLeader || []).map((leader: any) => leader.value),
+        projectManager: (formData.projectManager || []).map((manager: any) => manager.value),
+        tags: formData.tags,
+      }
     });
   };
 
@@ -348,6 +599,7 @@ const ProjectList = () => {
         setLogo(null);
         removeLogo();
         setShowAddModal(false);
+        setFieldErrors({});
         loadProjects(filters);
       } else {
         setFormError(response.error || "Failed to create project");
@@ -362,6 +614,7 @@ const ProjectList = () => {
         setFormData(initialFormData);
         setEditingProject(null);
         setShowEditModal(false);
+        setFieldErrors({});
         loadProjects(filters);
       } else {
         setFormError(response.error || "Failed to update project");
@@ -419,10 +672,10 @@ const ProjectList = () => {
       dataIndex: "_id",
       render: (text: string, record: Project) => (
         <Link to={`/projects-details/${record._id}`}>
-          {record._id.substring(0, 8).toUpperCase()}
+          {record.projectId.substring(0, 8).toUpperCase()}
         </Link>
       ),
-      sorter: (a: Project, b: Project) => a._id.localeCompare(b._id),
+      sorter: (a: Project, b: Project) => a.projectId.localeCompare(b.projectId),
     },
     {
       title: "Project Name",
@@ -555,24 +808,35 @@ const ProjectList = () => {
                 const employee = employees.find(emp => emp.value === memberId);
                 return employee || { value: memberId, label: memberId };
               });
+
+              const teamLeaderData = (record.teamLeader || []).map((leaderId: string) => {
+                const employee = employees.find(emp => emp.value === leaderId);
+                return employee || { value: leaderId, label: leaderId };
+              });
+
+              const projectManagerData = (record.projectManager || []).map((managerId: string) => {
+                const employee = employees.find(emp => emp.value === managerId);
+                return employee || { value: managerId, label: managerId };
+              });
               
               setFormData({
                 name: record.name,
                 client: record.client || "",
-                startDate: record.startDate ? new Date(record.startDate).toISOString().split('T')[0] : "",
-                endDate: record.endDate ? new Date(record.endDate).toISOString().split('T')[0] : "",
+                startDate: record.startDate ? dayjs(record.startDate).format("DD-MM-YYYY") : "",
+                endDate: record.endDate ? dayjs(record.endDate).format("DD-MM-YYYY") : "",
                 priority: record.priority || "Medium",
-                projectValue: "",
+                projectValue: record.projectValue !== undefined && record.projectValue !== null ? String(record.projectValue) : "",
                 totalWorkingHours: "",
                 extraTime: "",
                 description: record.description || "",
                 teamMembers: teamMembersData,
-                teamLeader: null,
-                projectManager: null,
+                teamLeader: teamLeaderData,
+                projectManager: projectManagerData,
                 status: record.status || "Active",
                 tags: [],
               });
               setFormError(null);
+              setFieldErrors({});
               setShowEditModal(true);
             }}
             title="Edit"
@@ -768,7 +1032,7 @@ const ProjectList = () => {
                     setLogo(null);
                     removeLogo();
                   }}
-                ></button>
+                ><i className="ti ti-x" /></button>
               </div>
 
               <div className="add-info-fieldset">
@@ -850,22 +1114,39 @@ const ProjectList = () => {
                             </label>
                             <input
                               type="text"
-                              className="form-control"
+                              name="name"
+                              className={`form-control ${fieldErrors.name ? "is-invalid" : ""}`}
                               value={formData.name}
-                              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                              onChange={(e) => {
+                                setFormData(prev => ({ ...prev, name: e.target.value }));
+                                clearFieldError("name");
+                              }}
+                              onBlur={(e) => handleEditFieldBlur("name", e.target.value)}
                               placeholder="Enter project name"
                             />
+                            {fieldErrors.name && (
+                              <div className="invalid-feedback d-block">{fieldErrors.name}</div>
+                            )}
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label">Client</label>
-                            <CommonSelect
-                              className="select"
-                              options={[{ value: "", label: "Select Client" }, ...clients]}
-                              value={clients.find(c => c.label === formData.client) || { value: "", label: "Select Client" }}
-                              onChange={(option) => setFormData(prev => ({ ...prev, client: option?.label || "" }))}
-                            />
+                            <label className="form-label">Client <span className="text-danger">*</span></label>
+                            <div data-field="client">
+                              <CommonSelect
+                                className={`select ${fieldErrors.client ? "is-invalid" : ""}`}
+                                options={[{ value: "", label: "Select Client" }, ...clients]}
+                                value={clients.find(c => c.label === formData.client) || { value: "", label: "Select Client" }}
+                                onChange={(option) => {
+                                  setFormData(prev => ({ ...prev, client: option?.label || "" }));
+                                  clearFieldError("client");
+                                  handleEditFieldBlur("client", option?.label || "");
+                                }}
+                              />
+                            </div>
+                            {fieldErrors.client && (
+                              <div className="invalid-feedback d-block">{fieldErrors.client}</div>
+                            )}
                           </div>
                         </div>
                         <div className="col-md-12">
@@ -881,15 +1162,21 @@ const ProjectList = () => {
                                     format="DD-MM-YYYY"
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
+                                    value={formData.startDate ? dayjs(formData.startDate, "DD-MM-YYYY") : null}
                                     onChange={(date, dateString) => {
                                       const dateStr = Array.isArray(dateString) ? dateString[0] : dateString;
-                                      setFormData(prev => ({ ...prev, startDate: dateStr }))
+                                      setFormData(prev => ({ ...prev, startDate: dateStr }));
+                                      clearFieldError("startDate");
+                                      handleEditFieldBlur("startDate", dateStr);
                                     }}
                                   />
                                   <span className="input-icon-addon">
                                     <i className="ti ti-calendar text-gray-7" />
                                   </span>
                                 </div>
+                                {fieldErrors.startDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.startDate}</div>
+                                )}
                               </div>
                             </div>
                             <div className="col-md-6">
@@ -903,9 +1190,12 @@ const ProjectList = () => {
                                     format="DD-MM-YYYY"
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
+                                    value={formData.endDate ? dayjs(formData.endDate, "DD-MM-YYYY") : null}
                                     onChange={(date, dateString: any) => {
                                       const dateStr = typeof dateString === 'string' ? dateString : (Array.isArray(dateString) ? dateString[0] : '');
-                                      setFormData(prev => ({ ...prev, endDate: dateStr }))
+                                      setFormData(prev => ({ ...prev, endDate: dateStr }));
+                                      clearFieldError("endDate");
+                                      handleEditFieldBlur("endDate", dateStr);
                                     }}
                                     disabledDate={(current) => {
                                       if (!formData.startDate) return false;
@@ -917,56 +1207,84 @@ const ProjectList = () => {
                                     <i className="ti ti-calendar text-gray-7" />
                                   </span>
                                 </div>
+                                {fieldErrors.endDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.endDate}</div>
+                                )}
                               </div>
                             </div>
                             <div className="col-md-6">
                               <div className="mb-3">
-                                <label className="form-label">Priority</label>
-                                <CommonSelect
-                                  className="select"
-                                  options={[
-                                    { value: "High", label: "High" },
-                                    { value: "Medium", label: "Medium" },
-                                    { value: "Low", label: "Low" },
-                                  ]}
-                                  value={{ value: formData.priority, label: formData.priority }}
-                                  onChange={(option) => setFormData(prev => ({ ...prev, priority: option?.value || "Medium" }))}
-                                />
+                                <label className="form-label">Priority <span className="text-danger">*</span></label>
+                                <div data-field="priority">
+                                  <CommonSelect
+                                    className={`select ${fieldErrors.priority ? "is-invalid" : ""}`}
+                                    options={[
+                                      { value: "High", label: "High" },
+                                      { value: "Medium", label: "Medium" },
+                                      { value: "Low", label: "Low" },
+                                    ]}
+                                    value={{ value: formData.priority, label: formData.priority }}
+                                    onChange={(option) => {
+                                      const nextValue = option?.value || "Medium";
+                                      setFormData(prev => ({ ...prev, priority: nextValue }));
+                                      clearFieldError("priority");
+                                      handleEditFieldBlur("priority", nextValue);
+                                    }}
+                                  />
+                                </div>
+                                {fieldErrors.priority && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.priority}</div>
+                                )}
                               </div>
                             </div>
                             <div className="col-md-6">
                               <div className="mb-3">
-                                <label className="form-label">Project Value</label>
+                                <label className="form-label">Project Value <span className="text-danger">*</span></label>
                                 <div className="input-group">
                                   <span className="input-group-text">$</span>
                                   <input
                                     type="number"
-                                    className="form-control"
+                                    name="projectValue"
+                                    className={`form-control ${fieldErrors.projectValue ? "is-invalid" : ""}`}
                                     value={formData.projectValue}
                                     onChange={(e) => {
                                       const value = e.target.value;
                                       if (value === '' || /^\d*\.?\d*$/.test(value)) {
                                         setFormData(prev => ({ ...prev, projectValue: value }));
+                                        clearFieldError("projectValue");
                                       }
                                     }}
+                                    onBlur={(e) => handleEditFieldBlur("projectValue", e.target.value)}
                                     placeholder="0"
                                     min="0"
                                     step="0.01"
                                   />
                                 </div>
+                                {fieldErrors.projectValue && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.projectValue}</div>
+                                )}
                               </div>
                             </div>
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-0">
-                            <label className="form-label">Description</label>
-                            <CommonTextEditor
-                              defaultValue={formData.description}
-                              onChange={(content) =>
-                                setFormData(prev => ({ ...prev, description: content }))
-                              }
+                            <label className="form-label">Description <span className="text-danger">*</span></label>
+                            <textarea
+                              name="description"
+                              className={`form-control ${fieldErrors.description ? "is-invalid" : ""}`}
+                              rows={4}
+                              placeholder="Enter project description"
+                              value={formData.description}
+                              onChange={(e) => {
+                                setFormData(prev => ({ ...prev, description: e.target.value }));
+                                clearFieldError("description");
+                              }}
+                              onBlur={(e) => handleEditFieldBlur("description", e.target.value)}
                             />
+                            {fieldErrors.description && (
+                              <div className="invalid-feedback d-block">{fieldErrors.description}</div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1010,69 +1328,113 @@ const ProjectList = () => {
                       <div className="row">
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label me-2">Team Members <span className="text-danger">*</span></label>
-                            <Select
+                            <label className="form-label me-2">Project Manager <span className="text-danger">*</span></label>
+                            <div data-field="projectManager">
+                              <Select
                               isMulti
                               options={employees}
-                              value={formData.teamMembers}
-                              onChange={(selectedOptions: any) => setFormData(prev => ({ ...prev, teamMembers: selectedOptions || [] }))}
-                              placeholder="Select team members"
-                              className="basic-multi-select"
+                              value={formData.projectManager}
+                              onChange={(selectedOptions: any) => {
+                                setFormData(prev => ({ ...prev, projectManager: selectedOptions || [] }));
+                                clearFieldError("projectManager");
+                                handleEditFieldBlur("projectManager", selectedOptions || []);
+                              }}
+                              placeholder="Select project managers"
+                              className={`basic-multi-select ${fieldErrors.projectManager ? "is-invalid" : ""}`}
                               classNamePrefix="select"
-                              getOptionLabel={(option: any) => `${option.label} - ${option.position}`}
+                              getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
                               getOptionValue={(option: any) => option.value}
-                            />
+                              />
+                            </div>
                             <small className="form-text text-muted">
-                              Select multiple employees for the project team
+                              Select multiple employees as project managers
                             </small>
+                            {fieldErrors.projectManager && (
+                              <div className="invalid-feedback d-block">{fieldErrors.projectManager}</div>
+                            )}
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
                             <label className="form-label me-2">Team Leader <span className="text-danger">*</span></label>
-                            <CommonSelect
-                              className="select"
-                              options={employees.map(emp => ({
-                                value: emp.value,
-                                label: `${emp.label} - ${emp.position}`
-                              }))}
-                              value={formData.teamLeader ? {
-                                value: formData.teamLeader.value,
-                                label: formData.teamLeader.label
-                              } : undefined}
-                              onChange={(selectedOption) => setFormData(prev => ({ ...prev, teamLeader: selectedOption }))}
-                            />
+                            <div data-field="teamLeader">
+                              <Select
+                              isMulti
+                              options={employees}
+                              value={formData.teamLeader}
+                              onChange={(selectedOptions: any) => {
+                                setFormData(prev => ({ ...prev, teamLeader: selectedOptions || [] }));
+                                clearFieldError("teamLeader");
+                                handleEditFieldBlur("teamLeader", selectedOptions || []);
+                              }}
+                              placeholder="Select team leaders"
+                              className={`basic-multi-select ${fieldErrors.teamLeader ? "is-invalid" : ""}`}
+                              classNamePrefix="select"
+                              getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
+                              getOptionValue={(option: any) => option.value}
+                              />
+                            </div>
+                            <small className="form-text text-muted">
+                              Select multiple employees as team leaders
+                            </small>
+                            {fieldErrors.teamLeader && (
+                              <div className="invalid-feedback d-block">{fieldErrors.teamLeader}</div>
+                            )}
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label me-2">Project Manager <span className="text-danger">*</span></label>
-                            <CommonSelect
-                              className="select"
-                              options={employees.map(emp => ({
-                                value: emp.value,
-                                label: `${emp.label} - ${emp.position}`
-                              }))}
-                              value={formData.projectManager ? {
-                                value: formData.projectManager.value,
-                                label: formData.projectManager.label
-                              } : undefined}
-                              onChange={(selectedOption) => setFormData(prev => ({ ...prev, projectManager: selectedOption }))}
-                            />
+                            <label className="form-label me-2">Team Members <span className="text-danger">*</span></label>
+                            <div data-field="teamMembers">
+                              <Select
+                              isMulti
+                              options={employees}
+                              value={formData.teamMembers}
+                              onChange={(selectedOptions: any) => {
+                                const newTeamMembers = selectedOptions || [];
+                                setFormData(prev => ({ ...prev, teamMembers: newTeamMembers }));
+                                clearFieldError("teamMembers");
+                                handleEditFieldBlur("teamMembers", newTeamMembers);
+                                
+                                // Validate team members against team leader and project manager
+                                const teamMemberIds = newTeamMembers.map((member: any) => member.value);
+                                const teamLeaderIds = formData.teamLeader.map((leader: any) => leader.value);
+                                const projectManagerIds = formData.projectManager.map((manager: any) => manager.value);
+                                
+                                const hasLeaderConflict = teamLeaderIds.some(id => teamMemberIds.includes(id));
+                                const hasManagerConflict = projectManagerIds.some(id => teamMemberIds.includes(id));
+                                
+                                if (hasLeaderConflict) {
+                                  setFormError("Team member cannot be selected as both a team member and team leader");
+                                } else if (hasManagerConflict) {
+                                  setFormError("Team member cannot be selected as both a team member and project manager");
+                                } else {
+                                  setFormError(null);
+                                }
+                              }}
+                              placeholder="Select team members"
+                              className={`basic-multi-select ${fieldErrors.teamMembers ? "is-invalid" : ""}`}
+                              classNamePrefix="select"
+                              getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
+                              getOptionValue={(option: any) => option.value}
+                              />
+                            </div>
+                            <small className="form-text text-muted">
+                              Select multiple employees for the project team
+                            </small>
+                            {fieldErrors.teamMembers && (
+                              <div className="invalid-feedback d-block">{fieldErrors.teamMembers}</div>
+                            )}
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
                             <label className="form-label">Status</label>
-                            <CommonSelect
-                              className="select"
-                              options={[
-                                { value: "Active", label: "Active" },
-                                { value: "Completed", label: "Completed" },
-                                { value: "On Hold", label: "On Hold" },
-                              ]}
-                              value={{ value: formData.status, label: formData.status }}
-                              onChange={(option) => setFormData(prev => ({ ...prev, status: option?.value || "Active" }))}
+                            <input
+                              type="text"
+                              className="form-control"
+                              value="Active"
+                              readOnly
                             />
                           </div>
                         </div>
@@ -1117,7 +1479,7 @@ const ProjectList = () => {
                             type="button"
                             className="btn btn-primary"
                             onClick={handleModalSubmit}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || Object.keys(fieldErrors).length > 0}
                           >
                             {isSubmitting ? (
                               <>
@@ -1143,223 +1505,453 @@ const ProjectList = () => {
         </div>
       )}
 
-      {/* Edit Project Modal */}
+      {/* Edit Project Modal - Using Tab Navigation Like Edit Employee */}
       {showEditModal && editingProject && (
         <div className="modal fade show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} role="dialog">
           <div className="modal-dialog modal-dialog-centered modal-lg" role="document">
             <div className="modal-content">
-              <div className="modal-header">
+              <div className="modal-header header-border align-items-center justify-content-between">
                 <h5 className="modal-title">Edit Project</h5>
                 <button
                   type="button"
-                  className="btn-close"
-                  onClick={() => setShowEditModal(false)}
-                ></button>
-              </div>
-              <div className="modal-body">
-                {formError && (
-                  <div className="alert alert-danger" role="alert">
-                    {formError}
-                  </div>
-                )}
-                <form>
-                  <div className="row">
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Project Name</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={formData.name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="Enter project name"
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Client</label>
-                        <CommonSelect
-                          className="select"
-                          options={[{ value: "", label: "Select Client" }, ...clients]}
-                          value={clients.find(c => c.label === formData.client) || { value: "", label: "Select Client" }}
-                          onChange={(option) => setFormData(prev => ({ ...prev, client: option?.label || "" }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Status</label>
-                        <CommonSelect
-                          className="select"
-                          options={[
-                            { value: "Active", label: "Active" },
-                            { value: "Completed", label: "Completed" },
-                            { value: "On Hold", label: "On Hold" },
-                          ]}
-                          value={{ value: formData.status, label: formData.status }}
-                          onChange={(option) => setFormData(prev => ({ ...prev, status: option?.value || "Active" }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Priority</label>
-                        <CommonSelect
-                          className="select"
-                          options={[
-                            { value: "High", label: "High" },
-                            { value: "Medium", label: "Medium" },
-                            { value: "Low", label: "Low" },
-                          ]}
-                          value={{ value: formData.priority, label: formData.priority }}
-                          onChange={(option) => setFormData(prev => ({ ...prev, priority: option?.value || "Medium" }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Project Value</label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          value={formData.projectValue}
-                          onChange={(e) => setFormData(prev => ({ ...prev, projectValue: e.target.value }))}
-                          placeholder="Enter project value"
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Start Date</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          value={formData.startDate}
-                          onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">End Date</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          value={formData.endDate}
-                          onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Description</label>
-                        <textarea
-                          className="form-control"
-                          rows={4}
-                          value={formData.description}
-                          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                          placeholder="Enter project description"
-                        ></textarea>
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label me-2">Team Members</label>
-                        <Select
-                          isMulti
-                          options={employees}
-                          value={formData.teamMembers}
-                          onChange={(selectedOptions: any) => setFormData(prev => ({ ...prev, teamMembers: selectedOptions || [] }))}
-                          placeholder="Select team members"
-                          className="basic-multi-select"
-                          classNamePrefix="select"
-                          getOptionLabel={(option: any) => `${option.label} - ${option.position}`}
-                          getOptionValue={(option: any) => option.value}
-                        />
-                        <small className="form-text text-muted">
-                          Select multiple employees for the project team
-                        </small>
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label me-2">Team Leader</label>
-                        <CommonSelect
-                          className="select"
-                          options={employees.map(emp => ({
-                            value: emp.value,
-                            label: `${emp.label} - ${emp.position}`
-                          }))}
-                          value={formData.teamLeader ? {
-                            value: formData.teamLeader.value,
-                            label: formData.teamLeader.label
-                          } : undefined}
-                          onChange={(selectedOption) => setFormData(prev => ({ ...prev, teamLeader: selectedOption }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label me-2">Project Manager</label>
-                        <CommonSelect
-                          className="select"
-                          options={employees.map(emp => ({
-                            value: emp.value,
-                            label: `${emp.label} - ${emp.position}`
-                          }))}
-                          value={formData.projectManager ? {
-                            value: formData.projectManager.value,
-                            label: formData.projectManager.label
-                          } : undefined}
-                          onChange={(selectedOption) => setFormData(prev => ({ ...prev, projectManager: selectedOption }))}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </form>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-light me-2"
-                  onClick={() => setShowEditModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
+                  className="btn-close custom-btn-close"
                   onClick={() => {
-                    if (!formData.name || !formData.client) {
-                      setFormError("Project name and client are required");
-                      return;
-                    }
-                    setIsSubmitting(true);
+                    setShowEditModal(false);
+                    setCurrentStep(1);
+                    setFieldErrors({});
                     setFormError(null);
-                    socket?.emit("project:update", {
-                      projectId: editingProject._id,
-                      update: {
-                        name: formData.name,
-                        client: formData.client,
-                        status: formData.status,
-                        priority: formData.priority,
-                        projectValue: formData.projectValue,
-                        startDate: formData.startDate,
-                        endDate: formData.endDate,
-                        description: formData.description,
-                        teamMembers: formData.teamMembers,
-                        teamLeader: formData.teamLeader,
-                        projectManager: formData.projectManager,
-                        tags: formData.tags,
-                      }
-                    });
                   }}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Saving..." : "Update Project"}
-                </button>
+                ><i className="ti ti-x" /></button>
               </div>
+
+              <form>
+                <div className="contact-grids-tab">
+                  <ul className="nav nav-underline" id="editProjectTab" role="tablist">
+                    <li className="nav-item" role="presentation">
+                      <button
+                        className={`nav-link ${currentStep === 1 ? "active" : ""}`}
+                        id="basic-info-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#basic-info-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-selected={currentStep === 1}
+                        onClick={() => setCurrentStep(1)}
+                      >
+                        Basic Information
+                      </button>
+                    </li>
+                    <li className="nav-item" role="presentation">
+                      <button
+                        className={`nav-link ${currentStep === 2 ? "active" : ""}`}
+                        id="members-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#members-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-selected={currentStep === 2}
+                        onClick={() => setCurrentStep(2)}
+                      >
+                        Team Members
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="tab-content" id="editProjectTabContent">
+                  {/* Tab 1: Basic Information */}
+                  <div
+                    className={`tab-pane fade ${currentStep === 1 ? "show active" : ""}`}
+                    id="basic-info-tab-pane"
+                    role="tabpanel"
+                    aria-labelledby="basic-info-tab"
+                    tabIndex={0}
+                  >
+                    <div className="modal-body pb-0">
+                      {formError && (
+                        <div className="alert alert-danger mb-3" role="alert">
+                          {formError}
+                        </div>
+                      )}
+                      <div className="row">
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Project Name <span className="text-danger">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              name="name"
+                              className={`form-control ${fieldErrors.name ? "is-invalid" : ""}`}
+                              value={formData.name}
+                              onChange={(e) => {
+                                setFormData(prev => ({ ...prev, name: e.target.value }));
+                                clearFieldError("name");
+                              }}
+                              onBlur={(e) => handleEditFieldBlur("name", e.target.value)}
+                              placeholder="Enter project name"
+                            />
+                            {fieldErrors.name && (
+                              <div className="invalid-feedback d-block">{fieldErrors.name}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label">Client <span className="text-danger">*</span></label>
+                            <div data-field="client">
+                              <CommonSelect
+                                className={`select ${fieldErrors.client ? "is-invalid" : ""}`}
+                                options={[{ value: "", label: "Select Client" }, ...clients]}
+                                value={clients.find(c => c.label === formData.client) || { value: "", label: "Select Client" }}
+                                onChange={(option) => {
+                                  setFormData(prev => ({ ...prev, client: option?.label || "" }));
+                                  clearFieldError("client");
+                                  handleEditFieldBlur("client", option?.label || "");
+                                }}
+                              />
+                            </div>
+                            {fieldErrors.client && (
+                              <div className="invalid-feedback d-block">{fieldErrors.client}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Status</label>
+                                <CommonSelect
+                                  className="select"
+                                  options={[
+                                    { value: "Active", label: "Active" },
+                                    { value: "Completed", label: "Completed" },
+                                    { value: "On Hold", label: "On Hold" },
+                                  ]}
+                                  value={{ value: formData.status, label: formData.status }}
+                                  onChange={(option) => setFormData(prev => ({ ...prev, status: option?.value || "Active" }))}
+                                />
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Priority <span className="text-danger">*</span></label>
+                                <div data-field="priority">
+                                  <CommonSelect
+                                    className={`select ${fieldErrors.priority ? "is-invalid" : ""}`}
+                                    options={[
+                                      { value: "High", label: "High" },
+                                      { value: "Medium", label: "Medium" },
+                                      { value: "Low", label: "Low" },
+                                    ]}
+                                    value={{ value: formData.priority, label: formData.priority }}
+                                    onChange={(option) => {
+                                      setFormData(prev => ({ ...prev, priority: option?.value || "Medium" }));
+                                      clearFieldError("priority");
+                                      handleEditFieldBlur("priority", option?.value || "Medium");
+                                    }}
+                                  />
+                                </div>
+                                {fieldErrors.priority && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.priority}</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Project Value <span className="text-danger">*</span></label>
+                                <input
+                                  type="number"
+                                  name="projectValue"
+                                  className={`form-control ${fieldErrors.projectValue ? "is-invalid" : ""}`}
+                                  value={formData.projectValue}
+                                  onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, projectValue: e.target.value }));
+                                    clearFieldError("projectValue");
+                                  }}
+                                  onBlur={(e) => handleEditFieldBlur("projectValue", e.target.value)}
+                                  placeholder="Enter project value"
+                                />
+                                {fieldErrors.projectValue && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.projectValue}</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">
+                                  Start Date <span className="text-danger">*</span>
+                                </label>
+                                <div className="input-icon-end position-relative">
+                                  <DatePicker
+                                    className="form-control datetimepicker"
+                                    format="DD-MM-YYYY"
+                                    getPopupContainer={getModalContainer}
+                                    placeholder="DD-MM-YYYY"
+                                    value={formData.startDate ? dayjs(formData.startDate, "DD-MM-YYYY") : null}
+                                    onChange={(date, dateString) => {
+                                      const dateStr = Array.isArray(dateString) ? dateString[0] : dateString;
+                                      setFormData(prev => ({ ...prev, startDate: dateStr }));
+                                      clearFieldError("startDate");
+                                      handleEditFieldBlur("startDate", dateStr);
+                                    }}
+                                  />
+                                  <span className="input-icon-addon">
+                                    <i className="ti ti-calendar text-gray-7" />
+                                  </span>
+                                </div>
+                                {fieldErrors.startDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.startDate}</div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">End Date <span className="text-danger">*</span></label>
+                                <div className="input-icon-end position-relative">
+                                  <DatePicker
+                                    className="form-control datetimepicker"
+                                    format="DD-MM-YYYY"
+                                    getPopupContainer={getModalContainer}
+                                    placeholder="DD-MM-YYYY"
+                                    value={formData.endDate ? dayjs(formData.endDate, "DD-MM-YYYY") : null}
+                                    onChange={(date, dateString: any) => {
+                                      const dateStr = typeof dateString === "string" ? dateString : (Array.isArray(dateString) ? dateString[0] : "");
+                                      setFormData(prev => ({ ...prev, endDate: dateStr }));
+                                      clearFieldError("endDate");
+                                      handleEditFieldBlur("endDate", dateStr);
+                                    }}
+                                    disabledDate={(current) => {
+                                      if (!formData.startDate) return false;
+                                      const startDate = dayjs(formData.startDate, "DD-MM-YYYY");
+                                      return current && (current.isSame(startDate, "day") || current.isBefore(startDate, "day"));
+                                    }}
+                                  />
+                                  <span className="input-icon-addon">
+                                    <i className="ti ti-calendar text-gray-7" />
+                                  </span>
+                                </div>
+                                {fieldErrors.endDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.endDate}</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label">Description <span className="text-danger">*</span></label>
+                            <textarea
+                              name="description"
+                              className={`form-control ${fieldErrors.description ? "is-invalid" : ""}`}
+                              rows={4}
+                              value={formData.description}
+                              onChange={(e) => {
+                                setFormData(prev => ({ ...prev, description: e.target.value }));
+                                clearFieldError("description");
+                              }}
+                              onBlur={(e) => handleEditFieldBlur("description", e.target.value)}
+                              placeholder="Enter project description"
+                            ></textarea>
+                            {fieldErrors.description && (
+                              <div className="invalid-feedback d-block">{fieldErrors.description}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="modal-footer">
+                      <button
+                        type="button"
+                        className="btn btn-outline-light border me-2"
+                        onClick={() => {
+                          setShowEditModal(false);
+                          setCurrentStep(1);
+                          setFieldErrors({});
+                          setFormError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={handleEditBasicInfoSave}
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <span
+                              className="spinner-border spinner-border-sm me-2"
+                              role="status"
+                              aria-hidden="true"
+                            ></span>
+                            Saving...
+                          </>
+                        ) : (
+                          "Save"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tab 2: Team Members */}
+                  <div
+                    className={`tab-pane fade ${currentStep === 2 ? "show active" : ""}`}
+                    id="members-tab-pane"
+                    role="tabpanel"
+                    aria-labelledby="members-tab"
+                    tabIndex={0}
+                  >
+                    <div className="modal-body pb-0">
+                      {formError && (
+                        <div className="alert alert-danger mb-3" role="alert">
+                          {formError}
+                        </div>
+                      )}
+                      <div className="row">
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label me-2">Project Manager <span className="text-danger">*</span></label>
+                            <div data-field="projectManager">
+                              <Select
+                                isMulti
+                                options={employees}
+                                value={formData.projectManager}
+                                onChange={(selectedOptions: any) => {
+                                  const updated = selectedOptions || [];
+                                  setFormData(prev => ({ ...prev, projectManager: updated }));
+                                  clearFieldError("projectManager");
+                                  handleEditFieldBlur("projectManager", updated);
+                                }}
+                                placeholder="Select project managers"
+                                className={`basic-multi-select ${fieldErrors.projectManager ? "is-invalid" : ""}`}
+                                classNamePrefix="select"
+                                getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
+                                getOptionValue={(option: any) => option.value}
+                              />
+                            </div>
+                            <small className="form-text text-muted">
+                              Select multiple employees as project managers
+                            </small>
+                            {fieldErrors.projectManager && (
+                              <div className="invalid-feedback d-block">{fieldErrors.projectManager}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label me-2">Team Leader <span className="text-danger">*</span></label>
+                            <div data-field="teamLeader">
+                              <Select
+                                isMulti
+                                options={employees}
+                                value={formData.teamLeader}
+                                onChange={(selectedOptions: any) => {
+                                  const updated = selectedOptions || [];
+                                  setFormData(prev => ({ ...prev, teamLeader: updated }));
+                                  clearFieldError("teamLeader");
+                                  handleEditFieldBlur("teamLeader", updated);
+                                }}
+                                placeholder="Select team leaders"
+                                className={`basic-multi-select ${fieldErrors.teamLeader ? "is-invalid" : ""}`}
+                                classNamePrefix="select"
+                                getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
+                                getOptionValue={(option: any) => option.value}
+                              />
+                            </div>
+                            <small className="form-text text-muted">
+                              Select multiple employees as team leaders
+                            </small>
+                            {fieldErrors.teamLeader && (
+                              <div className="invalid-feedback d-block">{fieldErrors.teamLeader}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label me-2">Team Members <span className="text-danger">*</span></label>
+                            <div data-field="teamMembers">
+                              <Select
+                                isMulti
+                                options={employees}
+                                value={formData.teamMembers}
+                                onChange={(selectedOptions: any) => {
+                                  const updated = selectedOptions || [];
+                                  setFormData(prev => ({ ...prev, teamMembers: updated }));
+                                  clearFieldError("teamMembers");
+                                  handleEditFieldBlur("teamMembers", updated);
+                                }}
+                                placeholder="Select team members"
+                                className={`basic-multi-select ${fieldErrors.teamMembers ? "is-invalid" : ""}`}
+                                classNamePrefix="select"
+                                getOptionLabel={(option: any) => `${option.employeeId} - ${option.label}`}
+                                getOptionValue={(option: any) => option.value}
+                              />
+                            </div>
+                            <small className="form-text text-muted">
+                              Select multiple employees for the project team
+                            </small>
+                            {fieldErrors.teamMembers && (
+                              <div className="invalid-feedback d-block">{fieldErrors.teamMembers}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="modal-footer">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setCurrentStep(1)}
+                      >
+                        Previous
+                      </button>
+                      <div className="d-flex align-items-center">
+                        <button
+                          type="button"
+                          className="btn btn-outline-light border me-2"
+                          onClick={() => {
+                            setShowEditModal(false);
+                            setCurrentStep(1);
+                            setFieldErrors({});
+                            setFormError(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={handleEditProjectSubmit}
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <span
+                                className="spinner-border spinner-border-sm me-2"
+                                role="status"
+                                aria-hidden="true"
+                              ></span>
+                              Saving...
+                            </>
+                          ) : (
+                            "Update Project"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </form>
             </div>
           </div>
         </div>

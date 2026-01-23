@@ -1,24 +1,43 @@
 import { getTenantCollections } from '../../config/db.js';
-import { generateId } from '../../utils/generateId.js';
+import { ObjectId } from 'mongodb';
 
 export const createProjectNote = async (companyId, noteData) => {
   try {
     const { projectNotes } = getTenantCollections(companyId);
     const now = new Date();
-    const noteId = generateId('project_note');
+
+    // Validate projectId is a valid ObjectId
+    if (!ObjectId.isValid(noteData.projectId)) {
+      throw new Error('Invalid projectId format');
+    }
 
     const note = {
-      _id: noteId,
-      ...noteData,
+      projectId: new ObjectId(noteData.projectId),
+      title: noteData.title,
+      content: noteData.content,
+      createdBy: noteData.createdBy,
       isDeleted: false,
       createdAt: now,
       updatedAt: now,
     };
 
-    await projectNotes.insertOne(note);
+    // Add optional fields if provided
+    if (noteData.priority) {
+      note.priority = noteData.priority;
+    }
+    if (noteData.tags && Array.isArray(noteData.tags)) {
+      note.tags = noteData.tags;
+    }
+
+    const result = await projectNotes.insertOne(note);
+    console.log('[createProjectNote] Note created successfully:', { 
+      insertedId: result.insertedId, 
+      acknowledged: result.acknowledged 
+    });
+    
     return {
       done: true,
-      data: note,
+      data: { ...note, _id: result.insertedId },
       message: 'Project note created successfully'
     };
   } catch (error) {
@@ -33,9 +52,14 @@ export const createProjectNote = async (companyId, noteData) => {
 export const getProjectNotes = async (companyId, projectId, filters = {}) => {
   try {
     const { projectNotes } = getTenantCollections(companyId);
+    
+    // Validate projectId is a valid ObjectId
+    if (!ObjectId.isValid(projectId)) {
+      throw new Error('Invalid projectId format');
+    }
+    
     const query = {
-      companyId,
-      projectId,
+      projectId: new ObjectId(projectId),
       isDeleted: { $ne: true }
     };
 
@@ -86,9 +110,17 @@ export const getProjectNotes = async (companyId, projectId, filters = {}) => {
 export const getProjectNoteById = async (companyId, noteId) => {
   try {
     const { projectNotes } = getTenantCollections(companyId);
+    
+    // Validate noteId is a valid ObjectId
+    if (!ObjectId.isValid(noteId)) {
+      return {
+        done: false,
+        error: 'Invalid noteId format'
+      };
+    }
+    
     const note = await projectNotes.findOne({
-      _id: noteId,
-      companyId,
+      _id: new ObjectId(noteId),
       isDeleted: { $ne: true }
     });
 
@@ -116,10 +148,18 @@ export const getProjectNoteById = async (companyId, noteId) => {
 export const updateProjectNote = async (companyId, noteId, updateData) => {
   try {
     const { projectNotes } = getTenantCollections(companyId);
+    
+    // Validate noteId is a valid ObjectId
+    if (!ObjectId.isValid(noteId)) {
+      return {
+        done: false,
+        error: 'Invalid noteId format'
+      };
+    }
+    
     const updatedNote = await projectNotes.findOneAndUpdate(
       {
-        _id: noteId,
-        companyId,
+        _id: new ObjectId(noteId),
         isDeleted: { $ne: true }
       },
       {
@@ -131,16 +171,22 @@ export const updateProjectNote = async (companyId, noteId, updateData) => {
       { returnDocument: 'after' }
     );
 
-    if (!updatedNote.value) {
+    // Some Mongo driver versions may return undefined value even when matched; fetch explicitly if needed
+    const updatedDoc = updatedNote?.value
+      || await projectNotes.findOne({ _id: new ObjectId(noteId), isDeleted: { $ne: true } });
+
+    if (!updatedDoc) {
+      console.error('[updateProjectNote] Note not found:', { noteId, updatedNote });
       return {
         done: false,
         error: 'Project note not found'
       };
     }
 
+    console.log('[updateProjectNote] Note updated successfully:', { noteId, title: updatedDoc.title });
     return {
       done: true,
-      data: updatedNote.value,
+      data: updatedDoc,
       message: 'Project note updated successfully'
     };
   } catch (error) {
@@ -155,10 +201,18 @@ export const updateProjectNote = async (companyId, noteId, updateData) => {
 export const deleteProjectNote = async (companyId, noteId) => {
   try {
     const { projectNotes } = getTenantCollections(companyId);
+    
+    // Validate noteId is a valid ObjectId
+    if (!ObjectId.isValid(noteId)) {
+      return {
+        done: false,
+        error: 'Invalid noteId format'
+      };
+    }
+    
     const deletedNote = await projectNotes.findOneAndUpdate(
       {
-        _id: noteId,
-        companyId,
+        _id: new ObjectId(noteId),
         isDeleted: { $ne: true }
       },
       {
@@ -170,16 +224,22 @@ export const deleteProjectNote = async (companyId, noteId) => {
       { returnDocument: 'after' }
     );
 
-    if (!deletedNote.value) {
+    // Some Mongo driver versions may return undefined value even when matched; fetch explicitly if needed
+    const deletedDoc = deletedNote?.value
+      || await projectNotes.findOne({ _id: new ObjectId(noteId) });
+
+    if (!deletedDoc) {
+      console.error('[deleteProjectNote] Note not found:', { noteId, deletedNote });
       return {
         done: false,
         error: 'Project note not found'
       };
     }
 
+    console.log('[deleteProjectNote] Note deleted successfully:', { noteId });
     return {
       done: true,
-      data: deletedNote.value,
+      data: deletedDoc,
       message: 'Project note deleted successfully'
     };
   } catch (error) {

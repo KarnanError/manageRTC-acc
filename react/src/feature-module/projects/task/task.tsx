@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Dayjs } from "dayjs";
+import dayjs, { Dayjs } from "dayjs";
 import { DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
+import Select from "react-select";
 import CommonSelect from "../../../core/common/commonSelect";
 import CommonTagsInput from "../../../core/common/Taginput";
 import CommonTextEditor from "../../../core/common/textEditor";
@@ -36,8 +37,6 @@ const Task = () => {
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [projectTeamMembers, setProjectTeamMembers] = useState<any[]>([]);
   const [loadingTeamMembers, setLoadingTeamMembers] = useState(false);
-  const [addAttachments, setAddAttachments] = useState<File[]>([]);
-  const [editAttachments, setEditAttachments] = useState<File[]>([]);
   const [addForm, setAddForm] = useState({
     title: "",
     projectId: "",
@@ -58,8 +57,15 @@ const Task = () => {
     description: "",
     tags: [] as string[],
   });
+  const [editTaskId, setEditTaskId] = useState<string | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [editFormError, setEditFormError] = useState<string | null>(null);
+  const [editFieldErrors, setEditFieldErrors] = useState<Record<string, string>>({});
+  const [savingEditTask, setSavingEditTask] = useState(false);
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  const [deletingTask, setDeletingTask] = useState(false);
 
   // Derived counts: total and completed tasks per project
   const projectTaskCounts = React.useMemo(() => {
@@ -87,18 +93,18 @@ const Task = () => {
     ...projects
       .filter(project => project.status !== 'Completed')
       .map(project => ({
-        value: project.projectId,
+        value: project._id,
         label: project.name || 'Untitled Project'
       }))
   ], [projects]);
 
   // Dynamic employee options for team members (from selected project)
   const employeeOptions = React.useMemo(() => 
-    projectTeamMembers.map(emp => {
+    (Array.isArray(projectTeamMembers) ? projectTeamMembers : []).map(emp => {
       const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
       return {
         value: emp._id,
-        label: name ? `${name} (${emp.employeeId || ''})` : emp.employeeId || 'Unknown'
+        label: name ? `${emp.employeeId || ''} - ${name}` : emp.employeeId || 'Unknown'
       };
     })
   , [projectTeamMembers]);
@@ -132,7 +138,128 @@ const Task = () => {
     socket.emit("project:getAll", {});
   }, [socket]);
 
+  const validateField = useCallback((field: string, value: any): string => {
+    switch (field) {
+      case "title":
+        if (!value || !value.trim()) return "Task title is required";
+        if (value.trim().length < 3) return "Task title must be at least 3 characters";
+        return "";
+      case "projectId":
+        if (!value || value === "Select") return "Please select a project";
+        return "";
+      case "assignees":
+        if (!Array.isArray(value) || value.length === 0) return "Please select at least one assignee";
+        return "";
+      case "dueDate":
+        if (!value) return "Due date is required";
+        const selectedProjectData = projects.find(p => p._id === addForm.projectId);
+        if (selectedProjectData?.endDate && dayjs(value).isAfter(dayjs(selectedProjectData.endDate))) {
+          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.endDate).format('DD-MM-YYYY')})`;
+        }
+        return "";
+      case "priority":
+        if (!value || value === "Select") return "Please select a priority";
+        return "";
+      case "description":
+        if (!value || !value.trim()) return "Description is required";
+        if (value.trim().length < 10) return "Description must be at least 10 characters";
+        return "";
+      default:
+        return "";
+    }
+  }, [projects, addForm.projectId]);
+
+  const validateEditField = useCallback((field: string, value: any): string => {
+    switch (field) {
+      case "title":
+        if (!value || !value.trim()) return "Task title is required";
+        if (value.trim().length < 3) return "Task title must be at least 3 characters";
+        return "";
+      case "dueDate":
+        if (!value) return "Due date is required";
+        const selectedProjectData = projects.find(p => p._id === editForm.projectId);
+        if (selectedProjectData?.endDate && dayjs(value).isAfter(dayjs(selectedProjectData.endDate))) {
+          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.endDate).format('DD-MM-YYYY')})`;
+        }
+        return "";
+      case "priority":
+        if (!value || value === "Select") return "Please select a priority";
+        return "";
+      case "status":
+        if (!value || value === "Select") return "Please select a status";
+        return "";
+      case "description":
+        if (!value || !value.trim()) return "Description is required";
+        if (value.trim().length < 10) return "Description must be at least 10 characters";
+        return "";
+      case "assignees":
+        if (!Array.isArray(value) || value.length === 0) return "Please select at least one assignee";
+        return "";
+      default:
+        return "";
+    }
+  }, [projects, editForm.projectId]);
+
+  const validateEditForm = useCallback((): boolean => {
+    const errors: Record<string, string> = {};
+
+    const titleError = validateEditField("title", editForm.title);
+    if (titleError) errors.title = titleError;
+
+    const dueDateError = validateEditField("dueDate", editForm.dueDate);
+    if (dueDateError) errors.dueDate = dueDateError;
+
+    const priorityError = validateEditField("priority", editForm.priority);
+    if (priorityError) errors.priority = priorityError;
+
+    const statusError = validateEditField("status", editForm.status);
+    if (statusError) errors.status = statusError;
+
+    const descriptionError = validateEditField("description", editForm.description);
+    if (descriptionError) errors.description = descriptionError;
+
+    const assigneesError = validateEditField("assignees", editForm.assignees);
+    if (assigneesError) errors.assignees = assigneesError;
+
+    setEditFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [editForm, validateEditField]);
+
+  const clearFieldError = useCallback((field: string) => {
+    setFieldErrors(prev => ({ ...prev, [field]: "" }));
+  }, []);
+
+  const clearEditFieldError = useCallback((field: string) => {
+    setEditFieldErrors(prev => ({ ...prev, [field]: "" }));
+  }, []);
+
+  const validateForm = useCallback((): boolean => {
+    const errors: Record<string, string> = {};
+
+    const titleError = validateField("title", addForm.title);
+    if (titleError) errors.title = titleError;
+
+    const projectError = validateField("projectId", addForm.projectId);
+    if (projectError) errors.projectId = projectError;
+
+    const assigneesError = validateField("assignees", addForm.assignees);
+    if (assigneesError) errors.assignees = assigneesError;
+
+    const dueDateError = validateField("dueDate", addForm.dueDate);
+    if (dueDateError) errors.dueDate = dueDateError;
+
+    const priorityError = validateField("priority", addForm.priority);
+    if (priorityError) errors.priority = priorityError;
+
+    const descriptionError = validateField("description", addForm.description);
+    if (descriptionError) errors.description = descriptionError;
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [addForm, validateField]);
+
   const handleProjectSelection = useCallback((projectId: string) => {
+    console.log('Selected project ID:', projectId);
     if (!projectId || projectId === "Select") {
       setSelectedProject(null);
       setProjectTeamMembers([]);
@@ -142,11 +269,12 @@ const Task = () => {
 
     setSelectedProject(projectId);
     setAddForm(prev => ({ ...prev, projectId, assignees: [] }));
+    clearFieldError("projectId");
     if (!socket) return;
     setLoadingTeamMembers(true);
     setProjectTeamMembers([]);
     socket.emit("project:getTeamMembers", { projectId });
-  }, [socket]);
+  }, [socket, clearFieldError]);
 
   const handleProjectResponse = useCallback((response: any) => {
     if (response.done && response.data) {
@@ -169,31 +297,13 @@ const Task = () => {
     setFilters(prev => ({ ...prev, priority }));
   }, []);
 
-  const handleProjectTasksClick = useCallback((projectId: string) => {
+  const handleProjectTasksClick = useCallback((projectId) => {
     console.log('Filtering tasks for project:', projectId);
     if (!projectId) return;
     if (socket) {
       socket.emit("task:getByProject", { projectId });
     }
   }, [socket]);
-
-  const formatFileSize = useCallback((bytes: number) => {
-    if (!bytes && bytes !== 0) return "";
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.min(Math.floor(Math.log(bytes || 1) / Math.log(1024)), sizes.length - 1);
-    const value = bytes / Math.pow(1024, i);
-    return `${value.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
-  }, []);
-
-  const handleAddFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
-    setAddAttachments(Array.from(files));
-  }, []);
-
-  const handleEditFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
-    setEditAttachments(Array.from(files));
-  }, []);
 
   const resetAddForm = useCallback(() => {
     setAddForm({
@@ -209,8 +319,8 @@ const Task = () => {
     setSelectedProject(null);
     setProjectTeamMembers([]);
     setLoadingTeamMembers(false);
-    setAddAttachments([]);
     setFormError(null);
+    setFieldErrors({});
   }, []);
 
   const closeAddModal = useCallback(() => {
@@ -255,20 +365,121 @@ const Task = () => {
     }
   }, [loadTasks]);
 
+  const closeEditModal = useCallback(() => {
+    const modalElement = document.getElementById("edit_task");
+    const bootstrapAny = (window as any)?.bootstrap;
+    try {
+      const modalInstance = bootstrapAny?.Modal?.getInstance?.(modalElement)
+        || bootstrapAny?.Modal?.getOrCreateInstance?.(modalElement);
+      if (modalInstance) {
+        modalInstance.hide();
+        return;
+      }
+      const closeBtn = modalElement?.querySelector('[data-bs-dismiss="modal"]') as HTMLElement | null;
+      closeBtn?.click?.();
+    } catch {
+      const closeBtn = modalElement?.querySelector('[data-bs-dismiss="modal"]') as HTMLElement | null;
+      closeBtn?.click?.();
+    }
+  }, []);
+
+  const handleTaskUpdateResponse = useCallback((response: any) => {
+    setSavingEditTask(false);
+    if (response?.done) {
+      message.success("Task updated successfully");
+      closeEditModal();
+      setEditFieldErrors({});
+      setEditFormError(null);
+      loadTasks();
+      loadProjects();
+      return;
+    }
+
+    const errorMsg = response?.error || "Failed to update task";
+    setEditFormError(errorMsg);
+    message.error(errorMsg);
+  }, [closeEditModal, loadTasks, loadProjects]);
+
+  const handleDeleteTask = useCallback(() => {
+    if (!socket) {
+      message.error("Unable to delete task: socket not connected");
+      return;
+    }
+
+    if (!deleteTaskId) {
+      message.error("Task ID not found");
+      return;
+    }
+
+    setDeletingTask(true);
+    socket.emit("task:delete", { taskId: deleteTaskId });
+  }, [socket, deleteTaskId]);
+
+  const handleTaskDeleteResponse = useCallback((response: any) => {
+    setDeletingTask(false);
+    if (response?.done) {
+      message.success("Task deleted successfully");
+      setDeleteTaskId(null);
+      loadTasks();
+      loadProjects();
+      return;
+    }
+
+    const errorMsg = response?.error || "Failed to delete task";
+    message.error(errorMsg);
+  }, [loadTasks, loadProjects]);
+
+  const handleSaveEditTask = useCallback(() => {
+    if (!socket) {
+      message.error("Unable to update task: socket not connected");
+      return;
+    }
+
+    if (!editTaskId) {
+      message.error("Task ID not found");
+      return;
+    }
+
+    if (!validateEditForm()) {
+      return;
+    }
+
+    const { title, projectId, assignees, dueDate, status, priority, description, tags } = editForm;
+
+    const payload: any = {
+      taskId: editTaskId,
+      update: {
+        title: title.trim(),
+        projectId,
+        assignee: assignees,
+        status,
+        priority,
+        description,
+        tags,
+      }
+    };
+
+    if (dueDate) {
+      payload.update.dueDate = dueDate.toDate();
+    }
+
+    setSavingEditTask(true);
+    setEditFormError(null);
+    setEditFieldErrors({});
+    socket.emit("task:update", payload);
+  }, [socket, editForm, editTaskId, validateEditForm]);
+
   const handleAddTaskSubmit = useCallback(() => {
     if (!socket) {
       message.error("Unable to create task: socket not connected");
       return;
     }
 
-    const { title, projectId, assignees, dueDate, status, priority, description, tags } = addForm;
-
-    if (!title.trim() || !projectId) {
-      const errorMsg = "Title and project are required";
-      setFormError(errorMsg);
-      message.error(errorMsg);
+    if (!validateForm()) {
       return;
     }
+
+    const { title, projectId, assignees, dueDate, status, priority, description, tags } = addForm;
 
     const payload: any = {
       title: title.trim(),
@@ -279,7 +490,6 @@ const Task = () => {
       description,
       tags,
       createdBy: userId || "unknown",
-      attachments: addAttachments.map(file => ({ filename: file.name, url: "" })),
     };
 
     if (dueDate) {
@@ -288,8 +498,9 @@ const Task = () => {
 
     setCreatingTask(true);
     setFormError(null);
+    setFieldErrors({});
     socket.emit("task:create", payload);
-  }, [socket, addForm, userId, addAttachments]);
+  }, [socket, addForm, userId, validateForm]);
 
   const getEmployeeById = useCallback((employeeId: string) => {
     if (!employeeId || !employees.length) return null;
@@ -314,6 +525,8 @@ const Task = () => {
     if (socket) {
       socket.on("task:create-response", handleTaskCreateResponse);
       socket.on("task:task-created", handleTaskCreatedBroadcast);
+      socket.on("task:update-response", handleTaskUpdateResponse);
+      socket.on("task:delete-response", handleTaskDeleteResponse);
       socket.on("project:getAll-response", handleProjectResponse);
       socket.on("project:getTeamMembers-response", handleEmployeeResponse);
       loadTasks();
@@ -323,12 +536,14 @@ const Task = () => {
       return () => {
         socket.off("task:create-response", handleTaskCreateResponse);
         socket.off("task:task-created", handleTaskCreatedBroadcast);
+        socket.off("task:update-response", handleTaskUpdateResponse);
+        socket.off("task:delete-response", handleTaskDeleteResponse);
         socket.off("project:getAll-response", handleProjectResponse);
         socket.off("project:getTeamMembers-response", handleEmployeeResponse);
         socket.off("task:getByProject-response", handleTaskByProject);
       };
     }
-  }, [socket, handleTaskByProject, handleProjectResponse, handleEmployeeResponse, loadTasks, loadProjects, handleTaskCreateResponse, handleTaskCreatedBroadcast]);
+  }, [socket, handleTaskByProject, handleProjectResponse, handleEmployeeResponse, loadTasks, loadProjects, handleTaskCreateResponse, handleTaskCreatedBroadcast, handleTaskUpdateResponse, handleTaskDeleteResponse]);
 
   useEffect(() => {
     loadTasks();
@@ -351,7 +566,6 @@ const Task = () => {
         description: "",
         tags: [],
       });
-      setEditAttachments([]);
     };
 
     if (addTaskModal) {
@@ -409,7 +623,7 @@ const Task = () => {
           </div>
           <div className="row">
             <div className="col-xl-4">
-              <div>
+              <div style={{ maxHeight: '550px', overflowY: 'auto' }}>
                 {error ? (
                   <div className="text-center py-5">
                     <i className="ti ti-alert-circle fs-1 text-danger mb-3"></i>
@@ -443,7 +657,7 @@ const Task = () => {
                                 style={{ cursor: "pointer" }}
                                 onMouseEnter={() => setHoveredProjectId(project._id)}
                                 onMouseLeave={() => setHoveredProjectId(null)}
-                                onClick={() => handleProjectTasksClick(project.projectId)}
+                                onClick={() => handleProjectTasksClick(project._id)}
                               >
                                 {project.name || 'Untitled Project'}
                               </span>
@@ -699,7 +913,7 @@ const Task = () => {
                 </div>
               </div>
               {/* Dynamic Task List */}
-              <div className="list-group list-group-flush mb-4">
+              <div className="list-group list-group-flush mb-4" style={{ minHeight: '550px', maxHeight: '800px', overflowY: 'auto' }}>
                 {tasks.length === 0 ? (
                   <div className="text-center py-5">
                     <i className="ti ti-clipboard-x fs-1 text-muted mb-3"></i>
@@ -798,6 +1012,26 @@ const Task = () => {
                                       className="dropdown-item rounded-1"
                                       data-bs-toggle="modal"
                                       data-bs-target="#edit_task"
+                                      onClick={() => {
+                                        setEditTaskId(task._id);
+                                        setEditForm({
+                                          title: task.title || "",
+                                          projectId: task.projectId || "",
+                                          assignees: task.assignee || [],
+                                          dueDate: task.dueDate ? dayjs(task.dueDate) : null,
+                                          status: task.status || "To do",
+                                          priority: task.priority || "Medium",
+                                          description: task.description || "",
+                                          tags: task.tags || [],
+                                        });
+                                        setEditFieldErrors({});
+                                        setEditFormError(null);
+                                        // Load team members for the project
+                                        if (task.projectId && socket) {
+                                          setLoadingTeamMembers(true);
+                                          socket.emit("project:getTeamMembers", { projectId: task.projectId });
+                                        }
+                                      }}
                                     >
                                       <i className="ti ti-edit me-2" />
                                       Edit
@@ -809,6 +1043,7 @@ const Task = () => {
                                       className="dropdown-item rounded-1"
                                       data-bs-toggle="modal"
                                       data-bs-target="#delete_modal"
+                                      onClick={() => setDeleteTaskId(task._id)}
                                     >
                                       <i className="ti ti-trash me-2" />
                                       Delete
@@ -823,12 +1058,6 @@ const Task = () => {
                     </div>
                   ))
                 )}
-              </div>
-              <div className="text-center mb-4">
-                <Link to="#" className="btn btn-primary">
-                  <i className="ti ti-loader me-1" />
-                  Load More
-                </Link>
               </div>
             </div>
           </div>
@@ -860,19 +1089,39 @@ const Task = () => {
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Title</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={addForm.title}
-                        onChange={(e) => setAddForm(prev => ({ ...prev, title: e.target.value }))}
-                        placeholder="Task title"
+                      <label className="form-label">Project <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className={`select ${fieldErrors.projectId ? 'is-invalid' : ''}`}
+                        options={projectChoose}
+                        value={projectChoose.find(opt => opt.value === addForm.projectId) || null}
+                        onChange={(option: any) => handleProjectSelection(option?.value)}
                       />
+                      {fieldErrors.projectId && (
+                        <div className="invalid-feedback d-block">{fieldErrors.projectId}</div>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Due Date</label>
+                      <label className="form-label">Title <span className="text-danger">*</span></label>
+                      <input
+                        type="text"
+                        className={`form-control ${fieldErrors.title ? 'is-invalid' : ''}`}
+                        value={addForm.title}
+                        onChange={(e) => {
+                          setAddForm(prev => ({ ...prev, title: e.target.value }));
+                          clearFieldError('title');
+                        }}
+                        placeholder="Task title"
+                      />
+                      {fieldErrors.title && (
+                        <div className="invalid-feedback">{fieldErrors.title}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Due Date <span className="text-danger">*</span></label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -883,48 +1132,54 @@ const Task = () => {
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={addForm.dueDate}
-                          onChange={(value) => setAddForm(prev => ({ ...prev, dueDate: value }))}
+                          onChange={(value) => {
+                            setAddForm(prev => ({ ...prev, dueDate: value }));
+                            clearFieldError('dueDate');
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Project</label>
-                      <CommonSelect
-                        className="select"
-                        options={projectChoose}
-                        value={projectChoose.find(opt => opt.value === addForm.projectId) || null}
-                        onChange={(option: any) => handleProjectSelection(option?.value)}
-                      />
+                      {fieldErrors.dueDate && (
+                        <div className="invalid-feedback d-block">{fieldErrors.dueDate}</div>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label me-2">
-                        Team Members
+                        Team Members <span className="text-danger">*</span>
                         {loadingTeamMembers && (
                           <span className="spinner-border spinner-border-sm ms-2" role="status">
                             <span className="visually-hidden">Loading...</span>
                           </span>
                         )}
                       </label>
-                      <CommonSelect
-                        className="select"
-                        options={[{ value: "Select", label: "Select" }, ...employeeOptions]}
-                        isSearchable
-                        disabled={!selectedProject || loadingTeamMembers}
-                        value={employeeOptions.find(opt => opt.value === addForm.assignees[0]) || null}
-                        onChange={(option: any) => setAddForm(prev => ({ ...prev, assignees: option?.value ? [option.value] : [] }))}
-                      />
+                      <div className={fieldErrors.assignees ? 'is-invalid' : ''}>
+                        <Select
+                          isMulti
+                          className="basic-multi-select"
+                          classNamePrefix="select"
+                          options={employeeOptions}
+                          value={employeeOptions.filter(opt => addForm.assignees.includes(opt.value))}
+                          onChange={(opts) => {
+                            const values = (opts || []).map((opt) => opt.value);
+                            setAddForm(prev => ({ ...prev, assignees: values }));
+                            clearFieldError('assignees');
+                          }}
+                          placeholder={employeeOptions.length === 0 ? "No team members available" : "Select team members"}
+                          isDisabled={!selectedProject || loadingTeamMembers || employeeOptions.length === 0}
+                        />
+                      </div>
                       {!selectedProject && (
                         <small className="text-muted mt-1 d-block">Please select a project first</small>
                       )}
                       {loadingTeamMembers && (
                         <small className="text-info mt-1 d-block">Loading team members...</small>
+                      )}
+                      {fieldErrors.assignees && (
+                        <div className="invalid-feedback d-block">{fieldErrors.assignees}</div>
                       )}
                     </div>
                   </div>
@@ -952,56 +1207,36 @@ const Task = () => {
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Priority</label>
+                      <label className="form-label">Priority <span className="text-danger">*</span></label>
                       <CommonSelect
-                        className="select"
+                        className={`select ${fieldErrors.priority ? 'is-invalid' : ''}`}
                         options={priorityChoose}
                         value={priorityChoose.find(opt => opt.value === addForm.priority) || null}
-                        onChange={(option: any) => setAddForm(prev => ({ ...prev, priority: option?.value || "Medium" }))}
+                        onChange={(option: any) => {
+                          setAddForm(prev => ({ ...prev, priority: option?.value || "Medium" }));
+                          clearFieldError('priority');
+                        }}
                       />
+                      {fieldErrors.priority && (
+                        <div className="invalid-feedback d-block">{fieldErrors.priority}</div>
+                      )}
                     </div>
                   </div>
                   <div className="col-lg-12">
                     <div className="mb-3">
-                      <label className="form-label">Descriptions</label>
-                      <CommonTextEditor
-                        defaultValue={addForm.description}
-                        onChange={(value) => setAddForm(prev => ({ ...prev, description: value }))}
+                      <label className="form-label">Description <span className="text-danger">*</span></label>
+                      <textarea
+                        className={`form-control ${fieldErrors.description ? 'is-invalid' : ''}`}
+                        rows={4}
+                        value={addForm.description}
+                        onChange={(e) => {
+                          setAddForm(prev => ({ ...prev, description: e.target.value }));
+                          clearFieldError('description');
+                        }}
+                        placeholder="Enter task description (minimum 10 characters)"
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Upload Attachment</label>
-                    <div className="bg-light rounded p-2">
-                      <div className="profile-uploader border-bottom mb-2 pb-2">
-                        <div className="drag-upload-btn btn btn-sm btn-white border px-3">
-                          Select File
-                          <input
-                            type="file"
-                            className="form-control image-sign"
-                            multiple
-                            onChange={(e) => handleAddFiles(e.target.files)}
-                          />
-                        </div>
-                      </div>
-                      {addAttachments.length === 0 ? (
-                        <p className="text-muted small mb-0">No files selected</p>
-                      ) : (
-                        addAttachments.map((file, idx) => (
-                          <div key={idx} className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                            <div className="d-flex align-items-center">
-                              <h6 className="fs-12 fw-medium me-1 text-truncate" style={{ maxWidth: '200px' }} title={file.name}>{file.name}</h6>
-                              <span className="badge badge-soft-info">{formatFileSize(file.size)}</span>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-icon"
-                              onClick={() => setAddAttachments(prev => prev.filter((_, i) => i !== idx))}
-                            >
-                              <i className="ti ti-trash" />
-                            </button>
-                          </div>
-                        ))
+                      {fieldErrors.description && (
+                        <div className="invalid-feedback">{fieldErrors.description}</div>
                       )}
                     </div>
                   </div>
@@ -1045,22 +1280,95 @@ const Task = () => {
             </div>
             <form>
               <div className="modal-body">
+                {editFormError && (
+                  <div className="alert alert-danger" role="alert">
+                    {editFormError}
+                  </div>
+                )}
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Title</label>
+                      <label className="form-label">Title <span className="text-danger">*</span></label>
                       <input
                         type="text"
-                        className="form-control"
+                        className={`form-control ${editFieldErrors.title ? 'is-invalid' : ''}`}
                         value={editForm.title}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                        onChange={(e) => {
+                          setEditForm(prev => ({ ...prev, title: e.target.value }));
+                          clearEditFieldError('title');
+                        }}
                         placeholder="Task title"
+                      />
+                      {editFieldErrors.title && (
+                        <div className="invalid-feedback">{editFieldErrors.title}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-12">
+                    <div className="mb-3">
+                      <label className="form-label">Tag</label>
+                      <CommonTagsInput
+                        value={editForm.tags}
+                        onChange={(tags: string[]) => setEditForm(prev => ({ ...prev, tags }))}
+                        className="form-control"
                       />
                     </div>
                   </div>
-                  <div className="col-md-6">
+                  <div className="col-6">
                     <div className="mb-3">
-                      <label className="form-label">Due Date</label>
+                      <label className="form-label">Priority <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className={`select ${editFieldErrors.priority ? 'is-invalid' : ''}`}
+                        options={priorityChoose}
+                        value={priorityChoose.find(opt => opt.value === editForm.priority)}
+                        onChange={(option: any) => {
+                          setEditForm(prev => ({ ...prev, priority: option?.value || "Medium" }));
+                          clearEditFieldError('priority');
+                        }}
+                      />
+                      {editFieldErrors.priority && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.priority}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-6">
+                    <div className="mb-3">
+                      <label className="form-label">Status <span className="text-danger">*</span></label>
+                      <CommonSelect
+                        className={`select ${editFieldErrors.status ? 'is-invalid' : ''}`}
+                        options={statusChoose}
+                        value={statusChoose.find(opt => opt.value === editForm.status)}
+                        onChange={(option: any) => {
+                          setEditForm(prev => ({ ...prev, status: option?.value || "To do" }));
+                          clearEditFieldError('status');
+                        }}
+                      />
+                      {editFieldErrors.status && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.status}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-12">
+                    <div className="mb-3">
+                      <label className="form-label">Description <span className="text-danger">*</span></label>
+                      <textarea
+                        className={`form-control ${editFieldErrors.description ? 'is-invalid' : ''}`}
+                        rows={4}
+                        value={editForm.description}
+                        onChange={(e) => {
+                          setEditForm(prev => ({ ...prev, description: e.target.value }));
+                          clearEditFieldError('description');
+                        }}
+                        placeholder="Enter task description (minimum 10 characters)"
+                      />
+                      {editFieldErrors.description && (
+                        <div className="invalid-feedback">{editFieldErrors.description}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-12">
+                    <div className="mb-3">
+                      <label className="form-label">Due Date <span className="text-danger">*</span></label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -1071,128 +1379,39 @@ const Task = () => {
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={editForm.dueDate}
-                          onChange={(value) => setEditForm(prev => ({ ...prev, dueDate: value }))}
+                          onChange={(value) => {
+                            setEditForm(prev => ({ ...prev, dueDate: value }));
+                            clearEditFieldError('dueDate');
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {editFieldErrors.dueDate && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.dueDate}</div>
+                      )}
                     </div>
                   </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Project</label>
-                      <CommonSelect
-                        className="select"
-                        options={projectChoose}
-                        value={projectChoose.find(opt => opt.value === editForm.projectId) || null}
-                        onChange={(option: any) => {
-                          handleProjectSelection(option?.value);
-                          setEditForm(prev => ({ ...prev, projectId: option?.value || "", assignees: [] }));
+                  <div className="col-12">
+                    <div className="mb-0">
+                      <label className="form-label">Team Members <span className="text-danger">*</span></label>
+                      <Select
+                        isMulti
+                        className={`basic-multi-select ${editFieldErrors.assignees ? 'is-invalid' : ''}`}
+                        classNamePrefix="select"
+                        options={employeeOptions}
+                        value={employeeOptions.filter(opt => editForm.assignees.includes(opt.value))}
+                        onChange={(opts) => {
+                          const values = (opts || []).map((opt) => opt.value);
+                          setEditForm(prev => ({ ...prev, assignees: values }));
+                          clearEditFieldError('assignees');
                         }}
+                        placeholder={employeeOptions.length === 0 ? "No team members available" : "Select team members"}
+                        isDisabled={!editForm.projectId || loadingTeamMembers || employeeOptions.length === 0}
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label me-2">
-                        Team Members
-                        {loadingTeamMembers && (
-                          <span className="spinner-border spinner-border-sm ms-2" role="status">
-                            <span className="visually-hidden">Loading...</span>
-                          </span>
-                        )}
-                      </label>
-                      <CommonSelect
-                        className="select"
-                        options={[{ value: "Select", label: "Select" }, ...employeeOptions]}
-                        isSearchable
-                        disabled={!selectedProject || loadingTeamMembers}
-                        value={employeeOptions.find(opt => opt.value === editForm.assignees[0]) || null}
-                        onChange={(option: any) => setEditForm(prev => ({ ...prev, assignees: option?.value ? [option.value] : [] }))}
-                      />
-                      {!selectedProject && (
-                        <small className="text-muted mt-1 d-block">Please select a project first</small>
-                      )}
-                      {loadingTeamMembers && (
-                        <small className="text-info mt-1 d-block">Loading team members...</small>
-                      )}
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Tag</label>
-                      <CommonTagsInput
-                        value={editForm.tags}
-                        onChange={(value) => setEditForm(prev => ({ ...prev, tags: value }))}
-                        placeholder="Add new"
-                        className="custom-input-class" // Optional custom class
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Status</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value="To do"
-                        readOnly
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Priority</label>
-                      <CommonSelect
-                        className="select"
-                        options={priorityChoose}
-                        value={priorityChoose.find(opt => opt.value === editForm.priority) || null}
-                        onChange={(option: any) => setEditForm(prev => ({ ...prev, priority: option?.value || "Medium" }))}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-lg-12">
-                    <div className="mb-3">
-                      <label className="form-label">Descriptions</label>
-                      <CommonTextEditor
-                        defaultValue={editForm.description}
-                        onChange={(value) => setEditForm(prev => ({ ...prev, description: value }))}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label">Upload Attachment</label>
-                    <div className="bg-light rounded p-2">
-                      <div className="profile-uploader border-bottom mb-2 pb-2">
-                        <div className="drag-upload-btn btn btn-sm btn-white border px-3">
-                          Select File
-                          <input
-                            type="file"
-                            className="form-control image-sign"
-                            multiple
-                            onChange={(e) => handleEditFiles(e.target.files)}
-                          />
-                        </div>
-                      </div>
-                      {editAttachments.length === 0 ? (
-                        <p className="text-muted small mb-0">No files selected</p>
-                      ) : (
-                        editAttachments.map((file, idx) => (
-                          <div key={idx} className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                            <div className="d-flex align-items-center">
-                              <h6 className="fs-12 fw-medium me-1 text-truncate" style={{ maxWidth: '200px' }} title={file.name}>{file.name}</h6>
-                              <span className="badge badge-soft-info">{formatFileSize(file.size)}</span>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-icon"
-                              onClick={() => setEditAttachments(prev => prev.filter((_, i) => i !== idx))}
-                            >
-                              <i className="ti ti-trash" />
-                            </button>
-                          </div>
-                        ))
+                      {editFieldErrors.assignees && (
+                        <div className="invalid-feedback d-block">{editFieldErrors.assignees}</div>
                       )}
                     </div>
                   </div>
@@ -1203,15 +1422,17 @@ const Task = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  disabled={savingEditTask}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleSaveEditTask}
+                  disabled={savingEditTask}
                 >
-                  Save
+                  {savingEditTask ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -1219,6 +1440,50 @@ const Task = () => {
         </div>
       </div>
       {/* /Edit Task */}
+      {/* Delete Task Modal */}
+      <div className="modal fade" id="delete_modal">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Delete Task</h4>
+              <button
+                type="button"
+                className="btn-close"
+                data-bs-dismiss="modal"
+                disabled={deletingTask}
+              />
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to delete this task?</p>
+              {deleteTaskId && tasks.find((t) => t._id === deleteTaskId) && (
+                <p className="text-muted">
+                  Task: <strong>{tasks.find((t) => t._id === deleteTaskId)?.title}</strong>
+                </p>
+              )}
+              <p className="text-danger small">This action cannot be undone.</p>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                data-bs-dismiss="modal"
+                disabled={deletingTask}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleDeleteTask}
+                disabled={deletingTask}
+              >
+                {deletingTask ? "Deleting..." : "Delete Task"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* /Delete Task Modal */}
       {/* Todo Details */}
       <div className="modal fade" id="view_todo">
         <div className="modal-dialog modal-dialog-centered">

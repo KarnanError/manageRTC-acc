@@ -7,7 +7,7 @@ import clientController from "../controllers/client/client.controllers.js";
 import activityController from "../controllers/activities/activities.controllers.js";
 import projectController from "../controllers/project/project.controller.js";
 import taskController from "../controllers/task/task.controller.js";
-import projectNotesController from "../controllers/notes/project.notes.controller.js";
+import projectNotesController from "../controllers/project/project.notes.controller.js";
 import { ChatController } from "../controllers/chat/chat.controller.js";
 import { ChatUsersController } from "../controllers/chat/users.controller.js";
 import userSocketController from "../controllers/user/user.socket.controller.js";
