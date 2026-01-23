@@ -10,7 +10,7 @@ import { sendEmployeeCredentialsEmail } from "../../utils/emailer.js";
 const normalizeStatus = (status) => {
   if (!status) return "Active";
   const normalized = status.toLowerCase();
-  
+
   // Map all possible status values with case-insensitive matching
   if (normalized === "active") return "Active";
   if (normalized === "inactive") return "Inactive";
@@ -18,7 +18,7 @@ const normalizeStatus = (status) => {
   if (normalized === "resigned") return "Resigned";
   if (normalized === "terminated") return "Terminated";
   if (normalized === "on leave") return "On Leave";
-  
+
   // Default to Active for unknown statuses
   return "Active";
 };
@@ -30,11 +30,11 @@ const normalizeStatus = (status) => {
 export const checkEmployeeLifecycleStatus = async (companyId, employeeId) => {
   try {
     const collections = getTenantCollections(companyId);
-    
+
     // Get employee details
     const employee = await collections.employees.findOne(
       { employeeId: employeeId },
-      { projection: { _id: 1, firstName: 1, lastName: 1 } }
+      { projection: { _id: 1, firstName: 1, lastName: 1 } },
     );
 
     if (!employee) {
@@ -46,7 +46,7 @@ export const checkEmployeeLifecycleStatus = async (companyId, employeeId) => {
     // Check for active resignation (pending or approved)
     const activeResignation = await collections.resignation.findOne({
       employeeId: employeeObjectId,
-      resignationStatus: { $in: ["pending", "approved"] }
+      resignationStatus: { $in: ["pending", "approved"] },
     });
 
     if (activeResignation) {
@@ -54,16 +54,17 @@ export const checkEmployeeLifecycleStatus = async (companyId, employeeId) => {
         hasLifecycleRecord: true,
         type: "resignation",
         status: activeResignation.resignationStatus,
-        effectiveDate: activeResignation.effectiveDate || activeResignation.noticeDate,
+        effectiveDate:
+          activeResignation.effectiveDate || activeResignation.noticeDate,
         canChangeStatus: false,
-        message: "Employee status is managed by resignation workflow"
+        message: "Employee status is managed by resignation workflow",
       };
     }
 
     // Check for active termination (pending or processed)
     const activeTermination = await collections.termination.findOne({
       employeeName: `${employee.firstName} ${employee.lastName}`,
-      terminationStatus: { $in: ["pending", "processed"] }
+      terminationStatus: { $in: ["pending", "processed"] },
     });
 
     if (activeTermination) {
@@ -73,14 +74,14 @@ export const checkEmployeeLifecycleStatus = async (companyId, employeeId) => {
         status: activeTermination.terminationStatus,
         lastWorkingDate: activeTermination.lastWorkingDate,
         canChangeStatus: false,
-        message: "Employee status is managed by termination workflow"
+        message: "Employee status is managed by termination workflow",
       };
     }
 
     // No lifecycle records - status can be changed manually
     return {
       hasLifecycleRecord: false,
-      canChangeStatus: true
+      canChangeStatus: true,
     };
   } catch (error) {
     console.error("Error checking employee lifecycle status:", error);
@@ -286,7 +287,10 @@ export const getEmployeeGridsStats = async (companyId, hrId, filters) => {
 
     // Query match construction
     const baseMatch = {};
-    if (filters.status && ["active", "inactive", "Active", "Inactive"].includes(filters.status)) {
+    if (
+      filters.status &&
+      ["active", "inactive", "Active", "Inactive"].includes(filters.status)
+    ) {
       baseMatch.status = { $regex: `^${filters.status}$`, $options: "i" };
     }
     if (filters.designationId && typeof filters.designationId === "string") {
@@ -550,7 +554,7 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
       // Get employee's ObjectId for lifecycle record lookups
       const employee = await collections.employees.findOne(
         { employeeId: employeeId },
-        { projection: { _id: 1, firstName: 1, lastName: 1 } }
+        { projection: { _id: 1, firstName: 1, lastName: 1 } },
       );
 
       if (!employee) {
@@ -562,46 +566,60 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
       // Check for active resignation records (pending or approved status)
       const activeResignation = await collections.resignation.findOne({
         employeeId: employeeObjectId,
-        resignationStatus: { $in: ["pending", "approved"] }
+        resignationStatus: { $in: ["pending", "approved"] },
       });
+
+      //
+
+      //
 
       // Check for active termination records (pending or processed status)
       const activeTermination = await collections.termination.findOne({
         employeeName: `${employee.firstName} ${employee.lastName}`,
-        terminationStatus: { $in: ["pending", "processed"] }
+        terminationStatus: { $in: ["pending", "processed"] },
       });
 
       // Block manual status changes if lifecycle records exist
       if (activeResignation) {
         return {
           done: false,
-          error: "Status cannot be changed manually while resignation is active",
+          error:
+            "Status cannot be changed manually while resignation is active",
           field: "status",
-          message: "This employee has an active resignation record. Status is managed by the resignation workflow.",
+          message:
+            "This employee has an active resignation record. Status is managed by the resignation workflow.",
           lifecycleRecord: {
             type: "resignation",
             status: activeResignation.resignationStatus,
-            effectiveDate: activeResignation.effectiveDate || activeResignation.noticeDate
-          }
+            effectiveDate:
+              activeResignation.effectiveDate || activeResignation.noticeDate,
+          },
         };
       }
 
       if (activeTermination) {
         return {
           done: false,
-          error: "Status cannot be changed manually while termination is active",
+          error:
+            "Status cannot be changed manually while termination is active",
           field: "status",
-          message: "This employee has an active termination record. Status is managed by the termination workflow.",
+          message:
+            "This employee has an active termination record. Status is managed by the termination workflow.",
           lifecycleRecord: {
             type: "termination",
             status: activeTermination.terminationStatus,
-            lastWorkingDate: activeTermination.lastWorkingDate
-          }
+            lastWorkingDate: activeTermination.lastWorkingDate,
+          },
         };
       }
 
       // If trying to set status to anything other than Active/Inactive, validate
-      const allowedManualStatuses = ["Active", "Inactive", "active", "inactive"];
+      const allowedManualStatuses = [
+        "Active",
+        "Inactive",
+        "active",
+        "inactive",
+      ];
       // Normalize to check
       const statusToCheck = updateData.status?.toLowerCase();
       if (!statusToCheck || !["active", "inactive"].includes(statusToCheck)) {
@@ -609,7 +627,8 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
           done: false,
           error: `Status '${updateData.status}' can only be set through HR lifecycle workflows`,
           field: "status",
-          message: "Only 'Active' or 'Inactive' status can be set manually. Other statuses are managed by resignation/termination workflows."
+          message:
+            "Only 'Active' or 'Inactive' status can be set manually. Other statuses are managed by resignation/termination workflows.",
         };
       }
 
@@ -631,6 +650,14 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
         error: "No changes made - employee not found or data identical",
       };
     }
+
+    // Clerk Update
+
+    const employee = await collections.employees.findOne({
+      _id: new ObjectId(payload?.employeeId),
+    });
+
+    console.log("Payload :", payload?.contact.email);
 
     return {
       done: true,
@@ -967,6 +994,30 @@ export const deleteEmployee = async (companyId, hrId = 1, employeeId) => {
     // if (!hrExists) return { done: false, error: "HR not found" };
     if (!empExists) return { done: false, error: "Employee not found" };
 
+    const employee = await collections.employees.findOne({
+      _id: new ObjectId(employeeId),
+    });
+
+    console.log(employee.contact.email);
+    const users = await clerkClient.users.getUserList({
+      emailAddress: [employee.contact.email],
+    });
+
+    if (users.length === 0) {
+      console.log("No Clerk user found with this email");
+      return;
+    }
+
+    // 2. Delete user
+
+    console.log("User->", users);
+    console.log(users.data[0].id);
+    const clerkUserId = users.data[0].id;
+
+    await clerkClient.users.deleteUser(clerkUserId);
+
+    console.log(`Deleted Clerk user: ${clerkUserId}`);
+
     const [employeeDelete, permissionsDelete] = await Promise.all([
       collections.employees.deleteOne({ _id: new ObjectId(employeeId) }),
       collections.permissions.deleteMany({
@@ -1058,7 +1109,7 @@ export const checkDuplicates = async (companyId, email, phone = null) => {
 
 function generateSecurePassword(length = 12) {
   const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+[]{}<>?,.";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$";
 
   const randomValues = new Uint32Array(length);
   crypto.getRandomValues(randomValues);
@@ -1205,7 +1256,9 @@ export const addEmployee = async (
 
     const createdUser = await clerkClient.users.createUser({
       emailAddress: [employeeData.contact.email],
-      username: employeeData.account.userName || employeeData.contact.email.split('@')[0],
+      username:
+        employeeData.account.userName ||
+        employeeData.contact.email.split("@")[0],
       password: password,
       publicMetadata: {
         role: role_assigned,

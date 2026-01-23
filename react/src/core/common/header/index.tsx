@@ -95,7 +95,7 @@ const Header = (): JSX.Element => {
   };
 
   const mobileSidebar = useSelector(
-    (state: any) => state.sidebarSlice.mobileSidebar
+    (state: any) => state.sidebarSlice.mobileSidebar,
   );
 
   const toggleMobileSidebar = () => {
@@ -304,7 +304,10 @@ const Header = (): JSX.Element => {
                 </Link>
               </div>
 
-              <div className="sidebar sidebar-horizontal" id="horizontal-single">
+              <div
+                className="sidebar sidebar-horizontal"
+                id="horizontal-single"
+              >
                 <div className="sidebar-menu">
                   <div className="main-menu">
                     <ul className="nav-menu">
@@ -398,7 +401,7 @@ const Header = (): JSX.Element => {
                                                   {subMenuTwo.menuValue}
                                                 </Link>
                                               </li>
-                                            )
+                                            ),
                                           )}
                                         </ul>
                                       )}

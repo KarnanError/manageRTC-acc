@@ -65,7 +65,13 @@ interface Employee {
   companyName: string;
   departmentId: string;
   designationId: string;
-  status: "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave";
+  status:
+    | "Active"
+    | "Inactive"
+    | "On Notice"
+    | "Resigned"
+    | "Terminated"
+    | "On Leave";
   dateOfJoining: string | null;
   about: string;
   role: string;
@@ -91,10 +97,18 @@ const generateId = (prefix: string): string => {
 };
 
 // Normalize status to ensure correct case for all possible statuses
-const normalizeStatus = (status: string | undefined): "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave" => {
+const normalizeStatus = (
+  status: string | undefined,
+):
+  | "Active"
+  | "Inactive"
+  | "On Notice"
+  | "Resigned"
+  | "Terminated"
+  | "On Leave" => {
   if (!status) return "Active";
   const normalized = status.toLowerCase();
-  
+
   // Map all possible status values with case-insensitive matching
   if (normalized === "active") return "Active";
   if (normalized === "inactive") return "Inactive";
@@ -102,7 +116,7 @@ const normalizeStatus = (status: string | undefined): "Active" | "Inactive" | "O
   if (normalized === "resigned") return "Resigned";
   if (normalized === "terminated") return "Terminated";
   if (normalized === "on leave") return "On Leave";
-  
+
   // Default to Active for unknown statuses
   return "Active";
 };
@@ -250,14 +264,14 @@ const EmployeeList = () => {
   const roleOptions = [
     { value: "", label: "Select Role" },
     { value: "HR", label: "HR" },
-    { value: "Employee", label: "Employee" }
+    { value: "Employee", label: "Employee" },
   ];
 
   const genderOptions = [
     { value: "", label: "Select Gender" },
     { value: "male", label: "Male" },
     { value: "female", label: "Female" },
-    { value: "other", label: "Other" }
+    { value: "other", label: "Other" },
   ];
 
   // const {  isLoaded } = useUser();
@@ -347,7 +361,13 @@ const EmployeeList = () => {
     designationId: "",
     departmentId: "",
     about: "",
-    status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
+    status: "Active" as
+      | "Active"
+      | "Inactive"
+      | "On Notice"
+      | "Resigned"
+      | "Terminated"
+      | "On Leave",
   });
   const [permissions, setPermissions] = useState(initialState);
 
@@ -525,13 +545,17 @@ const EmployeeList = () => {
         }
         if (Array.isArray(response.data.employees)) {
           // Normalize status for all employees to ensure correct case
-          const normalizedEmployees = response.data.employees.map((emp: Employee) => {
-            console.log(`Employee ${emp.employeeId} - Raw status: "${emp.status}", Normalized: "${normalizeStatus(emp.status)}"`);
-            return {
-              ...emp,
-              status: normalizeStatus(emp.status)
-            };
-          });
+          const normalizedEmployees = response.data.employees.map(
+            (emp: Employee) => {
+              console.log(
+                `Employee ${emp.employeeId} - Raw status: "${emp.status}", Normalized: "${normalizeStatus(emp.status)}"`,
+              );
+              return {
+                ...emp,
+                status: normalizeStatus(emp.status),
+              };
+            },
+          );
           setEmployees(normalizedEmployees);
         }
         setError(null);
@@ -625,10 +649,10 @@ const EmployeeList = () => {
 
     const handleLifecycleStatusResponse = (response: any) => {
       if (!isMounted) return;
-      
+
       if (response.done && response.data) {
         setLifecycleStatus(response.data);
-        
+
         // Show warning if employee has lifecycle records
         if (response.data.hasLifecycleRecord && response.data.message) {
           toast.info(response.data.message, {
@@ -661,7 +685,7 @@ const EmployeeList = () => {
     );
     socket.on(
       "hrm/employees/check-lifecycle-status-response",
-      handleLifecycleStatusResponse
+      handleLifecycleStatusResponse,
     );
 
     return () => {
@@ -686,7 +710,7 @@ const EmployeeList = () => {
       );
       socket.off(
         "hrm/employees/check-lifecycle-status-response",
-        handleLifecycleStatusResponse
+        handleLifecycleStatusResponse,
       );
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -699,7 +723,7 @@ const EmployeeList = () => {
 
       // Check lifecycle status when employee is selected for editing
       socket.emit("hrm/employees/check-lifecycle-status", {
-        employeeId: editingEmployee.employeeId
+        employeeId: editingEmployee.employeeId,
       });
 
       if (editingEmployee.departmentId) {
@@ -732,17 +756,24 @@ const EmployeeList = () => {
   const availableStatusFilters = useMemo(() => {
     // Get unique statuses from employees
     const uniqueStatuses = new Set<string>();
-    employees.forEach(emp => {
+    employees.forEach((emp) => {
       if (emp.status) {
         uniqueStatuses.add(normalizeStatus(emp.status));
       }
     });
-    
+
     // Convert to filter format and sort
-    const statusOrder = ["Active", "Inactive", "On Notice", "On Leave", "Resigned", "Terminated"];
+    const statusOrder = [
+      "Active",
+      "Inactive",
+      "On Notice",
+      "On Leave",
+      "Resigned",
+      "Terminated",
+    ];
     return Array.from(uniqueStatuses)
       .sort((a, b) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
-      .map(status => ({ text: status, value: status }));
+      .map((status) => ({ text: status, value: status }));
   }, [employees]);
 
   // Clean up modal backdrops on component unmount or when activeTab changes
@@ -842,10 +873,10 @@ const EmployeeList = () => {
       render: (text: string, record: any) => {
         // Normalize status for comparison (handle case-insensitive)
         const status = (text || "").toLowerCase();
-        
+
         // Determine badge color based on status
         let badgeClass = "badge-secondary"; // Default gray
-        
+
         if (status === "active") {
           badgeClass = "badge-success"; // Green
         } else if (status === "on notice") {
@@ -859,7 +890,7 @@ const EmployeeList = () => {
         } else if (status === "on leave") {
           badgeClass = "badge-soft-warning"; // Soft yellow
         }
-        
+
         return (
           <span
             className={`badge ${badgeClass} d-inline-flex align-items-center badge-xs`}
@@ -869,9 +900,11 @@ const EmployeeList = () => {
           </span>
         );
       },
-      sorter: (a: any, b: any) => (a.status || "").localeCompare(b.status || ""),
+      sorter: (a: any, b: any) =>
+        (a.status || "").localeCompare(b.status || ""),
       filters: availableStatusFilters,
-      onFilter: (value: any, record: any) => normalizeStatus(record.status) === value,
+      onFilter: (value: any, record: any) =>
+        normalizeStatus(record.status) === value,
     },
     {
       title: "",
@@ -1477,11 +1510,6 @@ const EmployeeList = () => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(value)) return "Enter a valid email";
         break;
-      case "userName":
-        if (!value || !value.trim()) return "Username is required";
-        if (value.length < 3) return "Username must be at least 3 characters";
-        if (!/^[a-zA-Z0-9_]+$/.test(value)) return "Username can only contain letters, numbers, and underscores";
-        break;
       case "role":
         if (!value || !value.trim()) return "role is required";
         break;
@@ -1558,7 +1586,8 @@ const EmployeeList = () => {
     } else if (formData.account.userName.length < 3) {
       errors.userName = "Username must be at least 3 characters";
     } else if (!/^[a-zA-Z0-9_]+$/.test(formData.account.userName)) {
-      errors.userName = "Username can only contain letters, numbers, and underscores";
+      errors.userName =
+        "Username can only contain letters, numbers, and underscores";
     }
 
     if (!formData.contact.phone || !formData.contact.phone.trim()) {
@@ -1630,7 +1659,7 @@ const EmployeeList = () => {
       } = formData;
 
       // Use provided username or generate from email as fallback
-      const userName = userNameField || email.split('@')[0];
+      const userName = userNameField || email.split("@")[0];
 
       const basicInfo = {
         employeeId,
@@ -1638,9 +1667,9 @@ const EmployeeList = () => {
         firstName,
         lastName,
         dateOfJoining,
-        account: { 
+        account: {
           role,
-          userName 
+          userName,
         },
         contact: { email, phone },
         personal: {
@@ -1696,11 +1725,11 @@ const EmployeeList = () => {
       toast.error("No employee selected for editing.");
       return;
     }
-    
+
     // Lifecycle statuses that should only be set through HR workflows
     const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
     const currentStatus = normalizeStatus(editingEmployee.status);
-    
+
     const payload: any = {
       employeeId: editingEmployee.employeeId || "",
       firstName: editingEmployee.firstName || "",
@@ -1731,13 +1760,13 @@ const EmployeeList = () => {
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
     };
-    
+
     // Only include status if it's NOT a lifecycle status
     // Lifecycle statuses should only be set through termination/resignation workflows
     if (!lifecycleStatuses.includes(currentStatus)) {
       payload.status = currentStatus;
     }
-    
+
     console.log("update payload", payload);
 
     if (socket) {
@@ -1808,7 +1837,13 @@ const EmployeeList = () => {
       departmentId: "",
       designationId: "",
       about: "",
-      status: "Active" as "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave",
+      status: "Active" as
+        | "Active"
+        | "Inactive"
+        | "On Notice"
+        | "Resigned"
+        | "Terminated"
+        | "On Leave",
     });
 
     setPermissions(initialState);
@@ -2481,6 +2516,10 @@ const EmployeeList = () => {
                                         onClick={() => {
                                           const preparedEmployee =
                                             prepareEmployeeForEdit(emp);
+                                          console.log(
+                                            "Prepared Employee List",
+                                            preparedEmployee,
+                                          );
                                           setEditingEmployee(preparedEmployee);
                                           // Load permissions for editing
                                           if (
@@ -2931,14 +2970,16 @@ const EmployeeList = () => {
                           <CommonSelect
                             className={`select ${fieldErrors.role ? "is-invalid" : ""}`}
                             options={roleOptions}
-                            defaultValue={roleOptions.find(opt => opt.value === formData.account.role)}
+                            defaultValue={roleOptions.find(
+                              (opt) => opt.value === formData.account.role,
+                            )}
                             onChange={(option: any) => {
                               if (option) {
                                 const syntheticEvent = {
                                   target: {
                                     name: "role",
-                                    value: option.value
-                                  }
+                                    value: option.value,
+                                  },
                                 } as any;
                                 handleChange(syntheticEvent);
                                 clearFieldError("role");
@@ -3006,7 +3047,9 @@ const EmployeeList = () => {
                           <CommonSelect
                             className={`select ${fieldErrors.gender ? "is-invalid" : ""}`}
                             options={genderOptions}
-                            defaultValue={genderOptions.find(opt => opt.value === formData.personal?.gender)}
+                            defaultValue={genderOptions.find(
+                              (opt) => opt.value === formData.personal?.gender,
+                            )}
                             onChange={(option: any) => {
                               if (option) {
                                 const value = option.value;
@@ -3799,7 +3842,10 @@ const EmployeeList = () => {
                           <CommonSelect
                             className="select"
                             options={roleOptions}
-                            defaultValue={roleOptions.find(opt => opt.value === editingEmployee?.account?.role)}
+                            defaultValue={roleOptions.find(
+                              (opt) =>
+                                opt.value === editingEmployee?.account?.role,
+                            )}
                             onChange={(option: any) => {
                               if (option) {
                                 setEditingEmployee((prev) =>
@@ -3818,31 +3864,7 @@ const EmployeeList = () => {
                           />
                         </div>
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">
-                            Username <span className="text-danger"> *</span>
-                          </label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            value={editingEmployee?.account?.userName || ""}
-                            onChange={(e) =>
-                              setEditingEmployee((prev) =>
-                                prev
-                                  ? {
-                                      ...prev,
-                                      account: {
-                                        ...prev.account,
-                                        userName: e.target.value,
-                                      },
-                                    }
-                                  : prev,
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
+
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">
@@ -3876,7 +3898,10 @@ const EmployeeList = () => {
                           <CommonSelect
                             className="select"
                             options={genderOptions}
-                            defaultValue={genderOptions.find(opt => opt.value === editingEmployee?.personal?.gender)}
+                            defaultValue={genderOptions.find(
+                              (opt) =>
+                                opt.value === editingEmployee?.personal?.gender,
+                            )}
                             onChange={(option: any) => {
                               if (option) {
                                 setEditingEmployee((prev) =>
@@ -4201,16 +4226,25 @@ const EmployeeList = () => {
                                 id="editStatusSwitch"
                                 checked={editingEmployee?.status === "Active"}
                                 disabled={
-                                  editingEmployee?.status?.toLowerCase() !== "active" &&
-                                  editingEmployee?.status?.toLowerCase() !== "inactive"
+                                  editingEmployee?.status?.toLowerCase() !==
+                                    "active" &&
+                                  editingEmployee?.status?.toLowerCase() !==
+                                    "inactive"
                                 }
                                 onChange={(e) => {
-                                  const currentStatus = editingEmployee?.status?.toLowerCase();
+                                  const currentStatus =
+                                    editingEmployee?.status?.toLowerCase();
                                   // Only allow editing if status is Active or Inactive
-                                  if (currentStatus !== "active" && currentStatus !== "inactive") {
+                                  if (
+                                    currentStatus !== "active" &&
+                                    currentStatus !== "inactive"
+                                  ) {
                                     toast.warning(
-                                      `Status cannot be changed for ${editingEmployee?.status || 'this'} employees. This status is managed by HR workflow.`,
-                                      { position: "top-right", autoClose: 4000 }
+                                      `Status cannot be changed for ${editingEmployee?.status || "this"} employees. This status is managed by HR workflow.`,
+                                      {
+                                        position: "top-right",
+                                        autoClose: 4000,
+                                      },
                                     );
                                     return;
                                   }
@@ -4222,18 +4256,21 @@ const EmployeeList = () => {
                                             ? "Active"
                                             : "Inactive",
                                         }
-                                      : prev
+                                      : prev,
                                   );
                                 }}
                               />
-                              <label 
-                                className="form-check-label" 
+                              <label
+                                className="form-check-label"
                                 htmlFor="editStatusSwitch"
                                 style={{
-                                  opacity: (
-                                    editingEmployee?.status?.toLowerCase() !== "active" &&
-                                    editingEmployee?.status?.toLowerCase() !== "inactive"
-                                  ) ? 0.6 : 1
+                                  opacity:
+                                    editingEmployee?.status?.toLowerCase() !==
+                                      "active" &&
+                                    editingEmployee?.status?.toLowerCase() !==
+                                      "inactive"
+                                      ? 0.6
+                                      : 1,
                                 }}
                               >
                                 <span
