@@ -55,6 +55,7 @@ interface Employee {
   avatarUrl: string;
   account?: {
     role: string;
+    userName?: string;
   };
   contact?: {
     email: string;
@@ -245,6 +246,20 @@ const EmployeeList = () => {
   const ClerkID = useUser();
   console.log("User id", ClerkID.user.id);
 
+  // Dropdown options
+  const roleOptions = [
+    { value: "", label: "Select Role" },
+    { value: "HR", label: "HR" },
+    { value: "Employee", label: "Employee" }
+  ];
+
+  const genderOptions = [
+    { value: "", label: "Select Gender" },
+    { value: "male", label: "Male" },
+    { value: "female", label: "Female" },
+    { value: "other", label: "Other" }
+  ];
+
   // const {  isLoaded } = useUser();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -315,6 +330,7 @@ const EmployeeList = () => {
     },
     account: {
       role: "",
+      userName: "",
     },
     personal: {
       gender: "",
@@ -509,14 +525,6 @@ const EmployeeList = () => {
         }
         if (Array.isArray(response.data.employees)) {
           // Normalize status for all employees to ensure correct case
-<<<<<<< HEAD
-          const normalizedEmployees = response.data.employees.map(
-            (emp: Employee) => ({
-              ...emp,
-              status: normalizeStatus(emp.status),
-            }),
-          );
-=======
           const normalizedEmployees = response.data.employees.map((emp: Employee) => {
             console.log(`Employee ${emp.employeeId} - Raw status: "${emp.status}", Normalized: "${normalizeStatus(emp.status)}"`);
             return {
@@ -524,7 +532,6 @@ const EmployeeList = () => {
               status: normalizeStatus(emp.status)
             };
           });
->>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
           setEmployees(normalizedEmployees);
         }
         setError(null);
@@ -832,20 +839,6 @@ const EmployeeList = () => {
     {
       title: "Status",
       dataIndex: "status",
-<<<<<<< HEAD
-      render: (text: string, record: any) => (
-        <span
-          className={`badge ${
-            text === "Active" ? "badge-success" : "badge-danger"
-          } d-inline-flex align-items-center badge-xs`}
-        >
-          <i className="ti ti-point-filled me-1" />
-          {text}
-        </span>
-      ),
-      sorter: (a: any, b: any) =>
-        (a.status || "").localeCompare(b.status || ""),
-=======
       render: (text: string, record: any) => {
         // Normalize status for comparison (handle case-insensitive)
         const status = (text || "").toLowerCase();
@@ -879,7 +872,6 @@ const EmployeeList = () => {
       sorter: (a: any, b: any) => (a.status || "").localeCompare(b.status || ""),
       filters: availableStatusFilters,
       onFilter: (value: any, record: any) => normalizeStatus(record.status) === value,
->>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
     },
     {
       title: "",
@@ -961,7 +953,7 @@ const EmployeeList = () => {
           [name]: value,
         },
       }));
-    } else if (name === "role") {
+    } else if (name === "role" || name === "userName") {
       setFormData((prev) => ({
         ...prev,
         account: {
@@ -1485,6 +1477,11 @@ const EmployeeList = () => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(value)) return "Enter a valid email";
         break;
+      case "userName":
+        if (!value || !value.trim()) return "Username is required";
+        if (value.length < 3) return "Username must be at least 3 characters";
+        if (!/^[a-zA-Z0-9_]+$/.test(value)) return "Username can only contain letters, numbers, and underscores";
+        break;
       case "role":
         if (!value || !value.trim()) return "role is required";
         break;
@@ -1556,6 +1553,14 @@ const EmployeeList = () => {
       }
     }
 
+    if (!formData.account.userName || !formData.account.userName.trim()) {
+      errors.userName = "Username is required";
+    } else if (formData.account.userName.length < 3) {
+      errors.userName = "Username must be at least 3 characters";
+    } else if (!/^[a-zA-Z0-9_]+$/.test(formData.account.userName)) {
+      errors.userName = "Username can only contain letters, numbers, and underscores";
+    }
+
     if (!formData.contact.phone || !formData.contact.phone.trim()) {
       errors.phone = "Phone number is required";
     } else if (
@@ -1615,7 +1620,7 @@ const EmployeeList = () => {
         lastName,
         dateOfJoining,
         contact: { email, phone },
-        account: { role },
+        account: { role, userName: userNameField },
         personal,
         companyName,
         departmentId,
@@ -1624,13 +1629,19 @@ const EmployeeList = () => {
         status,
       } = formData;
 
+      // Use provided username or generate from email as fallback
+      const userName = userNameField || email.split('@')[0];
+
       const basicInfo = {
         employeeId,
         avatarUrl,
         firstName,
         lastName,
         dateOfJoining,
-        account: { role },
+        account: { 
+          role,
+          userName 
+        },
         contact: { email, phone },
         personal: {
           gender: personal?.gender || "",
@@ -1696,6 +1707,7 @@ const EmployeeList = () => {
       lastName: editingEmployee.lastName || "",
       account: {
         role: editingEmployee.account?.role || "",
+        userName: editingEmployee.account?.userName || "",
       },
       contact: {
         email: editingEmployee.contact?.email || "",
@@ -1779,6 +1791,7 @@ const EmployeeList = () => {
       },
       account: {
         role: "",
+        userName: "",
       },
       personal: {
         gender: "",
@@ -2915,23 +2928,49 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Role <span className="text-danger"> *</span>
                           </label>
-                          <select
-                            className={`form-control ${fieldErrors.role ? "is-invalid" : ""}`}
-                            name="role"
-                            value={formData.account.role || ""}
-                            onChange={handleChange}
-                            onFocus={() => clearFieldError("role")}
-                            onBlur={(e) =>
-                              handleFieldBlur("role", e.target.value)
-                            }
-                          >
-                            <option value="">Select Role</option>
-                            <option value="HR">HR</option>
-                            <option value="Employee">Employee</option>
-                          </select>
+                          <CommonSelect
+                            className={`select ${fieldErrors.role ? "is-invalid" : ""}`}
+                            options={roleOptions}
+                            defaultValue={roleOptions.find(opt => opt.value === formData.account.role)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                const syntheticEvent = {
+                                  target: {
+                                    name: "role",
+                                    value: option.value
+                                  }
+                                } as any;
+                                handleChange(syntheticEvent);
+                                clearFieldError("role");
+                              }
+                            }}
+                          />
                           {fieldErrors.role && (
                             <div className="invalid-feedback d-block">
                               {fieldErrors.role}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Username <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.userName ? "is-invalid" : ""}`}
+                            name="userName"
+                            value={formData.account.userName || ""}
+                            onChange={handleChange}
+                            onFocus={() => clearFieldError("userName")}
+                            onBlur={(e) =>
+                              handleFieldBlur("userName", e.target.value)
+                            }
+                          />
+                          {fieldErrors.userName && (
+                            <div className="invalid-feedback d-block">
+                              {fieldErrors.userName}
                             </div>
                           )}
                         </div>
@@ -2964,28 +3003,25 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Gender <span className="text-danger"> *</span>
                           </label>
-                          <select
-                            className={`form-control ${fieldErrors.gender ? "is-invalid" : ""}`}
-                            name="gender"
-                            value={formData.personal?.gender || ""}
-                            onFocus={() => clearFieldError("gender")}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setFormData((prev) => ({
-                                ...prev,
-                                personal: {
-                                  ...prev.personal,
-                                  gender: value,
-                                },
-                              }));
-                              handleFieldBlur("gender", value);
+                          <CommonSelect
+                            className={`select ${fieldErrors.gender ? "is-invalid" : ""}`}
+                            options={genderOptions}
+                            defaultValue={genderOptions.find(opt => opt.value === formData.personal?.gender)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                const value = option.value;
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  personal: {
+                                    ...prev.personal,
+                                    gender: value,
+                                  },
+                                }));
+                                clearFieldError("gender");
+                                handleFieldBlur("gender", value);
+                              }
                             }}
-                          >
-                            <option value="">Select Gender</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                          </select>
+                          />
                           {fieldErrors.gender && (
                             <div className="invalid-feedback d-block">
                               {fieldErrors.gender}
@@ -3758,12 +3794,39 @@ const EmployeeList = () => {
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">
+                            Role <span className="text-danger"> *</span>
+                          </label>
+                          <CommonSelect
+                            className="select"
+                            options={roleOptions}
+                            defaultValue={roleOptions.find(opt => opt.value === editingEmployee?.account?.role)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setEditingEmployee((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        account: {
+                                          ...prev.account,
+                                          role: option.value,
+                                        },
+                                      }
+                                    : prev,
+                                );
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
                             Username <span className="text-danger"> *</span>
                           </label>
                           <input
                             type="text"
                             className="form-control"
-                            value={editingEmployee?.account?.role || ""}
+                            value={editingEmployee?.account?.userName || ""}
                             onChange={(e) =>
                               setEditingEmployee((prev) =>
                                 prev
@@ -3771,7 +3834,7 @@ const EmployeeList = () => {
                                       ...prev,
                                       account: {
                                         ...prev.account,
-                                        role: e.target.value,
+                                        userName: e.target.value,
                                       },
                                     }
                                   : prev,
@@ -3810,28 +3873,26 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Gender <span className="text-danger"> *</span>
                           </label>
-                          <select
-                            className="form-control"
-                            value={editingEmployee?.personal?.gender || ""}
-                            onChange={(e) =>
-                              setEditingEmployee((prev) =>
-                                prev
-                                  ? {
-                                      ...prev,
-                                      personal: {
-                                        ...prev.personal,
-                                        gender: e.target.value,
-                                      },
-                                    }
-                                  : prev,
-                              )
-                            }
-                          >
-                            <option value="">Select Gender</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                          </select>
+                          <CommonSelect
+                            className="select"
+                            options={genderOptions}
+                            defaultValue={genderOptions.find(opt => opt.value === editingEmployee?.personal?.gender)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setEditingEmployee((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        personal: {
+                                          ...prev.personal,
+                                          gender: option.value,
+                                        },
+                                      }
+                                    : prev,
+                                );
+                              }
+                            }}
+                          />
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -4161,15 +4222,6 @@ const EmployeeList = () => {
                                             ? "Active"
                                             : "Inactive",
                                         }
-<<<<<<< HEAD
-                                      : prev,
-                                  )
-                                }
-                              />
-                              <label
-                                className="form-check-label"
-                                htmlFor="editStatusSwitch"
-=======
                                       : prev
                                   );
                                 }}
@@ -4183,7 +4235,6 @@ const EmployeeList = () => {
                                     editingEmployee?.status?.toLowerCase() !== "inactive"
                                   ) ? 0.6 : 1
                                 }}
->>>>>>> 59312b16c772c20c9e49d57b4dcd71802cbd1a9b
                               >
                                 <span
                                   className={`badge ${
