@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useSocket } from '../../../SocketContext';
-import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import { useClientsREST } from '../../../hooks/useClientsREST';
 
 interface Client {
   _id: string;
@@ -11,7 +10,7 @@ interface Client {
 }
 
 const DeleteClient = () => {
-  const socket = useSocket() as Socket | null;
+  const { deleteClient } = useClientsREST();
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,40 +31,35 @@ const DeleteClient = () => {
   }, []);
 
   const handleConfirmDelete = async () => {
-    if (!client || !socket) {
-      message.error("Socket connection not available");
+    if (!client) {
+      message.error("No client selected");
       return;
     }
 
     setLoading(true);
     try {
       console.log('Deleting client:', client._id);
-      socket.emit('client:delete', client._id);
 
-      // Listen for response
-      socket.once('client:delete-response', (response: any) => {
-        if (response.done) {
-          console.log('Client deleted successfully:', response.data);
-          message.success('Client deleted successfully!');
-          
-          // Show success message briefly, then close modal
+      // Call REST API to delete client
+      const success = await deleteClient(client._id);
+
+      if (success) {
+        console.log('Client deleted successfully');
+
+        // Show success message briefly, then close modal
+        setTimeout(() => {
+          closeModal();
+
+          // Reset states after modal closes
           setTimeout(() => {
-            closeModal();
-            
-            // Reset states after modal closes
-            setTimeout(() => {
-              setClient(null);
-            }, 300);
-          }, 1000);
-        } else {
-          console.error('Failed to delete client:', response.error);
-          message.error(`Failed to delete client: ${response.error}`);
-        }
-        setLoading(false);
-      });
+            setClient(null);
+          }, 300);
+        }, 1000);
+      }
     } catch (error) {
       console.error('Error deleting client:', error);
       message.error('An error occurred while deleting the client');
+    } finally {
       setLoading(false);
     }
   };

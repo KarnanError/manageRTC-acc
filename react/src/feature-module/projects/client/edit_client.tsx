@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSocket } from '../../../SocketContext';
-import { Socket } from 'socket.io-client';
 import { message } from 'antd';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { useClientsREST } from '../../../hooks/useClientsREST';
 
 interface ClientFormData {
   _id: string;
@@ -31,7 +30,7 @@ interface ClientFormErrors {
 }
 
 const EditClient = () => {
-  const socket = useSocket() as Socket | null;
+  const { updateClient } = useClientsREST();
   const [formData, setFormData] = useState<ClientFormData>({
     _id: '',
     name: '',
@@ -215,46 +214,40 @@ const EditClient = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
 
-    if (!socket) {
-      message.error("Socket connection not available");
+    if (!formData._id) {
+      message.error("Client ID is required");
       return;
     }
 
     setLoading(true);
     try {
       console.log('Updating client:', formData);
-      // Backend expects the client data directly with _id field included
-      socket.emit('client:update', formData);
 
-      // Listen for response
-      socket.once('client:update-response', (response: any) => {
-        if (response.done) {
-          console.log('Client updated successfully:', response.data);
-          message.success('Client updated successfully!');
-          
-          // Show success message briefly, then close modal
+      // Call REST API to update client
+      const success = await updateClient(formData._id, formData);
+
+      if (success) {
+        console.log('Client updated successfully');
+
+        // Show success message briefly, then close modal
+        setTimeout(() => {
+          closeModal();
+
+          // Reset errors after modal closes
           setTimeout(() => {
-            closeModal();
-            
-            // Reset errors after modal closes
-            setTimeout(() => {
-              setErrors({});
-            }, 300);
-          }, 1500);
-        } else {
-          console.error('Failed to update client:', response.error);
-          message.error(`Failed to update client: ${response.error}`);
-        }
-        setLoading(false);
-      });
+            setErrors({});
+          }, 300);
+        }, 1500);
+      }
     } catch (error) {
       console.error('Error updating client:', error);
       message.error('An error occurred while updating the client');
+    } finally {
       setLoading(false);
     }
   };

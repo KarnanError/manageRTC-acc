@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { all_routes } from '../../router/all_routes'
 import { Link } from 'react-router-dom'
 import Table from "../../../core/common/dataTable/index";
 import CommonSelect from '../../../core/common/commonSelect';
 import PredefinedDateRanges from '../../../core/common/datePicker';
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
-import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
+import { usePoliciesREST } from "../../../hooks/usePoliciesREST";
+import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
+import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 import { DateTime } from 'luxon';
 import Footer from "../../../core/common/footer";
 import { hideModal } from '../../../utils/modalUtils';
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
+import { message } from 'antd';
 
 // Policy Assignment Structure (ONLY ObjectIds)
 interface PolicyAssignment {
@@ -58,7 +60,7 @@ const staticOptions = [
 ];
 
 const Policy = () => {
-  const [policies, setPolicies] = useState<Policy[]>([]);
+  // Local state for UI and form management only
   const [sortedPolicies, setSortedPolicies] = useState<Policy[]>([]);
   const [sortOrder, setSortOrder] = useState("");
   const [policyName, setPolicyName] = useState("");
@@ -67,16 +69,9 @@ const Policy = () => {
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
   const [filters, setFilters] = useState({ department: "", startDate: "", endDate: "" });
   const [policyToDelete, setPolicyToDelete] = useState<Policy | null>(null);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [responseData, setResponseData] = useState(null);
   const [selectedDepartment, setSelectedDepartment] = useState(staticOptions[0].value);
-  const [policyError, setPolicyError] = useState<string | null>(null);
-  const [departmentError, setDepartmentError] = useState<string | null>(null);
-  const [policyLoading, setPolicyLoading] = useState(false);
-  const [departmentLoading, setDepartmentLoading] = useState(false);
   const [selectedFilterDepartment, setSelectedFilterDepartment] = useState<string>("");
   
   // Policy Assignment State - Hierarchical toggle-based structure
@@ -100,14 +95,32 @@ const Policy = () => {
   const [editApplyToError, setEditApplyToError] = useState<string | null>(null);
   const [editDescriptionError, setEditDescriptionError] = useState<string | null>(null);
 
-  const [stats, setStats] = useState<PolicyStats>({
-    total: 0,
-    active: 0,
-    inactive: 0,
-    applyToAllCount: 0,
-  });
+  const socket = null; // REST API - no longer using socket
 
-  const socket = useSocket() as Socket | null;
+  // REST API hooks
+  const {
+    policies,
+    stats,
+    loading: policyLoading,
+    error: policyError,
+    fetchPolicies,
+    fetchPolicyStats,
+    createPolicy,
+    updatePolicy,
+    deletePolicy
+  } = usePoliciesREST();
+
+  const {
+    departments,
+    loading: departmentLoading,
+    fetchDepartments
+  } = useDepartmentsREST();
+
+  const {
+    designations,
+    loading: designationsLoading,
+    fetchDesignations
+  } = useDesignationsREST();
 
   // Modal container helper (for DatePicker positioning)
   const getModalContainer = (): HTMLElement => {
@@ -115,189 +128,24 @@ const Policy = () => {
     return modalElement ? modalElement : document.body;
   };
 
+  // Fetch initial data on mount
   useEffect(() => {
-    if (!socket) return;
-
-    let isMounted = true;
-
-    setLoading(true);
-
-    const timeoutId = setTimeout(() => {
-      if (loading && isMounted) {
-        console.warn("Policies loading timeout - showing fallback");
-        setError("Policies loading timed out. Please refresh the page.");
-        setLoading(false);
-      }
-    }, 30000);
-
-    setPolicyLoading(true);
-    socket.emit("hr/policy/get");
-    
-    // Fetch policy stats
-    socket.emit("hr/policy/stats");
-
-    setDepartmentLoading(true);
-    socket.emit("hr/departments/get");
-    
-    // NEW: Fetch designations using the same pattern as designations.tsx
-    socket.emit("hrm/designations/get");
-
-    const handleAddPolicyResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-        if (socket) {
-          socket.emit("hr/policy/get");
-        }
-        // Close modal after successful backend response
-        hideModal('add_policy');
-        
-        // Reset form after successful submission
-        resetAddPolicyForm();
-      } else {
-        parseBackendError(response.error || "Failed to add policy");
-        setLoading(false);
-      }
+    const fetchData = async () => {
+      // Fetch policies
+      await fetchPolicies(filters);
+      // Fetch policy stats
+      await fetchPolicyStats();
+      // Fetch departments
+      await fetchDepartments();
+      // Fetch designations
+      await fetchDesignations();
     };
 
-    const handleGetPolicyResponse = (response: any) => {
-      setPolicyLoading(false);
-      if (!isMounted) return;
-
-      if (response.done) {
-        setPolicies(response.data);
-        setSortedPolicies(response.data);
-        setPolicyError(null);
-        setLoading(false);
-      } else {
-        setPolicyError(response.error || "Failed to fetch policies");
-        setLoading(false);
-      }
-    };
-
-    const handleUpdatePolicyResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-        if (socket) {
-          socket.emit("hr/policy/get");
-        }
-        
-        // Close modal after successful backend response
-        hideModal('edit_policy');
-        
-        // Reset validation errors after successful submission
-        resetEditPolicyForm();
-      } else {
-        parseBackendError(response.error || "Failed to update policy", true);
-        setLoading(false);
-      }
-    }
-
-    const handleDeletePolicyResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-        if (socket) {
-          socket.emit("hr/policy/get");
-        }
-      } else {
-        setError(response.error || "Failed to add policy");
-        setLoading(false);
-      }
-    }
-
-    const handleDepartmentsResponse = (response: any) => {
-      setDepartmentLoading(false);
-      if (!isMounted) return;
-
-      if (response.done) {
-        setDepartments(response.data);
-        setDepartmentError(null);
-        setLoading(false);
-      } else {
-        setDepartmentError(response.error || "Failed to fetch departments");
-        setLoading(false);
-      }
-    }
-
-    const handleDesignationsResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setDesignations(response.data);
-        console.log(`Loaded ${response.data.length} designations from database`);
-        setLoading(false);
-      } else {
-        setError(response.error || "Failed to fetch designations");
-        setLoading(false);
-      }
-    }
-
-    const handlePolicyStatsResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setStats(response.data);
-        console.log("Policy stats loaded:", response.data);
-      } else {
-        console.error("Failed to fetch policy stats:", response.error);
-      }
-    }
-
-    socket.on("hr/policy/add-response", handleAddPolicyResponse);
-    socket.on("hr/policy/get-response", handleGetPolicyResponse);
-    socket.on("hr/policy/update-response", handleUpdatePolicyResponse);
-    socket.on("hr/policy/delete-response", handleDeletePolicyResponse);
-    socket.on("hr/departments/get-response", handleDepartmentsResponse);
-    socket.on("hrm/designations/get-response", handleDesignationsResponse);
-    socket.on("hr/policy/stats-response", handlePolicyStatsResponse);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      socket.off("hr/policy/add-response", handleAddPolicyResponse);
-      socket.off("hr/policy/get-response", handleGetPolicyResponse);
-      socket.off("hr/policy/update-response", handleUpdatePolicyResponse);
-      socket.off("hr/policy/delete-response", handleDeletePolicyResponse);
-      socket.off("hr/departments/get-response", handleDepartmentsResponse);
-      socket.off("hrm/designations/get-response", handleDesignationsResponse);
-      socket.off("hr/policy/stats-response", handlePolicyStatsResponse);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
-
-  // Calculate stats from current data if API doesn't provide them
-  const calculateStats = useCallback(() => {
-    if (policies.length > 0) {
-      const calculatedStats: PolicyStats = {
-        total: policies.length,
-        active: policies.length, // Since Policy interface doesn't have status, assume all are active
-        inactive: 0, // Since Policy interface doesn't have status, assume none are inactive
-        applyToAllCount: policies.filter(p => p.applyToAll === true).length,
-      };
-      setStats(calculatedStats);
-    }
-  }, [policies]);
-
-  // Calculate stats when policies data changes
-  useEffect(() => {
-    calculateStats();
-  }, [policies, calculateStats]);
+    fetchData();
+  }, []);
 
   // constants
   if (error) console.error("Page error:", error);
-  if (policyError) console.error("Policy error:", policyError);
-  if (departmentError) console.error("Department error:", departmentError);
 
   const dynamicOptions = Array.isArray(departments)
     ? departments.map(dept => ({
@@ -682,7 +530,7 @@ const Policy = () => {
     if (editApplyToError) setEditApplyToError(null);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       // Clear all errors at the start
       setPolicyNameError(null);
@@ -764,13 +612,18 @@ const Policy = () => {
         policyDescription: description,
         effectiveDate,
       };
-      
-      if (socket) {
-        socket.emit("hr/policy/add", payload);
-      } else {
-        setError("Socket connection is not available.");
-        setLoading(false);
+
+      // REST API call
+      const success = await createPolicy(payload);
+      if (success) {
+        // Refresh policies list
+        await fetchPolicies(filters);
+        // Close modal after successful response
+        hideModal('add_policy');
+        // Reset form after successful submission
+        resetAddPolicyForm();
       }
+      setLoading(false);
     } catch (error) {
       if (error instanceof Error) {
         setError(error.message);
@@ -783,7 +636,7 @@ const Policy = () => {
 
   console.log("selected department", selectedDepartment);
 
-  const applyFilters = (updatedFields: {
+  const applyFilters = async (updatedFields: {
     department?: string;
     startDate?: string;
     endDate?: string;
@@ -791,9 +644,8 @@ const Policy = () => {
     try {
       setFilters(prevFilters => {
         const newFilters = { ...prevFilters, ...updatedFields };
-        if (socket) {
-          socket.emit("hr/policy/get", { ...newFilters });
-        }
+        // REST API call
+        fetchPolicies(newFilters);
         return newFilters;
       });
     } catch (error) {
@@ -844,11 +696,10 @@ const Policy = () => {
       }
       return 0;
     });
-    setSortedPolicies(sortedData); // may not need this later
-    setPolicies(sortedData);
+    setSortedPolicies(sortedData);
   };
 
-  const handleUpdateSubmit = (editingPolicy: Policy) => {
+  const handleUpdateSubmit = async (editingPolicy: Policy) => {
     try {
       // Clear all errors at the start
       setEditPolicyNameError(null);
@@ -931,7 +782,6 @@ const Policy = () => {
       });
 
       const payload = {
-        _id,
         policyName: policyName.trim(),
         policyDescription: policyDescription.trim(),
         applyToAll,
@@ -939,12 +789,17 @@ const Policy = () => {
         effectiveDate,
       };
 
-      if (socket) {
-        socket.emit("hr/policy/update", payload);
-      } else {
-        setError("Socket connection is not available.");
-        setLoading(false);
+      // REST API call
+      const success = await updatePolicy(_id, payload);
+      if (success) {
+        // Refresh policies list
+        await fetchPolicies(filters);
+        // Close modal after successful response
+        hideModal('edit_policy');
+        // Reset validation errors after successful submission
+        resetEditPolicyForm();
       }
+      setLoading(false);
     } catch (error) {
       if (error instanceof Error) {
         setError(error.message);
@@ -955,16 +810,10 @@ const Policy = () => {
     }
   };
 
-  const deletePolicy = (policyId: string) => {
+  const deletePolicyById = async (policyId: string) => {
     try {
       setLoading(true);
       setError(null);
-
-      if (!socket) {
-        setError("Socket connection is not available");
-        setLoading(false);
-        return;
-      }
 
       if (!policyId) {
         setError("Policy ID is required");
@@ -972,10 +821,16 @@ const Policy = () => {
         return;
       }
 
-      socket.emit("hr/policy/delete", { _id: policyId });
+      // REST API call
+      const success = await deletePolicy(policyId);
+      if (success) {
+        // Refresh policies list
+        await fetchPolicies(filters);
+      }
     } catch (error) {
       console.error("Delete error:", error);
-      setError("Failed to initiate policy deletion");
+      setError("Failed to delete policy");
+    } finally {
       setLoading(false);
     }
   };
@@ -997,13 +852,13 @@ const Policy = () => {
     );
   }
 
-  if (policyError || departmentError) {
+  if (policyError) {
     return (
       <div className="page-wrapper">
         <div className="content">
           <div className="alert alert-danger" role="alert">
             <h4 className="alert-heading">Error!</h4>
-            <p>Failed to fetch policies</p>
+            <p>{policyError}</p>
           </div>
         </div>
       </div>
@@ -1207,25 +1062,17 @@ const Policy = () => {
                       : ": None"}
                   </Link>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
-                    {departmentError ? (
-                      <li>
-                        <div className="alert alert-danger mb-0 p-2" role="alert">
-                          <small>{departmentError}</small>
-                        </div>
+                    {options.map((dept) => (
+                      <li key={dept.value}>
+                        <button
+                          type="button"
+                          className="dropdown-item rounded-1"
+                          onClick={() => onSelectDepartment(dept.value)}
+                        >
+                          {dept.label}
+                        </button>
                       </li>
-                    ) : (
-                      options.map((dept) => (
-                        <li key={dept.value}>
-                          <button
-                            type="button"
-                            className="dropdown-item rounded-1"
-                            onClick={() => onSelectDepartment(dept.value)}
-                          >
-                            {dept.label}
-                          </button>
-                        </li>
-                      ))
-                    )}
+                    ))}
                   </ul>
                 </div>
                 <div className="dropdown">
@@ -1890,9 +1737,9 @@ const Policy = () => {
                 <button
                   className="btn btn-danger"
                   data-bs-dismiss="modal"
-                  onClick={() => {
+                  onClick={async () => {
                     if (policyToDelete) {
-                      deletePolicy(policyToDelete._id);
+                      await deletePolicyById(policyToDelete._id);
                     }
                     setPolicyToDelete(null);
                   }}

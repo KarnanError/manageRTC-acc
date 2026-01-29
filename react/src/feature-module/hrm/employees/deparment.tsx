@@ -8,10 +8,10 @@ import CommonSelect from '../../../core/common/commonSelect';
 import { department_details } from '../../../core/data/json/department_details';
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
 import { departmentName } from '../../../core/common/selectoption/selectoption';
-import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
+import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import Footer from "../../../core/common/footer";
 import { showModal, hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
+import { message } from 'antd';
 
 type PasswordField = "password" | "confirmPassword";
 
@@ -22,13 +22,6 @@ interface Departments {
   employeeCount: number;
   designationCount?: number;  // Count of designations in this department
   policyCount?: number;       // Count of policies assigned to this department
-  status: string;
-}
-
-interface Designation {
-  _id: string;
-  designation: string;
-  departmentId: string;
   status: string;
 }
 
@@ -45,13 +38,22 @@ const statusChoose = [
 ];
 
 const Department = () => {
-  const [departments, setDepartments] = useState<Departments[]>([]);
+  const {
+    departments,
+    stats,
+    loading,
+    error,
+    fetchDepartments,
+    createDepartment,
+    updateDepartment,
+    deleteDepartment
+  } = useDepartmentsREST();
+
   const [sortedDepartments, setSortedDepartments] = useState<Departments[]>([]);
   const [departmentName, setDepartmentName] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("Active");
-  const [loading, setLoading] = useState(false);
   const [responseData, setResponseData] = useState(null);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState("");
   const [filters, setFilters] = useState({ status: "" });
   const [editingDept, setEditingDept] = useState<Departments | null>(null);
@@ -63,144 +65,24 @@ const Department = () => {
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [targetDepartmentId, setTargetDepartmentId] = useState<string>("");
   const [isReassigning, setIsReassigning] = useState(false);
-  const [stats, setStats] = useState<DepartmentStats>({
+  const [localStats, setLocalStats] = useState<DepartmentStats>({
     totalDepartments: 0,
     activeCount: 0,
     inactiveCount: 0,
     recentCount: 0,
   });
-  const socket = useSocket() as Socket | null;
 
+  // Fetch departments on mount and when filters change
   useEffect(() => {
-    if (!socket) return;
-    let isMounted = true;
+    fetchDepartments(filters);
+  }, []);
 
-    const timeoutId = setTimeout(() => {
-      if (loading && isMounted) {
-        console.warn("Policies loading timeout - showing fallback");
-        setError("Policies loading timed out. Please refresh the page.");
-        setLoading(false);
-      }
-    }, 30000);
-
-    socket.emit("hr/departmentsStats/get");
-
-    const handleAddDepartmentResponse = (response: any) => {
-      if (!isMounted) return;
-      setIsSubmitting(false);
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        // Reset form fields after successful submission
-        resetAddDepartmentForm();
-        // Close modal programmatically after successful response
-        hideModal('add_department');
-        // Extra safety cleanup after animation
-        setTimeout(() => cleanupModalBackdrops(), 500);
-        if (socket) {
-          socket.emit("hr/departmentsStats/get");
-        }
-      } else {
-        // Show backend error inline under the department name field
-        // Keep modal open - do NOT set general error state
-        setDepartmentNameError(response.error || "Failed to add department");
-      }
-    };
-
-    const handleDepartmentStatsResponse = (response: any) => {
-      clearTimeout(timeoutId);
-      if (!isMounted) return;
-
-      if (response.done) {
-        setDepartments(response.data);
-        setError(null);
-        setLoading(false);
-        setStats(response.stats);
-      } else {
-        setError(response.error || "Failed to fetch department");
-        setLoading(false);
-      }
+  // Update local stats when stats from hook change
+  useEffect(() => {
+    if (stats) {
+      setLocalStats(stats);
     }
-
-    const handleUpdateDepartmentResponse = (response: any) => {
-      clearTimeout(timeoutId);
-      if (!isMounted) return;
-      setIsUpdating(false);
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        resetEditDepartmentForm();
-        // Close modal only on success
-        hideModal('edit_department');
-        setTimeout(() => cleanupModalBackdrops(), 500);
-        if (socket) {
-          socket.emit("hr/departmentsStats/get");
-        }
-      } else {
-        // Show backend error inline - keep modal open
-        setEditDepartmentNameError(response.error || "Failed to update department");
-      }
-    }
-
-    const handleDeleteDepartmentResponse = (response: any) => {
-       if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-        if (socket) {
-          socket.emit("hr/departmentsStats/get");
-        }
-      } else {
-        setError(response.error || "Failed to delete department");
-        setLoading(false);
-      }
-    }
-
-    const handleReassignAndDeleteResponse = (response: any) => {
-      if (!isMounted) return;
-      setIsReassigning(false);
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        // Close reassign modal using hideModal utility
-        hideModal('reassign_delete_modal');
-        setTimeout(() => {
-          cleanupModalBackdrops();
-          setShowReassignModal(false);
-          setTargetDepartmentId("");
-          setDepartmentToDelete(null);
-        }, 500);
-        // Refresh departments list
-        if (socket) {
-          socket.emit("hr/departmentsStats/get");
-        }
-      } else {
-        setError(response.error || "Failed to reassign and delete department");
-      }
-    }
-
-    socket.on("hr/departments/add-response", handleAddDepartmentResponse);
-    socket.on("hr/departmentsStats/get-response", handleDepartmentStatsResponse);
-    socket.on("hrm/departments/update-response", handleUpdateDepartmentResponse);
-    socket.on("hrm/departments/delete-response", handleDeleteDepartmentResponse);
-    socket.on("hrm/departments/reassign-delete-response", handleReassignAndDeleteResponse);
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      socket.off("hr/departments/add-response", handleAddDepartmentResponse);
-      socket.off("hr/departmentsStats/get-response", handleDepartmentStatsResponse);
-      socket.off("hrm/departments/update-response", handleUpdateDepartmentResponse);
-      socket.off("hrm/departments/delete-response", handleDeleteDepartmentResponse);
-      socket.off("hrm/departments/reassign-delete-response", handleReassignAndDeleteResponse);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
-
-  //  constants
+  }, [stats]);
 
   // Helper function to normalize status display (capitalize first letter)
   const normalizeStatus = (status: string): string => {
@@ -316,22 +198,22 @@ const Department = () => {
   }));
 
   // helper functions
-  
+
   // Reset Add Department form fields to default values
   const resetAddDepartmentForm = () => {
     setDepartmentName("");
     setSelectedStatus("Active");
-    setError(null);
+    setLocalError(null);
     setDepartmentNameError(null);
   };
 
   // Reset Edit Department validation errors
   const resetEditDepartmentForm = () => {
-    setError(null);
+    setLocalError(null);
     setEditDepartmentNameError(null);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       setDepartmentNameError(null);
 
@@ -347,23 +229,29 @@ const Department = () => {
 
       setIsSubmitting(true);
       const payload = {
-        departmentName: departmentName,
+        department: departmentName,
         status: selectedStatus,
       };
 
-      if (!socket) {
-        setDepartmentNameError("Socket connection is not available.");
-        setIsSubmitting(false);
-        return;
-      }
+      const success = await createDepartment(payload);
 
-      socket.emit("hr/departments/add", payload);
-    } catch (error) {
-      if (error instanceof Error) {
-        setDepartmentNameError(error.message);
+      if (success) {
+        // Refresh departments list
+        await fetchDepartments(filters);
+        // Reset form fields after successful submission
+        resetAddDepartmentForm();
+        // Close modal programmatically after successful response
+        hideModal('add_department');
+        // Extra safety cleanup after animation
+        setTimeout(() => cleanupModalBackdrops(), 500);
+      }
+    } catch (err: any) {
+      if (err instanceof Error) {
+        setDepartmentNameError(err.message);
       } else {
         setDepartmentNameError("An unexpected error occurred");
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -386,23 +274,21 @@ const Department = () => {
       }
       return 0;
     });
-    setSortedDepartments(sortedData); // may not need this later
+    setSortedDepartments(sortedData);
     setDepartments(sortedData);
   };
 
-  const applyFilters = (updatedFields: {
+  const applyFilters = async (updatedFields: {
     status?: string;
   }) => {
     try {
       setFilters(prevFilters => {
         const newFilters = { ...prevFilters, ...updatedFields };
-        if (socket) {
-          socket.emit("hr/departmentsStats/get", { ...newFilters });
-        }
+        fetchDepartments(newFilters);
         return newFilters;
       });
-    } catch (error) {
-      console.error("Error applying filters:", error);
+    } catch (err) {
+      console.error("Error applying filters:", err);
     }
   };
 
@@ -410,10 +296,10 @@ const Department = () => {
     applyFilters({ status: st });
   };
 
-  const handleUpdateSubmit = (editingDept: Departments) => {
+  const handleUpdateSubmit = async (editingDept: Departments) => {
     try {
       setEditDepartmentNameError(null);
-      
+
       const { _id, department, status } = editingDept;
 
       if (!_id) {
@@ -436,79 +322,66 @@ const Department = () => {
       // Ensure status is stored with proper capitalization
       const normalizedStatus = normalizeStatus(status);
 
-      const payload = {
-        _id,
-        status: normalizedStatus,
+      const success = await updateDepartment(_id, {
         department,
-      };
+        status: normalizedStatus
+      });
 
-      if (socket) {
-        socket.emit("hrm/departments/update", payload);
-        // Modal will be closed by handleUpdateDepartmentResponse on success
-      } else {
-        setEditDepartmentNameError("Socket connection is not available.");
-        setIsUpdating(false);
+      if (success) {
+        // Refresh departments list
+        await fetchDepartments(filters);
+        resetEditDepartmentForm();
+        // Close modal only on success
+        hideModal('edit_department');
+        setTimeout(() => cleanupModalBackdrops(), 500);
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        setEditDepartmentNameError(error.message);
+    } catch (err: any) {
+      if (err instanceof Error) {
+        setEditDepartmentNameError(err.message);
       } else {
         setEditDepartmentNameError("An unexpected error occurred");
       }
+    } finally {
       setIsUpdating(false);
     }
   };
 
-  const deleteDepartment = (departmentId: string) => {
+  const deleteDepartmentById = async (departmentId: string) => {
     try {
-      setLoading(true);
-      setError(null);
+      const success = await deleteDepartment(departmentId);
 
-      if (!socket) {
-        setError("Socket connection is not available");
-        setLoading(false);
-        return;
+      if (success) {
+        // Refresh departments list
+        await fetchDepartments(filters);
+        message.success("Department deleted successfully");
       }
-
-      if (!departmentId) {
-        setError("Policy ID is required");
-        setLoading(false);
-        return;
-      }
-      const data = {
-        _id : departmentId,
-      }   
-
-      socket.emit("hrm/departments/delete", data);
-    } catch (error) {
-      setError("Failed to initiate policy deletion");
-      setLoading(false);
+    } catch (err) {
+      message.error("Failed to delete department");
     }
   };
 
-  const handleReassignAndDelete = () => {
+  const handleReassignAndDelete = async () => {
     if (!departmentToDelete || !targetDepartmentId) {
-      setError("Please select a target department");
+      message.error("Please select a target department");
       return;
     }
 
     try {
       setIsReassigning(true);
-      setError(null);
+      setLocalError(null);
 
-      const payload = {
-        sourceDepartmentId: departmentToDelete._id,
-        targetDepartmentId: targetDepartmentId,
-      };
+      // TODO: Implement reassign functionality in REST API
+      // For now, just show a message
+      message.warning("Reassign functionality needs to be implemented in REST API");
+      setIsReassigning(false);
 
-      if (socket) {
-        socket.emit("hrm/departments/reassign-delete", payload);
-      } else {
-        setError("Socket connection is not available");
-        setIsReassigning(false);
-      }
-    } catch (error) {
-      setError("Failed to initiate reassignment");
+      // Placeholder for when reassign is implemented:
+      // const success = await reassignAndDeleteDepartment({
+      //   sourceDepartmentId: departmentToDelete._id,
+      //   targetDepartmentId: targetDepartmentId,
+      // });
+    } catch (err) {
+      setLocalError("Failed to initiate reassignment");
       setIsReassigning(false);
     }
   };
@@ -540,7 +413,7 @@ const Department = () => {
     label: dept.department
   }));
 
-  if (loading) {
+  if (loading && departments.length === 0) {
     return (
       <div className="page-wrapper">
         <div className="content">
@@ -557,19 +430,19 @@ const Department = () => {
     );
   }
 
-  if (error) {
+  if (error || localError) {
     return (
       <div className="page-wrapper">
         <div className="content">
           <div className="alert alert-danger" role="alert">
             <h4 className="alert-heading">Error!</h4>
-            <p>{error}</p>
+            <p>{error || localError}</p>
           </div>
         </div>
       </div>
     );
   }
-  
+
   return (
     <>
       {/* Page Wrapper */}
@@ -739,17 +612,17 @@ const Department = () => {
                       <label className="form-label">
                         Department Name <span className="text-danger">*</span>
                       </label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         className={`form-control ${departmentNameError ? 'is-invalid' : ''}`}
-                        value={departmentName} 
+                        value={departmentName}
                         onChange={(e) => {
                           setDepartmentName(e.target.value);
                           // Clear error when user starts typing
                           if (departmentNameError) {
                             setDepartmentNameError(null);
                           }
-                        }} 
+                        }}
                       />
                       {departmentNameError && (
                         <div className="invalid-feedback d-block">
@@ -783,10 +656,10 @@ const Department = () => {
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-primary"
-                  disabled={isSubmitting} 
+                  disabled={isSubmitting}
                   onClick={handleSubmit}
                 >
                   {isSubmitting ? 'Adding...' : 'Add Department'}
@@ -896,7 +769,7 @@ const Department = () => {
               <h4 className="mb-1">Confirm Deletion</h4>
               <p className="mb-3">
                 {departmentToDelete
-                  ? `Are you sure you want to delete policy "${departmentToDelete.department}"? This cannot be undone.`
+                  ? `Are you sure you want to delete department "${departmentToDelete.department}"? This cannot be undone.`
                   : "You want to delete all the marked items, this can't be undone once you delete."}
               </p>
               <div className="d-flex justify-content-center">
@@ -913,7 +786,7 @@ const Department = () => {
                   data-bs-dismiss="modal"
                   onClick={() => {
                     if (departmentToDelete) {
-                      deleteDepartment(departmentToDelete._id);
+                      deleteDepartmentById(departmentToDelete._id);
                     }
                     setDepartmentToDelete(null);
                   }}

@@ -41,6 +41,9 @@ import activityRoutes from "./routes/api/activities.js";
 import pipelineRoutes from "./routes/api/pipelines.js";
 import holidayTypeRoutes from "./routes/api/holiday-types.js";
 import promotionRoutes from "./routes/api/promotions.js";
+import departmentRoutes from "./routes/api/departments.js";
+import policyRoutes from "./routes/api/policies.js";
+import designationRoutes from "./routes/api/designations.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 config();
@@ -151,6 +154,9 @@ const initializeServer = async () => {
     app.use("/api/pipelines", pipelineRoutes);
     app.use("/api/holiday-types", holidayTypeRoutes);
     app.use("/api/promotions", promotionRoutes);
+    app.use("/api/departments", departmentRoutes);
+    app.use("/api/policies", policyRoutes);
+    app.use("/api/designations", designationRoutes);
 
     // API Documentation (Swagger)
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {

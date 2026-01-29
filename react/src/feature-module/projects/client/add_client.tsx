@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSocket } from '../../../SocketContext';
-import { Socket } from 'socket.io-client';
 import { message } from 'antd';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { useClientsREST } from '../../../hooks/useClientsREST';
 
 interface ClientFormData {
   name: string;
@@ -30,7 +29,7 @@ interface ClientFormErrors {
 }
 
 const AddClient = () => {
-  const socket = useSocket() as Socket | null;
+  const { createClient } = useClientsREST();
   const [formData, setFormData] = useState<ClientFormData>({
     name: '',
     company: '',
@@ -184,58 +183,51 @@ const AddClient = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
 
-    if (!socket) {
-      message.error("Socket connection not available");
+    if (!validateForm()) {
       return;
     }
 
     setLoading(true);
     try {
       console.log('Creating client:', formData);
-      socket.emit('client:create', formData);
 
-      // Listen for response
-      socket.once('client:create-response', (response: any) => {
-        if (response.done) {
-          console.log('Client created successfully:', response.data);
-          message.success('Client created successfully!');
-          setFormData({
-            name: '',
-            company: '',
-            email: '',
-            phone: '',
-            address: '',
-            logo: '',
-            status: 'Active',
-            contractValue: 0,
-            projects: 0
-          });
-          setErrors({});
-          
-          // Show success message briefly, then close modal
-          setTimeout(() => {
-            closeModal();
-            resetForm();
-            
-            // Reset states after modal closes
-            setTimeout(() => {
-              setLoading(false);
-            }, 300);
-          }, 1500);
-        } else {
-          console.error('Failed to create client:', response.error);
-          message.error(`Failed to create client: ${response.error}`);
+      // Call REST API to create client
+      const success = await createClient(formData);
+
+      if (success) {
+        console.log('Client created successfully');
+        setFormData({
+          name: '',
+          company: '',
+          email: '',
+          phone: '',
+          address: '',
+          logo: '',
+          status: 'Active',
+          contractValue: 0,
+          projects: 0
+        });
+        setErrors({});
+        setLogo(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
         }
-        setLoading(false);
-      });
+
+        // Show success message briefly, then close modal
+        setTimeout(() => {
+          closeModal();
+
+          // Reset states after modal closes
+          setTimeout(() => {
+            setLoading(false);
+          }, 300);
+        }, 1500);
+      }
     } catch (error) {
       console.error('Error creating client:', error);
       message.error('An error occurred while creating the client');
+    } finally {
       setLoading(false);
     }
   };
