@@ -5,27 +5,21 @@
 
 import express from 'express';
 import {
-  getTasks,
-  getTaskById,
   createTask,
-  updateTask,
+  createTaskStatus,
   deleteTask,
   getMyTasks,
+  getTaskById,
+  getTasks,
   getTasksByProject,
+  getTaskStats,
+  getTaskStatuses,
+  updateTask,
   updateTaskStatus,
-  getTaskStats
+  updateTaskStatusBoard,
 } from '../../controllers/rest/task.controller.js';
-import {
-  authenticate,
-  requireRole,
-  requireCompany,
-  attachRequestId
-} from '../../middleware/auth.js';
-import {
-  validateBody,
-  validateQuery,
-  taskSchemas
-} from '../../middleware/validate.js';
+import { attachRequestId, authenticate, requireRole } from '../../middleware/auth.js';
+import { taskSchemas, validateBody, validateQuery } from '../../middleware/validate.js';
 
 const router = express.Router();
 
@@ -36,39 +30,35 @@ router.use(attachRequestId);
  * Public Routes (Authenticated users can access)
  */
 
-// Get current user's tasks
-router.get(
-  '/my',
+// Get task statuses
+router.get('/statuses', authenticate, getTaskStatuses);
+
+// Create task status (Admin only)
+router.post('/statuses', authenticate, requireRole('admin', 'superadmin'), createTaskStatus);
+
+// Update task status board (Admin only)
+router.put(
+  '/statuses/:id',
   authenticate,
-  getMyTasks
+  requireRole('admin', 'superadmin'),
+  updateTaskStatusBoard
 );
+
+// Get current user's tasks
+router.get('/my', authenticate, getMyTasks);
 
 // Get tasks by project
-router.get(
-  '/project/:projectId',
-  authenticate,
-  getTasksByProject
-);
+router.get('/project/:projectId', authenticate, getTasksByProject);
 
 // Get task statistics
-router.get(
-  '/stats',
-  authenticate,
-  requireRole('admin', 'hr', 'superadmin'),
-  getTaskStats
-);
+router.get('/stats', authenticate, requireRole('admin', 'hr', 'superadmin'), getTaskStats);
 
 /**
  * Admin/HR Routes (Restricted access)
  */
 
 // List all tasks with pagination and filtering
-router.get(
-  '/',
-  authenticate,
-  validateQuery(taskSchemas.list),
-  getTasks
-);
+router.get('/', authenticate, validateQuery(taskSchemas.list), getTasks);
 
 // Create new task
 router.post(
@@ -84,11 +74,7 @@ router.post(
  */
 
 // Get single task by ID
-router.get(
-  '/:id',
-  authenticate,
-  getTaskById
-);
+router.get('/:id', authenticate, getTaskById);
 
 // Update task
 router.put(
@@ -100,12 +86,7 @@ router.put(
 );
 
 // Delete task (soft delete)
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('admin', 'superadmin'),
-  deleteTask
-);
+router.delete('/:id', authenticate, requireRole('admin', 'superadmin'), deleteTask);
 
 // Update task status
 router.patch(

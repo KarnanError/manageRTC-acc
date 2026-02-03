@@ -38,6 +38,14 @@ const taskSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  milestoneId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Milestone'
+  },
+  timeEntryIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TimeEntry'
+  }],
   startDate: {
     type: Date
   },
@@ -81,6 +89,7 @@ const taskSchema = new mongoose.Schema({
 
 taskSchema.index({ projectId: 1, status: 1 });
 taskSchema.index({ projectId: 1, assignee: 1 });
+taskSchema.index({ milestoneId: 1 });
 taskSchema.index({ createdAt: -1 });
 
 

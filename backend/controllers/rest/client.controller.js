@@ -3,24 +3,27 @@
  * Handles all Client CRUD operations via REST API
  */
 
+import { format } from 'date-fns';
+import ExcelJS from 'exceljs';
+import fs from 'fs';
 import mongoose from 'mongoose';
+import path from 'path';
+import PDFDocument from 'pdfkit';
+import { getTenantCollections } from '../../config/db.js';
+import {
+  asyncHandler,
+  buildConflictError,
+  buildNotFoundError,
+  buildValidationError,
+} from '../../middleware/errorHandler.js';
 import Client from '../../models/client/client.schema.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  buildValidationError,
-  asyncHandler
-} from '../../middleware/errorHandler.js';
-import {
-  sendSuccess,
-  sendCreated,
-  filterAndPaginate,
   buildSearchFilter,
   extractUser,
-  getRequestId
+  filterAndPaginate,
+  sendCreated,
+  sendSuccess,
 } from '../../utils/apiResponse.js';
-import { generateClientId } from '../../utils/idGenerator.js';
-import { getSocketIO, broadcastClientEvents } from '../../utils/socketBroadcaster.js';
 
 /**
  * @desc    Get all clients with pagination and filtering
@@ -28,71 +31,36 @@ import { getSocketIO, broadcastClientEvents } from '../../utils/socketBroadcaste
  * @access  Private (Admin, HR, Superadmin)
  */
 export const getClients = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, tier, source, clientType, accountManager, sortBy, order } = req.query;
   const user = extractUser(req);
 
-  // Build filter
-  let filter = {
-    isDeleted: false
+  // Use tenant collections for multi-tenant database access
+  const collections = getTenantCollections(user.companyId);
+
+  // Simple filter - just get non-deleted clients
+  const filter = {
+    $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
   };
 
-  // Apply status filter
-  if (status) {
-    filter.status = status;
-  }
+  // Get all clients from tenant-specific database
+  const clients = await collections.clients.find(filter).sort({ createdAt: -1 }).toArray();
 
-  // Apply tier filter
-  if (tier) {
-    filter.tier = tier;
-  }
+  // For each client, count projects from the project collection
+  const clientsWithProjects = await Promise.all(
+    clients.map(async (client) => {
+      // Count projects where client name matches
+      const projectCount = await collections.projects.countDocuments({
+        client: client.name,
+        $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+      });
 
-  // Apply source filter
-  if (source) {
-    filter.source = source;
-  }
+      return {
+        ...client,
+        projects: projectCount,
+      };
+    })
+  );
 
-  // Apply clientType filter
-  if (clientType) {
-    filter.clientType = clientType;
-  }
-
-  // Apply accountManager filter
-  if (accountManager) {
-    filter.accountManager = accountManager;
-  }
-
-  // Apply search filter
-  if (search && search.trim()) {
-    const searchFilter = buildSearchFilter(search, ['name', 'displayName', 'industry', 'tags']);
-    filter = { ...filter, ...searchFilter };
-  }
-
-  // Build sort option
-  const sort = {};
-  if (sortBy) {
-    sort[sortBy] = order === 'asc' ? 1 : -1;
-  } else {
-    sort.createdAt = -1;
-  }
-
-  // Get paginated results
-  const result = await filterAndPaginate(Client, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort,
-    populate: [
-      {
-        path: 'accountManager',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'teamMembers',
-        select: 'firstName lastName fullName employeeId'
-      }
-    ]
-  });
-
-  return sendSuccess(res, result.data, 'Clients retrieved successfully', 200, result.pagination);
+  return sendSuccess(res, clientsWithProjects, 'Clients retrieved successfully');
 });
 
 /**
@@ -112,9 +80,9 @@ export const getClientById = asyncHandler(async (req, res) => {
   // Find client
   const client = await Client.findOne({
     _id: id,
-    isDeleted: false
-  }).populate('accountManager', 'firstName lastName fullName employeeId')
-    .populate('teamMembers', 'firstName lastName fullName employeeId')
+    isDeleted: false,
+  })
+    .populate('accountManager', 'firstName lastName fullName employeeId')
     .populate('createdBy', 'firstName lastName fullName employeeId')
     .populate('updatedBy', 'firstName lastName fullName employeeId');
 
@@ -134,62 +102,54 @@ export const createClient = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const clientData = req.body;
 
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Check for duplicate name
-  const existingClient = await Client.findOne({
+  const existingClient = await collections.clients.findOne({
     name: clientData.name,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (existingClient) {
     throw buildConflictError('A client with this name already exists');
   }
 
-  // Verify account manager exists if provided
-  if (clientData.accountManager) {
-    const Employee = mongoose.model('Employee');
-    const employee = await Employee.findOne({
-      _id: clientData.accountManager,
-      isDeleted: false
-    });
-
-    if (!employee) {
-      throw buildNotFoundError('Employee (Account Manager)', clientData.accountManager);
-    }
-  }
-
-  // Verify team members exist if provided
-  if (clientData.teamMembers && clientData.teamMembers.length > 0) {
-    const Employee = mongoose.model('Employee');
-    const employees = await Employee.find({
-      _id: { $in: clientData.teamMembers },
-      isDeleted: false
-    });
-
-    if (employees.length !== clientData.teamMembers.length) {
-      throw buildNotFoundError('Some team members not found');
-    }
-  }
-
-  // Generate client ID
+  // Generate client ID using tenant-specific collection
   if (!clientData.clientId) {
-    clientData.clientId = await generateClientId();
+    const year = new Date().getFullYear();
+
+    // Find the highest client ID for this year in tenant database
+    const lastClient = await collections.clients
+      .find({ clientId: { $regex: `^CLIT-${year}-` } })
+      .sort({ clientId: -1 })
+      .limit(1)
+      .toArray();
+
+    let sequence = 1;
+    if (lastClient && lastClient.length > 0 && lastClient[0].clientId) {
+      const parts = lastClient[0].clientId.split('-');
+      const lastSequence = parseInt(parts[parts.length - 1]);
+      sequence = lastSequence + 1;
+    }
+
+    const paddedSequence = String(sequence).padStart(4, '0');
+    clientData.clientId = `CLIT-${year}-${paddedSequence}`;
   }
 
-  // Add audit fields
-  clientData.createdBy = user.userId;
+  // Prepare client document (simplified structure)
+  const clientDocument = {
+    ...clientData,
+    isDeleted: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-  // Create client
-  const client = await Client.create(clientData);
+  // Create client using native MongoDB
+  const result = await collections.clients.insertOne(clientDocument);
 
-  // Populate references for response
-  await client.populate('accountManager', 'firstName lastName fullName employeeId');
-  await client.populate('teamMembers', 'firstName lastName fullName employeeId');
-
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  if (io) {
-    broadcastClientEvents.created(io, user.companyId, client);
-  }
+  // Fetch the created client
+  const client = await collections.clients.findOne({ _id: result.insertedId });
 
   return sendCreated(res, client, 'Client created successfully');
 });
@@ -209,10 +169,13 @@ export const updateClient = asyncHandler(async (req, res) => {
     throw buildValidationError('id', 'Invalid client ID format');
   }
 
-  // Find client
-  const client = await Client.findOne({
-    _id: id,
-    isDeleted: false
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find client in tenant database
+  const client = await collections.clients.findOne({
+    _id: new mongoose.Types.ObjectId(id),
+    $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
   });
 
   if (!client) {
@@ -221,10 +184,10 @@ export const updateClient = asyncHandler(async (req, res) => {
 
   // Check for duplicate name if name is being updated
   if (updateData.name && updateData.name !== client.name) {
-    const existingClient = await Client.findOne({
+    const existingClient = await collections.clients.findOne({
       name: updateData.name,
-      _id: { $ne: id },
-      isDeleted: false
+      _id: { $ne: new mongoose.Types.ObjectId(id) },
+      $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
     });
 
     if (existingClient) {
@@ -232,22 +195,30 @@ export const updateClient = asyncHandler(async (req, res) => {
     }
   }
 
-  // Update client
-  Object.assign(client, updateData);
-  client.updatedBy = user.userId;
-  await client.save();
+  // Remove _id from updateData if present
+  delete updateData._id;
 
-  // Populate references for response
-  await client.populate('accountManager', 'firstName lastName fullName employeeId');
-  await client.populate('teamMembers', 'firstName lastName fullName employeeId');
+  // Update client using native MongoDB
+  const result = await collections.clients.updateOne(
+    { _id: new mongoose.Types.ObjectId(id) },
+    {
+      $set: {
+        ...updateData,
+        updatedAt: new Date(),
+      },
+    }
+  );
 
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  if (io) {
-    broadcastClientEvents.updated(io, user.companyId, client);
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Client', id);
   }
 
-  return sendSuccess(res, client, 'Client updated successfully');
+  // Fetch updated client
+  const updatedClient = await collections.clients.findOne({
+    _id: new mongoose.Types.ObjectId(id),
+  });
+
+  return sendSuccess(res, updatedClient, 'Client updated successfully');
 });
 
 /**
@@ -264,35 +235,64 @@ export const deleteClient = asyncHandler(async (req, res) => {
     throw buildValidationError('id', 'Invalid client ID format');
   }
 
-  // Find client
-  const client = await Client.findOne({
-    _id: id,
-    isDeleted: false
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find client in tenant database
+  const client = await collections.clients.findOne({
+    _id: new mongoose.Types.ObjectId(id),
+    $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
   });
 
   if (!client) {
     throw buildNotFoundError('Client', id);
   }
 
-  // Soft delete
-  client.isActive = false;
-  client.isDeleted = true;
-  client.deletedAt = new Date();
-  client.deletedBy = user.userId;
-  client.status = 'Churned';
-  await client.save();
+  // Check if client has any active/ongoing projects
+  const activeProjects = await collections.projects
+    .find({
+      client: client.name,
+      $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+      status: { $nin: ['Completed', 'Cancelled'] },
+    })
+    .toArray();
 
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  if (io) {
-    broadcastClientEvents.deleted(io, user.companyId, client.clientId, user.userId);
+  if (activeProjects && activeProjects.length > 0) {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'CONFLICT',
+        message: `Cannot delete client. There are ${activeProjects.length} active project(s) associated with this client. Please complete or cancel all projects before deleting the client.`,
+      },
+    });
   }
 
-  return sendSuccess(res, {
-    _id: client._id,
-    clientId: client.clientId,
-    isDeleted: true
-  }, 'Client deleted successfully');
+  // Soft delete using native MongoDB
+  const result = await collections.clients.updateOne(
+    { _id: new mongoose.Types.ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        status: 'Inactive',
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Client', id);
+  }
+
+  return sendSuccess(
+    res,
+    {
+      _id: client._id,
+      clientId: client.clientId,
+      isDeleted: true,
+    },
+    'Client deleted successfully'
+  );
 });
 
 /**
@@ -311,9 +311,9 @@ export const getClientsByAccountManager = asyncHandler(async (req, res) => {
 
   const clients = await Client.find({
     accountManager: managerId,
-    isDeleted: false
-  }).populate('accountManager', 'firstName lastName fullName employeeId')
-    .populate('teamMembers', 'firstName lastName fullName employeeId')
+    isDeleted: false,
+  })
+    .populate('accountManager', 'firstName lastName fullName employeeId')
     .sort({ name: 1 });
 
   return sendSuccess(res, clients, 'Clients by account manager retrieved successfully');
@@ -331,14 +331,17 @@ export const getClientsByStatus = asyncHandler(async (req, res) => {
   // Validate status
   const validStatuses = ['Active', 'Inactive', 'Prospect', 'Churned'];
   if (!validStatuses.includes(status)) {
-    throw buildValidationError('status', `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    throw buildValidationError(
+      'status',
+      `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+    );
   }
 
   const clients = await Client.find({
     status,
-    isDeleted: false
-  }).populate('accountManager', 'firstName lastName fullName employeeId')
-    .populate('teamMembers', 'firstName lastName fullName employeeId')
+    isDeleted: false,
+  })
+    .populate('accountManager', 'firstName lastName fullName employeeId')
     .sort({ name: 1 });
 
   return sendSuccess(res, clients, 'Clients by status retrieved successfully');
@@ -361,9 +364,9 @@ export const getClientsByTier = asyncHandler(async (req, res) => {
 
   const clients = await Client.find({
     tier,
-    isDeleted: false
-  }).populate('accountManager', 'firstName lastName fullName employeeId')
-    .populate('teamMembers', 'firstName lastName fullName employeeId')
+    isDeleted: false,
+  })
+    .populate('accountManager', 'firstName lastName fullName employeeId')
     .sort({ totalValue: -1 });
 
   return sendSuccess(res, clients, 'Clients by tier retrieved successfully');
@@ -384,23 +387,23 @@ export const searchClients = asyncHandler(async (req, res) => {
 
   const searchFilter = buildSearchFilter(q, ['name', 'displayName', 'industry', 'tags']);
 
-  const result = await filterAndPaginate(Client, {
-    isDeleted: false,
-    ...searchFilter
-  }, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    populate: [
-      {
-        path: 'accountManager',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'teamMembers',
-        select: 'firstName lastName fullName employeeId'
-      }
-    ]
-  });
+  const result = await filterAndPaginate(
+    Client,
+    {
+      isDeleted: false,
+      ...searchFilter,
+    },
+    {
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 20,
+      populate: [
+        {
+          path: 'accountManager',
+          select: 'firstName lastName fullName employeeId',
+        },
+      ],
+    }
+  );
 
   return sendSuccess(res, result.data, 'Client search results', 200, result.pagination);
 });
@@ -413,63 +416,61 @@ export const searchClients = asyncHandler(async (req, res) => {
 export const getClientStats = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  const stats = await Client.aggregate([
-    { $match: { isDeleted: false } },
-    {
-      $group: {
-        _id: null,
-        total: { $sum: 1 },
-        active: {
-          $sum: { $cond: [{ $eq: ['$status', 'Active'] }, 1, 0] }
-        },
-        inactive: {
-          $sum: { $cond: [{ $eq: ['$status', 'Inactive'] }, 1, 0] }
-        },
-        prospect: {
-          $sum: { $cond: [{ $eq: ['$status', 'Prospect'] }, 1, 0] }
-        },
-        churned: {
-          $sum: { $cond: [{ $eq: ['$status', 'Churned'] }, 1, 0] }
-        },
-        enterprise: {
-          $sum: { $cond: [{ $eq: ['$tier', 'Enterprise'] }, 1, 0] }
-        },
-        midMarket: {
-          $sum: { $cond: [{ $eq: ['$tier', 'Mid-Market'] }, 1, 0] }
-        },
-        smallBusiness: {
-          $sum: { $cond: [{ $eq: ['$tier', 'Small-Business'] }, 1, 0] }
-        },
-        startup: {
-          $sum: { $cond: [{ $eq: ['$tier', 'Startup'] }, 1, 0] }
-        },
-        totalDeals: { $sum: '$totalDeals' },
-        wonDeals: { $sum: '$wonDeals' },
-        totalValue: { $sum: '$totalValue' },
-        wonValue: { $sum: '$wonValue' }
-      }
-    }
-  ]);
+  // Get tenant-specific collections
+  const collections = getTenantCollections(user.companyId);
 
-  const result = stats[0] || {
+  // Calculate date 7 days ago
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const stats = await collections.clients
+    .aggregate([
+      {
+        $match: {
+          $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }, { isDeleted: null }],
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          active: {
+            $sum: { $cond: [{ $eq: ['$status', 'Active'] }, 1, 0] },
+          },
+          inactive: {
+            $sum: { $cond: [{ $eq: ['$status', 'Inactive'] }, 1, 0] },
+          },
+          new: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [{ $gte: ['$createdAt', sevenDaysAgo] }, { $ne: ['$createdAt', null] }],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ])
+    .toArray();
+
+  const rawStats = stats[0] || {
     total: 0,
     active: 0,
     inactive: 0,
-    prospect: 0,
-    churned: 0,
-    enterprise: 0,
-    midMarket: 0,
-    smallBusiness: 0,
-    startup: 0,
-    totalDeals: 0,
-    wonDeals: 0,
-    totalValue: 0,
-    wonValue: 0
+    new: 0,
   };
 
-  // Add calculated metrics
-  result.winRate = result.totalDeals > 0 ? ((result.wonDeals / result.totalDeals) * 100).toFixed(2) : 0;
-  result.averageDealValue = result.totalDeals > 0 ? (result.totalValue / result.totalDeals).toFixed(2) : 0;
+  // Map to frontend expected property names
+  const result = {
+    total: rawStats.total,
+    totalClients: rawStats.total,
+    activeClients: rawStats.active,
+    inactiveClients: rawStats.inactive,
+    newClients: rawStats.new,
+  };
 
   return sendSuccess(res, result, 'Client statistics retrieved successfully');
 });
@@ -492,7 +493,7 @@ export const updateClientDealStats = asyncHandler(async (req, res) => {
   // Find client
   const client = await Client.findOne({
     _id: id,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (!client) {
@@ -509,20 +510,218 @@ export const updateClientDealStats = asyncHandler(async (req, res) => {
   client.totalValue += value || 0;
   await client.save();
 
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  if (io) {
-    broadcastClientEvents.dealStatsUpdated(io, user.companyId, client);
+  return sendSuccess(
+    res,
+    {
+      _id: client._id,
+      clientId: client.clientId,
+      totalDeals: client.totalDeals,
+      wonDeals: client.wonDeals,
+      totalValue: client.totalValue,
+      wonValue: client.wonValue,
+    },
+    'Client deal statistics updated successfully'
+  );
+});
+
+/**
+ * @desc    Export clients as PDF
+ * @route   GET /api/clients/export/pdf
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const exportPDF = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get all clients from tenant-specific database
+  const clients = await collections.clients
+    .find({
+      $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  console.log('[ExportPDF] Found clients:', clients.length);
+
+  // Create PDF document
+  const doc = new PDFDocument();
+  const fileName = `clients_${Date.now()}.pdf`;
+  const tempDir = path.join(process.cwd(), 'temp');
+  const filePath = path.join(tempDir, fileName);
+
+  // Ensure temp directory exists
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
   }
 
-  return sendSuccess(res, {
-    _id: client._id,
-    clientId: client.clientId,
-    totalDeals: client.totalDeals,
-    wonDeals: client.wonDeals,
-    totalValue: client.totalValue,
-    wonValue: client.wonValue
-  }, 'Client deal statistics updated successfully');
+  // Pipe PDF to file
+  const writeStream = fs.createWriteStream(filePath);
+  doc.pipe(writeStream);
+
+  // Header
+  doc.fontSize(20).text('Client Report', 50, 50);
+  doc.fontSize(12).text(`Generated on: ${format(new Date(), 'PPP')}`, 50, 80);
+  doc.text(`Total Clients: ${clients.length}`, 50, 100);
+
+  let yPosition = 130;
+
+  // Table header
+  doc.fontSize(10).text('Name', 50, yPosition);
+  doc.text('Company', 200, yPosition);
+  doc.text('Email', 350, yPosition);
+  doc.text('Status', 500, yPosition);
+  doc.text('Created', 580, yPosition);
+
+  yPosition += 20;
+
+  // Draw line under header
+  doc.moveTo(50, yPosition).lineTo(650, yPosition).stroke();
+
+  yPosition += 10;
+
+  // Client data
+  clients.forEach((client) => {
+    if (yPosition > 750) {
+      doc.addPage();
+      yPosition = 50;
+    }
+
+    doc.text(client.name || 'N/A', 50, yPosition);
+    doc.text(client.company || 'N/A', 200, yPosition);
+    doc.text(client.email || 'N/A', 350, yPosition);
+    doc.text(client.status || 'N/A', 500, yPosition);
+    doc.text(
+      client.createdAt ? format(new Date(client.createdAt), 'MMM dd, yyyy') : 'N/A',
+      580,
+      yPosition
+    );
+
+    yPosition += 20;
+  });
+
+  // Finalize PDF
+  doc.end();
+
+  // Wait for file to be written
+  writeStream.on('finish', () => {
+    console.log('[ExportPDF] PDF file created successfully');
+    // Send the file as a download response
+    res.download(filePath, fileName, (err) => {
+      if (err) {
+        console.error('[ExportPDF] Error sending PDF file:', err);
+      }
+      // Optionally delete the temp file after sending
+      // fs.unlinkSync(filePath);
+    });
+  });
+
+  writeStream.on('error', (err) => {
+    console.error('[ExportPDF] Error writing PDF file:', err);
+    throw buildValidationError('export', 'Failed to generate PDF file');
+  });
+});
+
+/**
+ * @desc    Export clients as Excel
+ * @route   GET /api/clients/export/excel
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const exportExcel = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get all clients from tenant-specific database
+  const clients = await collections.clients
+    .find({
+      $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  console.log('[ExportExcel] Found clients:', clients.length);
+
+  // For each client, count projects from the project collection
+  const clientsWithProjects = await Promise.all(
+    clients.map(async (client) => {
+      // Count projects where client name matches
+      const projectCount = await collections.projects.countDocuments({
+        client: client.name,
+        $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+      });
+
+      return {
+        ...client,
+        projects: projectCount,
+      };
+    })
+  );
+
+  // Create Excel workbook
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Clients');
+
+  // Define columns
+  worksheet.columns = [
+    { header: 'Name', key: 'name', width: 20 },
+    { header: 'Company', key: 'company', width: 25 },
+    { header: 'Email', key: 'email', width: 30 },
+    { header: 'Phone', key: 'phone', width: 15 },
+    { header: 'Address', key: 'address', width: 40 },
+    { header: 'Status', key: 'status', width: 10 },
+    { header: 'Contract Value', key: 'contractValue', width: 15 },
+    { header: 'Projects', key: 'projects', width: 10 },
+    { header: 'Created At', key: 'createdAt', width: 20 },
+  ];
+
+  // Add data
+  clientsWithProjects.forEach((client) => {
+    worksheet.addRow({
+      name: client.name || '',
+      company: client.company || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      address: client.address || '',
+      status: client.status || '',
+      contractValue: client.contractValue || 0,
+      projects: client.projects || 0,
+      createdAt: client.createdAt ? format(new Date(client.createdAt), 'MMM dd, yyyy') : '',
+    });
+  });
+
+  // Style the header
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE0E0E0' },
+  };
+
+  const fileName = `clients_${Date.now()}.xlsx`;
+  const tempDir = path.join(process.cwd(), 'temp');
+  const filePath = path.join(tempDir, fileName);
+
+  // Ensure temp directory exists
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  // Write Excel file
+  await workbook.xlsx.writeFile(filePath);
+
+  console.log('[ExportExcel] Excel file created successfully');
+
+  // Send the file as a download response
+  res.download(filePath, fileName, (err) => {
+    if (err) {
+      console.error('[ExportExcel] Error sending Excel file:', err);
+    }
+    // Optionally delete the temp file after sending
+    // fs.unlinkSync(filePath);
+  });
 });
 
 export default {
@@ -536,5 +735,7 @@ export default {
   getClientsByTier,
   searchClients,
   getClientStats,
-  updateClientDealStats
+  updateClientDealStats,
+  exportPDF,
+  exportExcel,
 };

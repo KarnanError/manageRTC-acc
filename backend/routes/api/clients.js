@@ -15,7 +15,9 @@ import {
   getClientsByTier,
   searchClients,
   getClientStats,
-  updateClientDealStats
+  updateClientDealStats,
+  exportPDF,
+  exportExcel
 } from '../../controllers/rest/client.controller.js';
 import {
   authenticate,
@@ -72,6 +74,24 @@ router.get(
   authenticate,
   requireRole('admin', 'hr', 'superadmin'),
   getClientStats
+);
+
+// Export clients as PDF
+router.get(
+  '/export/pdf',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  exportPDF
+);
+
+// Export clients as Excel
+router.get(
+  '/export/excel',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  exportExcel
 );
 
 /**

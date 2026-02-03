@@ -1,20 +1,23 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import dayjs, { Dayjs } from "dayjs";
-import { useParams } from "react-router-dom";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
-import CommonSelect from "../../../core/common/commonSelect";
-import Select from "react-select";
-import { DatePicker } from "antd";
-import CommonTagsInput from "../../../core/common/Taginput";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useSocket } from "../../../SocketContext";
-import Footer from "../../../core/common/footer";
+import { DatePicker } from 'antd';
+import dayjs, { Dayjs } from 'dayjs';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import Select from 'react-select';
+import { useSocket } from '../../../SocketContext';
+import CommonTagsInput from '../../../core/common/Taginput';
+import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
+import CommonSelect from '../../../core/common/commonSelect';
+import Footer from '../../../core/common/footer';
+import ImageWithBasePath from '../../../core/common/imageWithBasePath';
+import { useProjectsREST } from '../../../hooks/useProjectsREST';
+import { Task, useTasksREST } from '../../../hooks/useTasksREST';
+import { all_routes } from '../../router/all_routes';
 
 const TaskDetails = () => {
   const { taskId } = useParams();
   const socket = useSocket() as any;
+  const { getTaskById: getTaskByIdAPI, updateTask: updateTaskAPI } = useTasksREST();
+  const { getProjectById: getProjectByIdAPI } = useProjectsREST();
 
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -38,62 +41,72 @@ const TaskDetails = () => {
   const [tags1, setTags1] = useState<string[]>([]);
   const [taskStatuses, setTaskStatuses] = useState<any[]>([]);
 
-  const loadTask = useCallback(() => {
-    if (!taskId || !socket) return;
+  const loadTask = useCallback(async () => {
+    if (!taskId) return;
 
     setLoading(true);
     setError(null);
-    socket.emit("task:getById", taskId);
-  }, [taskId, socket]);
+
+    try {
+      const taskData = await getTaskByIdAPI(taskId);
+      if (taskData) {
+        setTask(taskData);
+        setEditTitle(taskData.title || '');
+        setEditDescription(taskData.description || '');
+        setEditStatus(taskData.status || '');
+        setEditPriority(taskData.priority || '');
+        setEditDueDate(taskData.dueDate ? dayjs(taskData.dueDate) : null);
+
+        // Handle assignee - could be string or array
+        const assigneeStr = taskData.assignee || '';
+        const assigneeArray =
+          typeof assigneeStr === 'string' ? assigneeStr.split(',').filter((a) => a.trim()) : [];
+        setEditAssignees(assigneeArray);
+
+        setTags1(Array.isArray(taskData.tags) ? taskData.tags : []);
+
+        // Load project details
+        if (taskData.project) {
+          const projectId =
+            typeof taskData.project === 'string'
+              ? taskData.project
+              : (taskData.project as any)?._id || taskData.project;
+          const project = await getProjectByIdAPI(projectId);
+          if (project) {
+            setProjectDetails(project);
+          }
+        }
+      } else {
+        setError('Failed to load task details');
+      }
+    } catch (error) {
+      console.error('[TaskDetails] Error loading task:', error);
+      setError('An error occurred while loading task details');
+    } finally {
+      setLoading(false);
+    }
+  }, [taskId, getTaskByIdAPI, getProjectByIdAPI]);
 
   const loadProjectMembers = useCallback(() => {
     if (!task?.projectId || !socket) return;
+
     setLoadingMembers(true);
-    socket.emit("project:getMembers", { projectId: task.projectId });
+    // Project members are loaded via socket.io for now
+    socket.emit('project:getMembers', { projectId: task.projectId });
   }, [task?.projectId, socket]);
 
   const loadTaskStatuses = useCallback(() => {
     if (!socket) return;
-    socket.emit("task:getStatuses");
-  }, [socket]);
-
-  const handleTaskResponse = useCallback((response: any) => {
-    setLoading(false);
-    if (response.done && response.data) {
-      const taskData = response.data;
-      setTask(taskData);
-      setEditTitle(taskData.title || '');
-      setEditDescription(taskData.description || '');
-      setEditStatus(taskData.status || '');
-      setEditPriority(taskData.priority || '');
-      setEditDueDate(taskData.dueDate ? dayjs(taskData.dueDate) : null);
-      setEditAssignees(Array.isArray(taskData.assignee) ? taskData.assignee.map((a: any) => a?.toString()) : []);
-      setTags1(Array.isArray(taskData.tags) ? taskData.tags : []);
-      
-      if (taskData.assigneeDetails && Array.isArray(taskData.assigneeDetails)) {
-        setAssigneeDetails(taskData.assigneeDetails);
-      }
-      
-      if (taskData.projectId && socket) {
-        const projectId = typeof taskData.projectId === 'string' ? taskData.projectId : taskData.projectId?._id || taskData.projectId;
-        socket.emit('project:getById', projectId);
-      }
-    } else {
-      setError(response.error || "Failed to load task details");
-    }
+    // Task statuses are admin-managed, keeping socket.io for now
+    socket.emit('task:getStatuses');
   }, [socket]);
 
   useEffect(() => {
+    loadTask();
     if (socket) {
-      socket.on("task:getById-response", handleTaskResponse);
-      loadTask();
       loadTaskStatuses();
-
-      return () => {
-        socket.off("task:getById-response", handleTaskResponse);
-      };
     }
-  }, [socket, handleTaskResponse, loadTask, loadTaskStatuses]);
+  }, [loadTask, socket, loadTaskStatuses]);
 
   useEffect(() => {
     if (task?.projectId) {
@@ -106,19 +119,7 @@ const TaskDetails = () => {
       const handleProjectMembersResponse = (response: any) => {
         setLoadingMembers(false);
         if (response?.done) {
-          setProjectMembers(response.data?.members || []);
-        }
-      };
-
-      const handleProjectByIdResponse = (response: any) => {
-        if (response?.done && response.data) {
-          setProjectDetails(response.data);
-        }
-      };
-
-      const handleEmployeesByIdsResponse = (response: any) => {
-        if (response?.done && response.data) {
-          setAssigneeDetails(Array.isArray(response.data) ? response.data : []);
+          setProjectMembers(response.data?.members || response.data || []);
         }
       };
 
@@ -128,58 +129,56 @@ const TaskDetails = () => {
         }
       };
 
-      socket.on("project:getMembers-response", handleProjectMembersResponse);
-      socket.on("project:getById-response", handleProjectByIdResponse);
-      socket.on("employee:getByIds-response", handleEmployeesByIdsResponse);
-      socket.on("task:getStatuses-response", handleTaskStatusesResponse);
+      socket.on('project:getMembers-response', handleProjectMembersResponse);
+      socket.on('task:getStatuses-response', handleTaskStatusesResponse);
 
       return () => {
-        socket.off("project:getMembers-response", handleProjectMembersResponse);
-        socket.off("project:getById-response", handleProjectByIdResponse);
-        socket.off("employee:getByIds-response", handleEmployeesByIdsResponse);
-        socket.off("task:getStatuses-response", handleTaskStatusesResponse);
+        socket.off('project:getMembers-response', handleProjectMembersResponse);
+        socket.off('task:getStatuses-response', handleTaskStatusesResponse);
       };
     }
   }, [socket]);
 
   const getModalContainer = () => {
-    const modalElement = document.getElementById("modal-datepicker");
+    const modalElement = document.getElementById('modal-datepicker');
     return modalElement ? modalElement : document.body;
   };
 
   const statusChoose = useMemo(() => {
-    const baseOption = [{ value: "Select", label: "Select" }];
+    const baseOption = [{ value: 'Select', label: 'Select' }];
     if (!taskStatuses || taskStatuses.length === 0) {
       return baseOption;
     }
     return [
       ...baseOption,
-      ...taskStatuses.map(status => ({
+      ...taskStatuses.map((status) => ({
         value: status.key,
-        label: status.name || status.key
-      }))
+        label: status.name || status.key,
+      })),
     ];
   }, [taskStatuses]);
 
   const priorityChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Medium", label: "Medium" },
-    { value: "High", label: "High" },
-    { value: "Low", label: "Low" },
+    { value: 'Select', label: 'Select' },
+    { value: 'Medium', label: 'Medium' },
+    { value: 'High', label: 'High' },
+    { value: 'Low', label: 'Low' },
   ];
 
-  const assigneeSelectOptions = useMemo(() => (
-    (projectMembers || []).map((member) => {
-      const rawValue = member?._id || member?.id || member?.employeeId;
-      const value = rawValue ? rawValue.toString() : "";
-      return {
-        value,
-        label: member.employeeId
-          ? `${member.employeeId} - ${member.firstName || ""} ${member.lastName || ""}`.trim()
-          : `${member.firstName || ""} ${member.lastName || "Unknown"}`.trim(),
-      };
-    })
-  ), [projectMembers]);
+  const assigneeSelectOptions = useMemo(
+    () =>
+      (projectMembers || []).map((member) => {
+        const rawValue = member?._id || member?.id || member?.employeeId;
+        const value = rawValue ? rawValue.toString() : '';
+        return {
+          value,
+          label: member.employeeId
+            ? `${member.employeeId} - ${member.firstName || ''} ${member.lastName || ''}`.trim()
+            : `${member.firstName || ''} ${member.lastName || 'Unknown'}`.trim(),
+        };
+      }),
+    [projectMembers]
+  );
 
   const validateEditField = useCallback((field: string, value: any) => {
     switch (field) {
@@ -200,28 +199,32 @@ const TaskDetails = () => {
 
   const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
     if (!taskStatus || !statuses || statuses.length === 0) {
-      return "";
+      return '';
     }
 
     const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
-    
-    const exactMatch = statuses.find(s => s.key.toLowerCase() === normalizedTaskStatus);
+
+    const exactMatch = statuses.find((s) => s.key.toLowerCase() === normalizedTaskStatus);
     if (exactMatch) return exactMatch.key;
-    
-    const nameMatch = statuses.find(s => 
-      s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
+
+    const nameMatch = statuses.find(
+      (s) => s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
     );
     if (nameMatch) return nameMatch.key;
-    
-    const partialMatch = statuses.find(s => {
+
+    const partialMatch = statuses.find((s) => {
       const key = s.key.toLowerCase();
       const name = s.name.toLowerCase();
-      return key.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(key) ||
-             name.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(name);
+      return (
+        key.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(key) ||
+        name.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(name)
+      );
     });
     if (partialMatch) return partialMatch.key;
-    
-    return "";
+
+    return '';
   }, []);
 
   const validateEditForm = useCallback(() => {
@@ -255,116 +258,103 @@ const TaskDetails = () => {
     setEditStatus(matchedStatus);
     setEditPriority(task.priority || '');
     setEditDueDate(task.dueDate ? dayjs(task.dueDate) : null);
-    setEditAssignees(Array.isArray(task.assignee) ? task.assignee.map((a: any) => a?.toString()) : []);
+    setEditAssignees(
+      Array.isArray(task.assignee) ? task.assignee.map((a: any) => a?.toString()) : []
+    );
     setTags1(Array.isArray(task.tags) ? task.tags : []);
     setEditModalError(null);
     setEditFieldErrors({});
   }, [task, taskStatuses, findMatchingStatus]);
 
-  const handleSaveTask = useCallback(() => {
-    if (!taskId || !socket) return;
+  const handleSaveTask = useCallback(async () => {
+    if (!taskId) return;
 
     if (!validateEditForm()) return;
-    
+
     setIsSaving(true);
-    const validTags = tags1.filter(tag => tag && tag.trim() !== '');
+    const validTags = tags1.filter((tag) => tag && tag.trim() !== '');
 
-    const updateData = {
-      title: editTitle.trim(),
-      description: editDescription,
-      status: editStatus,
-      priority: editPriority,
-      dueDate: editDueDate ? editDueDate.toDate() : null,
-      tags: validTags,
-      assignee: editAssignees,
-    };
-    
-    socket.emit('task:update', { taskId, update: updateData });
-  }, [taskId, socket, editTitle, editDescription, editStatus, editPriority, editDueDate, tags1, editAssignees, validateEditForm]);
+    try {
+      const updateData: Partial<Task> = {
+        title: editTitle.trim(),
+        description: editDescription,
+        status: editStatus as 'Pending' | 'In Progress' | 'Completed' | 'Cancelled',
+        priority: editPriority as 'Low' | 'Medium' | 'High' | 'Urgent',
+        dueDate: editDueDate ? editDueDate.format('YYYY-MM-DD') : undefined,
+        tags: validTags,
+        assignee: editAssignees.join(','),
+      };
 
-  const handleSaveAssignees = useCallback(() => {
-    if (!socket || !taskId) return;
+      const success = await updateTaskAPI(taskId, updateData);
+      if (success) {
+        // Reload task to get updated data
+        await loadTask();
+        // Broadcast via Socket.IO for real-time updates
+        if (socket) {
+          socket.emit('task:updated', { taskId, ...updateData });
+        }
+      } else {
+        setEditModalError('Failed to update task');
+      }
+    } catch (error) {
+      console.error('[TaskDetails] Error updating task:', error);
+      setEditModalError('An error occurred while updating the task');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    taskId,
+    editTitle,
+    editDescription,
+    editStatus,
+    editPriority,
+    editDueDate,
+    tags1,
+    editAssignees,
+    validateEditForm,
+    updateTaskAPI,
+    loadTask,
+    socket,
+  ]);
+
+  const handleSaveAssignees = useCallback(async () => {
+    if (!taskId) return;
 
     setIsSavingAssignees(true);
     setAssigneeModalError(null);
 
-    // Directly send selected assignees (matches project add-team-members pattern)
-    socket.emit('task:update', {
-      taskId,
-      assignee: selectedNewAssignees,
-    });
-  }, [socket, taskId, selectedNewAssignees]);
+    try {
+      // Update assignees only
+      const success = await updateTaskAPI(taskId, {
+        assignee: selectedNewAssignees.join(','),
+      });
 
-  const handleAssigneeUpdateResponse = useCallback((response: any) => {
-    setIsSavingAssignees(false);
-    if (response.done) {
-      // Close modal
-      const modalElement = document.getElementById('add_assignee_modal');
-      if (modalElement) {
-        const modal = (window as any).bootstrap.Modal.getInstance(modalElement);
-        if (modal) modal.hide();
-      }
-      // Reset state
-      setSelectedNewAssignees([]);
-      setAssigneeModalError(null);
-      // Reload task
-      loadTask();
-    } else {
-      setAssigneeModalError(response.error || 'Failed to add assignees');
-    }
-  }, [loadTask]);
-
-  useEffect(() => {
-    if (socket) {
-      const handleUpdateResponse = (response: any) => {
-        if (response.done) {
-          // Check if assignee modal is open
-          const assigneeModalElement = document.getElementById('add_assignee_modal');
-          const editTaskModalElement = document.getElementById('edit_task');
-          
-          if (assigneeModalElement) {
-            const assigneeModal = (window as any).bootstrap.Modal.getInstance(assigneeModalElement);
-            if (assigneeModal?._element?.classList.contains('show')) {
-              // This is an assignee update
-              setIsSavingAssignees(false);
-              setAssigneeModalError(null);
-              assigneeModal.hide();
-              setSelectedNewAssignees([]);
-              setAssigneeModalError(null);
-              loadTask();
-              return;
-            }
-          }
-          
-          // Otherwise, it's a task edit update
-          setIsSaving(false);
-          setEditModalError(null);
-          setEditFieldErrors({});
-          if (editTaskModalElement) {
-            const editTaskModal = (window as any).bootstrap.Modal.getInstance(editTaskModalElement);
-            if (editTaskModal) editTaskModal.hide();
-          }
-          loadTask();
-        } else {
-          setIsSaving(false);
-          setIsSavingAssignees(false);
-          const assigneeModalElement = document.getElementById('add_assignee_modal');
-          const isAssigneeModalOpen = assigneeModalElement?.classList.contains('show');
-
-          if (isAssigneeModalOpen) {
-            setAssigneeModalError(response.error || 'Failed to update');
-          } else {
-            setEditModalError(response.error || 'Failed to update task');
-          }
+      if (success) {
+        // Close modal
+        const modalElement = document.getElementById('add_assignee_modal');
+        if (modalElement) {
+          const modal = (window as any).bootstrap.Modal.getInstance(modalElement);
+          if (modal) modal.hide();
         }
-      };
-      
-      socket.on('task:update-response', handleUpdateResponse);
-      return () => {
-        socket.off('task:update-response', handleUpdateResponse);
-      };
+        // Reset state
+        setSelectedNewAssignees([]);
+        setAssigneeModalError(null);
+        // Reload task
+        await loadTask();
+        // Broadcast via Socket.IO for real-time updates
+        if (socket) {
+          socket.emit('task:updated', { taskId, assignee: selectedNewAssignees.join(',') });
+        }
+      } else {
+        setAssigneeModalError('Failed to add assignees');
+      }
+    } catch (error) {
+      console.error('[TaskDetails] Error updating assignees:', error);
+      setAssigneeModalError('An error occurred while updating assignees');
+    } finally {
+      setIsSavingAssignees(false);
     }
-  }, [socket, loadTask]);
+  }, [taskId, selectedNewAssignees, updateTaskAPI, loadTask, socket]);
 
   // Handle Add Assignee Modal Show - Load team members and pre-select assigned employees
   useEffect(() => {
@@ -372,35 +362,21 @@ const TaskDetails = () => {
     if (!assigneeModal || !socket) return;
 
     const handleModalShow = () => {
-      // Set up listener for project members response
-      const handleProjectMembersResponse = (response: any) => {
-        if (response?.done) {
-          setProjectMembers(response.data?.members || response.data || []);
-        }
-      };
-
-      socket.on("project:getMembers-response", handleProjectMembersResponse);
-
       // Load project members when modal opens
       if (task?.projectId) {
-        socket.emit("project:getMembers", { projectId: task.projectId });
+        socket.emit('project:getMembers', { projectId: task.projectId });
       }
 
       // Pre-select already assigned employees
-      if (task?.assignee && Array.isArray(task.assignee)) {
-        setSelectedNewAssignees(task.assignee);
+      if (task?.assignee) {
+        const assigneeArray =
+          typeof task.assignee === 'string'
+            ? task.assignee.split(',').filter((a) => a.trim())
+            : Array.isArray(task.assignee)
+              ? task.assignee
+              : [];
+        setSelectedNewAssignees(assigneeArray);
       }
-
-      // Cleanup listener on modal hide
-      const handleModalHide = () => {
-        socket.off("project:getMembers-response", handleProjectMembersResponse);
-      };
-
-      assigneeModal.addEventListener('hide.bs.modal', handleModalHide);
-
-      return () => {
-        assigneeModal.removeEventListener('hide.bs.modal', handleModalHide);
-      };
     };
 
     assigneeModal.addEventListener('show.bs.modal', handleModalShow);
@@ -414,7 +390,10 @@ const TaskDetails = () => {
     return (
       <div className="page-wrapper">
         <div className="content">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+          <div
+            className="d-flex justify-content-center align-items-center"
+            style={{ minHeight: '400px' }}
+          >
             <div className="spinner-border text-primary" role="status">
               <span className="visually-hidden">Loading task details...</span>
             </div>
@@ -432,10 +411,7 @@ const TaskDetails = () => {
             <i className="ti ti-alert-circle fs-1 text-danger mb-3"></i>
             <h5 className="text-danger">Error Loading Task</h5>
             <p className="text-muted mb-3">{error}</p>
-            <button
-              className="btn btn-primary"
-              onClick={loadTask}
-            >
+            <button className="btn btn-primary" onClick={loadTask}>
               Try Again
             </button>
           </div>
@@ -451,7 +427,9 @@ const TaskDetails = () => {
           <div className="text-center py-5">
             <i className="ti ti-file-x fs-1 text-muted mb-3"></i>
             <h5 className="mb-2">Task Not Found</h5>
-            <p className="text-muted mb-3">The task you're looking for doesn't exist or has been deleted.</p>
+            <p className="text-muted mb-3">
+              The task you're looking for doesn't exist or has been deleted.
+            </p>
             <Link to={all_routes.tasks} className="btn btn-primary">
               Back to Tasks
             </Link>
@@ -498,15 +476,18 @@ const TaskDetails = () => {
                 <div className="card-body pb-1">
                   <div className="d-flex align-items-center justify-content-between flex-wrap row-gap-3 mb-4">
                     <div>
-                      <h4 className="mb-1">
-                        {task.title || 'Untitled Task'}
-                      </h4>
+                      <h4 className="mb-1">{task.title || 'Untitled Task'}</h4>
                       <p>
-                        Priority :{" "}
-                        <span className={`badge ${task.priority === 'High' ? 'badge-danger' :
-                          task.priority === 'Medium' ? 'badge-warning' :
-                            'badge-success'
-                          }`}>
+                        Priority :{' '}
+                        <span
+                          className={`badge ${
+                            task.priority === 'High'
+                              ? 'badge-danger'
+                              : task.priority === 'Medium'
+                                ? 'badge-warning'
+                                : 'badge-success'
+                          }`}
+                        >
                           <i className="ti ti-point-filled me-1" />
                           {task.priority || 'Low'}
                         </span>
@@ -518,8 +499,7 @@ const TaskDetails = () => {
                         className="dropdown-toggle btn btn-sm btn-white d-inline-flex align-items-center"
                         data-bs-toggle="dropdown"
                       >
-                        <i className="ti ti-file-export me-1" /> Mark All as
-                        Completed
+                        <i className="ti ti-file-export me-1" /> Mark All as Completed
                       </Link>
                       <ul className="dropdown-menu  dropdown-menu-end p-3">
                         <li>
@@ -559,9 +539,7 @@ const TaskDetails = () => {
                     <div className="col-sm-12">
                       <div className="mb-3">
                         <h6 className="mb-1">Description</h6>
-                        <p>
-                          {task.description || 'No description available for this task.'}
-                        </p>
+                        <p>{task.description || 'No description available for this task.'}</p>
                       </div>
                     </div>
                     <div className="col-sm-3">
@@ -574,7 +552,10 @@ const TaskDetails = () => {
                       <div className="d-flex align-items-center mb-3 flex-wrap">
                         {assigneeDetails && assigneeDetails.length > 0 ? (
                           assigneeDetails.map((member: any, index: number) => (
-                            <div key={member._id || index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
+                            <div
+                              key={member._id || index}
+                              className="bg-gray-100 p-1 rounded d-flex align-items-center me-2"
+                            >
                               <span className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2">
                                 <ImageWithBasePath
                                   src={`assets/img/users/user-${42 + index}.jpg`}
@@ -582,7 +563,9 @@ const TaskDetails = () => {
                                 />
                               </span>
                               <h6 className="fs-12">
-                                <Link to="#">{member.employeeId} - {member.firstName} {member.lastName} </Link>
+                                <Link to="#">
+                                  {member.employeeId} - {member.firstName} {member.lastName}{' '}
+                                </Link>
                               </h6>
                             </div>
                           ))
@@ -615,8 +598,9 @@ const TaskDetails = () => {
                             <Link
                               key={index}
                               to="#"
-                              className={`badge task-tag rounded-pill me-2 ${index % 2 === 0 ? 'bg-pink' : 'badge-info'
-                                }`}
+                              className={`badge task-tag rounded-pill me-2 ${
+                                index % 2 === 0 ? 'bg-pink' : 'badge-info'
+                              }`}
                             >
                               {tag}
                             </Link>
@@ -636,25 +620,43 @@ const TaskDetails = () => {
                   <div className="d-flex flex-column">
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Project</p>
-                      <h6 className="fw-normal">{projectDetails?.projectId || task.projectId || ''} - {projectDetails?.title || projectDetails?.name || task.projectName || task.project || 'No project assigned'}</h6>
+                      <h6 className="fw-normal">
+                        {projectDetails?.projectId || task.projectId || ''} -{' '}
+                        {projectDetails?.title ||
+                          projectDetails?.name ||
+                          task.projectName ||
+                          task.project ||
+                          'No project assigned'}
+                      </h6>
                     </div>
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Status</p>
-                      <span className={`badge ${task.status === 'Completed' ? 'badge-success' :
-                        task.status === 'Inprogress' ? 'badge-warning' :
-                          task.status === 'Onhold' ? 'badge-secondary' :
-                            'badge-info'}`}>
+                      <span
+                        className={`badge ${
+                          task.status === 'Completed'
+                            ? 'badge-success'
+                            : task.status === 'Inprogress'
+                              ? 'badge-warning'
+                              : task.status === 'Onhold'
+                                ? 'badge-secondary'
+                                : 'badge-info'
+                        }`}
+                      >
                         <i className="ti ti-point-filled me-1" />
                         {task.status || 'Pending'}
                       </span>
                     </div>
                     <div className="d-flex align-items-center justify-content-between border-bottom p-3">
                       <p className="mb-0">Created on</p>
-                      <h6 className="fw-normal">{task.createdAt ? new Date(task.createdAt).toLocaleDateString() : 'Not set'}</h6>
+                      <h6 className="fw-normal">
+                        {task.createdAt ? new Date(task.createdAt).toLocaleDateString() : 'Not set'}
+                      </h6>
                     </div>
                     <div className="d-flex align-items-center justify-content-between p-3">
                       <p className="mb-0">Due Date</p>
-                      <h6 className="fw-normal">{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No due date'}</h6>
+                      <h6 className="fw-normal">
+                        {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No due date'}
+                      </h6>
                     </div>
                   </div>
                 </div>
@@ -697,29 +699,49 @@ const TaskDetails = () => {
                         <div className="notice-widget">
                           {task.activities && task.activities.length > 0 ? (
                             task.activities.map((activity: any, index: number) => (
-                              <div key={index} className="d-flex align-items-center justify-content-between mb-4">
+                              <div
+                                key={index}
+                                className="d-flex align-items-center justify-content-between mb-4"
+                              >
                                 <div className="d-flex overflow-hidden">
-                                  <span className={`avatar avatar-md me-3 rounded-circle flex-shrink-0 ${activity.type === 'task_created' ? 'bg-info' :
-                                    activity.type === 'task_updated' ? 'bg-warning' :
-                                      activity.type === 'task_completed' ? 'bg-success' :
-                                        activity.type === 'file_uploaded' ? 'bg-secondary' : 'bg-purple'
-                                    }`}>
-                                    <i className={`fs-16 ${activity.type === 'task_created' ? 'ti ti-checkup-list' :
-                                      activity.type === 'task_updated' ? 'ti ti-circle-dot' :
-                                        activity.type === 'task_completed' ? 'ti ti-check' :
-                                          activity.type === 'file_uploaded' ? 'ti ti-photo' : 'ti ti-activity'
-                                      }`} />
+                                  <span
+                                    className={`avatar avatar-md me-3 rounded-circle flex-shrink-0 ${
+                                      activity.type === 'task_created'
+                                        ? 'bg-info'
+                                        : activity.type === 'task_updated'
+                                          ? 'bg-warning'
+                                          : activity.type === 'task_completed'
+                                            ? 'bg-success'
+                                            : activity.type === 'file_uploaded'
+                                              ? 'bg-secondary'
+                                              : 'bg-purple'
+                                    }`}
+                                  >
+                                    <i
+                                      className={`fs-16 ${
+                                        activity.type === 'task_created'
+                                          ? 'ti ti-checkup-list'
+                                          : activity.type === 'task_updated'
+                                            ? 'ti ti-circle-dot'
+                                            : activity.type === 'task_completed'
+                                              ? 'ti ti-check'
+                                              : activity.type === 'file_uploaded'
+                                                ? 'ti ti-photo'
+                                                : 'ti ti-activity'
+                                      }`}
+                                    />
                                   </span>
                                   <div className="overflow-hidden">
                                     <p className="text-truncate mb-1">
                                       <span className="text-gray-9 fw-medium">
                                         {activity.user || 'Unknown User'}
-                                      </span>
-                                      {" "}
+                                      </span>{' '}
                                       {activity.message || activity.description}
                                     </p>
                                     <p className="mb-1">
-                                      {activity.timestamp ? new Date(activity.timestamp).toLocaleString() : 'Unknown time'}
+                                      {activity.timestamp
+                                        ? new Date(activity.timestamp).toLocaleString()
+                                        : 'Unknown time'}
                                     </p>
                                     {activity.statusChange && (
                                       <div className="d-flex align-items-center">
@@ -791,7 +813,9 @@ const TaskDetails = () => {
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Task Title <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Task Title <span className="text-danger">*</span>
+                      </label>
                       <input
                         type="text"
                         className={`form-control ${editFieldErrors.title ? 'is-invalid' : ''}`}
@@ -822,11 +846,13 @@ const TaskDetails = () => {
 
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Priority <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Priority <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
                         className={`select ${editFieldErrors.priority ? 'is-invalid' : ''}`}
                         options={priorityChoose}
-                        value={priorityChoose.find(p => p.value === editPriority)}
+                        value={priorityChoose.find((p) => p.value === editPriority)}
                         onChange={(option: any) => {
                           setEditPriority(option?.value || '');
                           setEditFieldErrors((prev) => ({ ...prev, priority: '' }));
@@ -840,11 +866,13 @@ const TaskDetails = () => {
 
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Status <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Status <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
                         className={`select ${editFieldErrors.status ? 'is-invalid' : ''}`}
                         options={statusChoose}
-                        value={statusChoose.find(s => s.value === editStatus) || statusChoose[0]}
+                        value={statusChoose.find((s) => s.value === editStatus) || statusChoose[0]}
                         onChange={(option: any) => {
                           setEditStatus(option?.value || '');
                           setEditFieldErrors((prev) => ({ ...prev, status: '' }));
@@ -858,13 +886,15 @@ const TaskDetails = () => {
 
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Due Date <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Due Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
                           format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
+                            format: 'DD-MM-YYYY',
+                            type: 'mask',
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
@@ -880,7 +910,9 @@ const TaskDetails = () => {
 
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Description <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Description <span className="text-danger">*</span>
+                      </label>
                       <textarea
                         className={`form-control ${editFieldErrors.description ? 'is-invalid' : ''}`}
                         rows={4}
@@ -899,18 +931,26 @@ const TaskDetails = () => {
 
                   <div className="col-12">
                     <div className="mb-0">
-                      <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Add Assignee <span className="text-danger">*</span>
+                      </label>
                       <Select
                         isMulti
                         className={`basic-multi-select ${editFieldErrors.assignees ? 'is-invalid' : ''}`}
                         classNamePrefix="select"
                         options={assigneeSelectOptions}
-                        value={assigneeSelectOptions.filter(opt => editAssignees.includes(opt.value))}
+                        value={assigneeSelectOptions.filter((opt) =>
+                          editAssignees.includes(opt.value)
+                        )}
                         onChange={(opts) => {
                           setEditAssignees((opts || []).map((opt: any) => opt.value));
                           setEditFieldErrors((prev) => ({ ...prev, assignees: '' }));
                         }}
-                        placeholder={assigneeSelectOptions.length === 0 ? "No team members available" : "Select assignees"}
+                        placeholder={
+                          assigneeSelectOptions.length === 0
+                            ? 'No team members available'
+                            : 'Select assignees'
+                        }
                         isDisabled={assigneeSelectOptions.length === 0}
                       />
                       {editFieldErrors.assignees && (
@@ -967,9 +1007,15 @@ const TaskDetails = () => {
                   className="basic-multi-select"
                   classNamePrefix="select"
                   options={assigneeSelectOptions}
-                  value={assigneeSelectOptions.filter(opt => selectedNewAssignees.includes(opt.value))}
-                  onChange={(opts) => setSelectedNewAssignees((opts || []).map((opt: any) => opt.value))}
-                  placeholder={projectMembers.length === 0 ? "No team members available" : "Select assignees"}
+                  value={assigneeSelectOptions.filter((opt) =>
+                    selectedNewAssignees.includes(opt.value)
+                  )}
+                  onChange={(opts) =>
+                    setSelectedNewAssignees((opts || []).map((opt: any) => opt.value))
+                  }
+                  placeholder={
+                    projectMembers.length === 0 ? 'No team members available' : 'Select assignees'
+                  }
                   isDisabled={projectMembers.length === 0}
                 />
               </div>
@@ -994,7 +1040,7 @@ const TaskDetails = () => {
                 onClick={handleSaveAssignees}
                 disabled={isSavingAssignees || selectedNewAssignees.length === 0}
               >
-                {isSavingAssignees ? "Saving..." : "Save"}
+                {isSavingAssignees ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

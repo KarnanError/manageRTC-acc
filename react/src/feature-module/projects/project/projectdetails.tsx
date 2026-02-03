@@ -1,20 +1,39 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import dayjs, { Dayjs } from "dayjs";
-import Select from "react-select";
-import { all_routes } from "../../router/all_routes";
-import { Link, useParams } from "react-router-dom";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import CommonSelect from "../../../core/common/commonSelect";
-import CommonTextEditor from "../../../core/common/textEditor";
-import CommonTagsInput from "../../../core/common/Taginput";
-import { DatePicker } from "antd";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useSocket } from "../../../SocketContext";
-import Footer from "../../../core/common/footer";
+import { DatePicker, message } from 'antd';
+import dayjs, { Dayjs } from 'dayjs';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import Select from 'react-select';
+import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
+import CommonSelect from '../../../core/common/commonSelect';
+import Footer from '../../../core/common/footer';
+import ImageWithBasePath from '../../../core/common/imageWithBasePath';
+import CommonTagsInput from '../../../core/common/Taginput';
+import { useProjectsREST } from '../../../hooks/useProjectsREST';
+import { Task, useTasksREST } from '../../../hooks/useTasksREST';
+import { useTaskStatusREST } from '../../../hooks/useTaskStatusREST';
+import {
+  del as apiDel,
+  get as apiGet,
+  post as apiPost,
+  put as apiPut,
+} from '../../../services/api';
+import { all_routes } from '../../router/all_routes';
 
 const ProjectDetails = () => {
   const { projectId } = useParams();
-  const socket = useSocket() as any;
+  const {
+    tasks: tasksFromHook,
+    loading: tasksLoading,
+    createTask: createTaskAPI,
+    updateTask: updateTaskAPI,
+    deleteTask: deleteTaskAPI,
+    getTasksByProject: getTasksByProjectAPI,
+  } = useTasksREST();
+
+  const { getProjectById: getProjectByIdAPI, updateProject: updateProjectAPI } = useProjectsREST();
+
+  const { statuses: statusesFromHook, fetchTaskStatuses: fetchTaskStatusesAPI } =
+    useTaskStatusREST();
 
   const [project, setProject] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
@@ -33,34 +52,34 @@ const ProjectDetails = () => {
   const [selectedManagers, setSelectedManagers] = useState<string[]>([]);
   const [isSavingManagers, setIsSavingManagers] = useState(false);
   const [managerModalError, setManagerModalError] = useState<string | null>(null);
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteContent, setNoteContent] = useState("");
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [noteModalError, setNoteModalError] = useState<string | null>(null);
   const [noteFieldErrors, setNoteFieldErrors] = useState<Record<string, string>>({});
   const [editingNote, setEditingNote] = useState<any>(null);
-  const [editNoteTitle, setEditNoteTitle] = useState("");
-  const [editNoteContent, setEditNoteContent] = useState("");
+  const [editNoteTitle, setEditNoteTitle] = useState('');
+  const [editNoteContent, setEditNoteContent] = useState('');
   const [isSavingEditNote, setIsSavingEditNote] = useState(false);
   const [editNoteModalError, setEditNoteModalError] = useState<string | null>(null);
   const [editNoteFieldErrors, setEditNoteFieldErrors] = useState<Record<string, string>>({});
   const [deletingNote, setDeletingNote] = useState<any>(null);
   const [isDeletingNote, setIsDeletingNote] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskDescription, setTaskDescription] = useState("");
-  const [taskPriority, setTaskPriority] = useState("Medium");
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDescription, setTaskDescription] = useState('');
+  const [taskPriority, setTaskPriority] = useState('Medium');
   const [taskDueDate, setTaskDueDate] = useState<Dayjs | null>(null);
   const [taskTags, setTaskTags] = useState<string[]>([]);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [taskModalError, setTaskModalError] = useState<string | null>(null);
   const [taskFieldErrors, setTaskFieldErrors] = useState<Record<string, string>>({});
   const [editingTask, setEditingTask] = useState<any>(null);
-  const [editTaskTitle, setEditTaskTitle] = useState("");
-  const [editTaskDescription, setEditTaskDescription] = useState("");
-  const [editTaskPriority, setEditTaskPriority] = useState("Medium");
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDescription, setEditTaskDescription] = useState('');
+  const [editTaskPriority, setEditTaskPriority] = useState('Medium');
   const [editTaskDueDate, setEditTaskDueDate] = useState<Dayjs | null>(null);
-  const [editTaskStatus, setEditTaskStatus] = useState("");
+  const [editTaskStatus, setEditTaskStatus] = useState('');
   const [editTaskTags, setEditTaskTags] = useState<string[]>([]);
   const [editTaskAssignees, setEditTaskAssignees] = useState<string[]>([]);
   const [isSavingEditTask, setIsSavingEditTask] = useState(false);
@@ -73,173 +92,232 @@ const ProjectDetails = () => {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [editModalError, setEditModalError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [editName, setEditName] = useState("");
-  const [editClient, setEditClient] = useState("");
+  const [editName, setEditName] = useState('');
+  const [editClient, setEditClient] = useState('');
   const [editStartDate, setEditStartDate] = useState<Dayjs | null>(null);
   const [editEndDate, setEditEndDate] = useState<Dayjs | null>(null);
-  const [editPriority, setEditPriority] = useState("Medium");
-  const [editValue, setEditValue] = useState("");
-  const [editPriceType, setEditPriceType] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editStatus, setEditStatus] = useState("Active");
+  const [editPriority, setEditPriority] = useState('Medium');
+  const [editValue, setEditValue] = useState('');
+  const [editPriceType, setEditPriceType] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editStatus, setEditStatus] = useState('Active');
   const [editTeamMembers, setEditTeamMembers] = useState<string[]>([]);
   const [editTeamLeaders, setEditTeamLeaders] = useState<string[]>([]);
   const [editProjectManagers, setEditProjectManagers] = useState<string[]>([]);
   const [editTags, setEditTags] = useState<string[]>([]);
-  
+
   // Helper function to match status with various formats
   const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
     if (!taskStatus || !statuses || statuses.length === 0) {
-      return ""; // default fallback
+      return ''; // default fallback
     }
 
     const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
-    
+
     // Try exact key match first (case-insensitive)
-    const exactMatch = statuses.find(s => s.key.toLowerCase() === normalizedTaskStatus);
+    const exactMatch = statuses.find((s) => s.key.toLowerCase() === normalizedTaskStatus);
     if (exactMatch) return exactMatch.key;
-    
+
     // Try name match (case-insensitive, no spaces)
-    const nameMatch = statuses.find(s => 
-      s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
+    const nameMatch = statuses.find(
+      (s) => s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
     );
     if (nameMatch) return nameMatch.key;
-    
+
     // Try partial match for common variations
-    const partialMatch = statuses.find(s => {
+    const partialMatch = statuses.find((s) => {
       const key = s.key.toLowerCase();
       const name = s.name.toLowerCase();
-      return key.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(key) ||
-             name.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(name);
+      return (
+        key.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(key) ||
+        name.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(name)
+      );
     });
     if (partialMatch) return partialMatch.key;
-    
+
     // Default fallback
-    return "";
+    return '';
   }, []);
 
-  const memberSelectOptions = useMemo(() => (
-    (employeeOptions || []).map((emp) => ({
-      value: emp.value,
-      label: emp.employeeId
-        ? `${emp.employeeId} - ${emp.label || emp.name || "Unknown"}`
-        : (emp.label || emp.name || "Unknown"),
-    }))
-  ), [employeeOptions]);
+  const memberSelectOptions = useMemo(
+    () =>
+      (employeeOptions || []).map((emp) => ({
+        value: emp.value,
+        label: emp.employeeId
+          ? `${emp.employeeId} - ${emp.label || emp.name || 'Unknown'}`
+          : emp.label || emp.name || 'Unknown',
+      })),
+    [employeeOptions]
+  );
 
-  const loadProject = useCallback(() => {
-    if (!projectId || !socket) return;
+  const loadProject = useCallback(async () => {
+    if (!projectId) return;
 
     setLoading(true);
     setError(null);
 
-    socket.emit("project:getById", projectId);
-  }, [projectId, socket]);
+    try {
+      const projectData = await getProjectByIdAPI(projectId);
+      console.log('[ProjectDetails] Loaded project data:', projectData);
+      console.log('[ProjectDetails] Team Members:', projectData?.teamMembers);
+      console.log('[ProjectDetails] Team Leader:', projectData?.teamLeader);
+      console.log('[ProjectDetails] Project Manager:', projectData?.projectManager);
 
-  const loadProjectTasks = useCallback(() => {
-    console.log("[ProjectDetails] loadProjectTasks called with projectId:", project?._id);
-    if (!project?._id || !socket) return;
-    socket.emit("task:getByProject", { projectId: project._id});
-  }, [project?._id, socket]);
+      if (projectData) {
+        setProject(projectData);
+      } else {
+        setError('Failed to load project details');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error loading project:', error);
+      setError('Failed to load project details');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, getProjectByIdAPI]);
 
-  const loadProjectNotes = useCallback(() => {
-    if (!project?._id || !socket) return;
+  const loadProjectTasks = useCallback(async () => {
+    console.log('[ProjectDetails] loadProjectTasks called with projectId:', project?._id);
+    if (!project?._id) return;
+    try {
+      await getTasksByProjectAPI(project._id);
+      // Tasks will be available via tasksFromHook, sync via useEffect
+    } catch (error) {
+      console.error('[ProjectDetails] Error loading tasks:', error);
+      message.error('Failed to load tasks');
+    }
+  }, [project?._id, getTasksByProjectAPI]);
 
-    socket.emit("project/notes:getAll", { projectId: project._id, filters: {} });
-  }, [project?._id, socket]);
+  // Sync tasks from hook to local state
+  useEffect(() => {
+    if (tasksFromHook && Array.isArray(tasksFromHook)) {
+      setTasks(tasksFromHook);
+    }
+  }, [tasksFromHook]);
 
-  const loadProjectInvoices = useCallback(() => {
-    if (!projectId || !socket) return;
+  // Sync task statuses from hook
+  useEffect(() => {
+    if (statusesFromHook && Array.isArray(statusesFromHook)) {
+      setTaskStatuses(statusesFromHook);
+    }
+  }, [statusesFromHook]);
 
-    socket.emit("admin/invoices/get", { projectId, filters: {} });
-  }, [projectId, socket]);
+  const loadProjectNotes = useCallback(async () => {
+    if (!project?._id) return;
+    try {
+      const response = await apiGet(`/project-notes/${project._id}`);
+      if (response.success && response.data) {
+        setNotes(response.data || []);
+      }
+    } catch (err) {
+      console.error('[ProjectDetails] Failed to load notes via REST:', err);
+    }
+  }, [project?._id]);
 
-  const loadTaskStatuses = useCallback(() => {
-    if (!socket) return;
-    socket.emit("task:getStatuses");
-  }, [socket]);
+  const loadProjectInvoices = useCallback(async () => {
+    if (!project?._id) return;
+    try {
+      const response = await apiGet('/invoices', { params: { projectId: project._id } });
+      if (response.success && response.data) {
+        setInvoices(response.data || []);
+      }
+    } catch (err) {
+      console.error('[ProjectDetails] Failed to load invoices via REST:', err);
+    }
+  }, [project?._id]);
+
+  const loadTaskStatuses = useCallback(async () => {
+    try {
+      await fetchTaskStatusesAPI();
+    } catch (error) {
+      console.error('[ProjectDetails] Error loading task statuses:', error);
+    }
+  }, [fetchTaskStatusesAPI]);
 
   const parseDateValue = useCallback((value: any): Dayjs | null => {
     if (!value) return null;
     const primary = dayjs(value);
     if (primary.isValid()) return primary;
-    const fallbackDash = dayjs(value, "DD-MM-YYYY", true);
+    const fallbackDash = dayjs(value, 'DD-MM-YYYY', true);
     if (fallbackDash.isValid()) return fallbackDash;
-    const fallbackSlash = dayjs(value, "DD/MM/YYYY", true);
+    const fallbackSlash = dayjs(value, 'DD/MM/YYYY', true);
     return fallbackSlash.isValid() ? fallbackSlash : null;
-  }, []);
-
-  const handleProjectResponse = useCallback((response: any) => {
-    setLoading(false);
-    if (response.done && response.data) {
-      setProject(response.data);
-    } else {
-      setError(response.error || "Failed to load project details");
-    }
   }, []);
 
   // Load tasks after project data is set
   useEffect(() => {
-    if (project?._id && socket) {
+    if (project?._id) {
       loadProjectTasks();
     }
-  }, [project?._id, socket, loadProjectTasks]);
+  }, [project?._id, loadProjectTasks]);
 
   // Load notes after project data is set
   useEffect(() => {
-    if (project?._id && socket) {
+    if (project?._id) {
       loadProjectNotes();
     }
-  }, [project?._id, socket, loadProjectNotes]);
+  }, [project?._id, loadProjectNotes]);
 
   // Load invoices after project data is set
   useEffect(() => {
-    if (project?._id && socket) {
+    if (project?._id) {
       loadProjectInvoices();
     }
-  }, [project?._id, socket, loadProjectInvoices]);
+  }, [project?._id, loadProjectInvoices]);
 
-  const handleTasksResponse = useCallback((response: any) => {
-    if (response?.done) {
-      const data = response?.data;
-      const nextTasks = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.tasks)
-          ? data.tasks
-          : [];
-      setTasks(nextTasks);
-    }
-  }, []);
+  const loadEmployeesAndClients = useCallback(async () => {
+    try {
+      // Load employees via REST API (limit max is 100 per API validation)
+      console.log('[ProjectDetails] Loading employees...');
+      const empResponse = await apiGet('/employees', { params: { limit: 100 } });
+      console.log('[ProjectDetails] Employee response:', empResponse);
 
-  const handleNotesResponse = useCallback((response: any) => {
-    if (response.done && response.data) {
-      setNotes(response.data || []);
+      if (empResponse.success && empResponse.data) {
+        const dataArray = Array.isArray(empResponse.data)
+          ? empResponse.data
+          : empResponse.data.employees || [];
+        const employees = dataArray.map((emp: any) => ({
+          value: emp._id,
+          label:
+            `${(emp.firstName || '').trim()} ${(emp.lastName || '').trim()}`.trim() || 'Unknown',
+          name:
+            `${(emp.firstName || '').trim()} ${(emp.lastName || '').trim()}`.trim() || 'Unknown',
+          employeeId: emp.employeeId || emp.employeeCode || '',
+        }));
+        console.log('[ProjectDetails] Loaded employees:', employees.length);
+        setEmployeeOptions(employees);
+      } else {
+        console.warn('[ProjectDetails] No employee data in response:', empResponse);
+      }
+    } catch (err) {
+      console.error('[ProjectDetails] Failed to load employees via REST:', err);
     }
-  }, []);
 
-  const handleInvoicesResponse = useCallback((response: any) => {
-    if (response.done && response.data) {
-      setInvoices(response.data || []);
-    }
-  }, []);
+    try {
+      // Load clients via REST API (limit max is 100 per API validation)
+      console.log('[ProjectDetails] Loading clients...');
+      const clientResponse = await apiGet('/clients', { params: { limit: 100 } });
+      console.log('[ProjectDetails] Client response:', clientResponse);
 
-  const handleTaskStatusesResponse = useCallback((response: any) => {
-    if (response.done && response.data) {
-      setTaskStatuses(response.data || []);
-    }
-  }, []);
-
-  const handleGetAllDataResponse = useCallback((response: any) => {
-    if (response.done && response.data?.employees) {
-      setEmployeeOptions(response.data.employees || []);
-    }
-    if (response.done && response.data?.clients) {
-      // Transform clients from string[] to { value, label }[] format
-      const transformedClients = (response.data.clients || []).map((client: string) => ({
-        value: client,
-        label: client
-      }));
-      setClients(transformedClients);
+      if (clientResponse.success && clientResponse.data) {
+        const clientList = Array.isArray(clientResponse.data)
+          ? clientResponse.data
+          : clientResponse.data.clients || [];
+        const transformedClients = clientList.map((client: any) => ({
+          value:
+            typeof client === 'string' ? client : client.name || client.companyName || client._id,
+          label:
+            typeof client === 'string' ? client : client.name || client.companyName || 'Unknown',
+        }));
+        console.log('[ProjectDetails] Loaded clients:', transformedClients.length);
+        setClients(transformedClients);
+      } else {
+        console.warn('[ProjectDetails] No client data in response:', clientResponse);
+      }
+    } catch (err) {
+      console.error('[ProjectDetails] Failed to load clients via REST:', err);
     }
   }, []);
 
@@ -247,29 +325,30 @@ const ProjectDetails = () => {
     const modalElement = document.getElementById(modalId);
     if (!modalElement) return;
 
-    const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement)
-      || (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
+    const modalInstance =
+      (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement) ||
+      (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
     if (modalInstance?.hide) {
       modalInstance.hide();
     }
 
-    if (modalElement.classList.contains("show")) {
-      modalElement.classList.remove("show");
-      modalElement.setAttribute("aria-hidden", "true");
-      modalElement.style.display = "none";
+    if (modalElement.classList.contains('show')) {
+      modalElement.classList.remove('show');
+      modalElement.setAttribute('aria-hidden', 'true');
+      modalElement.style.display = 'none';
     }
-    document.querySelectorAll(".modal-backdrop").forEach((node) => {
+    document.querySelectorAll('.modal-backdrop').forEach((node) => {
       if (node && node.parentNode) {
         node.parentNode.removeChild(node);
       }
     });
-    document.body.classList.remove("modal-open");
-    document.body.style.removeProperty("padding-right");
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('padding-right');
   }, []);
 
   // Clear field error when user starts typing
   const clearFieldError = (fieldName: string) => {
-    setFieldErrors(prev => {
+    setFieldErrors((prev) => {
       const newErrors = { ...prev };
       delete newErrors[fieldName];
       return newErrors;
@@ -277,7 +356,7 @@ const ProjectDetails = () => {
   };
 
   const clearTaskFieldError = (fieldName: string) => {
-    setTaskFieldErrors(prev => {
+    setTaskFieldErrors((prev) => {
       const newErrors = { ...prev };
       delete newErrors[fieldName];
       return newErrors;
@@ -285,7 +364,7 @@ const ProjectDetails = () => {
   };
 
   const clearEditTaskFieldError = (fieldName: string) => {
-    setEditTaskFieldErrors(prev => {
+    setEditTaskFieldErrors((prev) => {
       const newErrors = { ...prev };
       delete newErrors[fieldName];
       return newErrors;
@@ -293,7 +372,7 @@ const ProjectDetails = () => {
   };
 
   const clearNoteFieldError = (fieldName: string) => {
-    setNoteFieldErrors(prev => {
+    setNoteFieldErrors((prev) => {
       const newErrors = { ...prev };
       delete newErrors[fieldName];
       return newErrors;
@@ -301,7 +380,7 @@ const ProjectDetails = () => {
   };
 
   const clearEditNoteFieldError = (fieldName: string) => {
-    setEditNoteFieldErrors(prev => {
+    setEditNoteFieldErrors((prev) => {
       const newErrors = { ...prev };
       delete newErrors[fieldName];
       return newErrors;
@@ -311,37 +390,38 @@ const ProjectDetails = () => {
   // Validate task field
   const validateTaskField = (fieldName: string, value: any): string => {
     switch (fieldName) {
-      case "taskTitle":
-        if (!value || !value.trim()) return "Task title is required";
-        if (value.trim().length < 3) return "Task title must be at least 3 characters";
+      case 'taskTitle':
+        if (!value || !value.trim()) return 'Task title is required';
+        if (value.trim().length < 3) return 'Task title must be at least 3 characters';
         break;
-      case "taskDescription":
-        if (!value || !value.trim()) return "Task description is required";
-        if (value.trim().length < 10) return "Task description must be at least 10 characters";
+      case 'taskDescription':
+        if (!value || !value.trim()) return 'Task description is required';
+        if (value.trim().length < 10) return 'Task description must be at least 10 characters';
         break;
-      case "taskPriority":
-        if (!value || value === "Select") return "Please select a priority level";
+      case 'taskPriority':
+        if (!value || value === 'Select') return 'Please select a priority level';
         break;
-      case "taskStatus":
-        if (!value || value === "Select") return "Please select a status";
+      case 'taskStatus':
+        if (!value || value === 'Select') return 'Please select a status';
         break;
-      case "taskAssignees":
-        if (!Array.isArray(value) || value.length === 0) return "Please select at least one assignee";
+      case 'taskAssignees':
+        if (!Array.isArray(value) || value.length === 0)
+          return 'Please select at least one assignee';
         break;
-      case "taskDueDate":
-        if (!value) return "Due date is required";
+      case 'taskDueDate':
+        if (!value) return 'Due date is required';
         if (project?.endDate && dayjs(value).isAfter(dayjs(project.endDate))) {
           return `Due date cannot exceed project end date (${dayjs(project.endDate).format('DD-MM-YYYY')})`;
         }
         break;
     }
-    return "";
+    return '';
   };
 
   const handleTaskFieldBlur = useCallback((fieldName: string, value: any) => {
     const error = validateTaskField(fieldName, value);
     if (error) {
-      setTaskFieldErrors(prev => ({ ...prev, [fieldName]: error }));
+      setTaskFieldErrors((prev) => ({ ...prev, [fieldName]: error }));
     }
   }, []);
 
@@ -349,19 +429,19 @@ const ProjectDetails = () => {
   const validateTaskForm = useCallback((): boolean => {
     const errors: Record<string, string> = {};
 
-    const titleError = validateTaskField("taskTitle", taskTitle.trim());
+    const titleError = validateTaskField('taskTitle', taskTitle.trim());
     if (titleError) errors.taskTitle = titleError;
 
-    const descriptionError = validateTaskField("taskDescription", taskDescription.trim());
+    const descriptionError = validateTaskField('taskDescription', taskDescription.trim());
     if (descriptionError) errors.taskDescription = descriptionError;
 
-    const priorityError = validateTaskField("taskPriority", taskPriority);
+    const priorityError = validateTaskField('taskPriority', taskPriority);
     if (priorityError) errors.taskPriority = priorityError;
 
-    const assigneeError = validateTaskField("taskAssignees", selectedAssignees);
+    const assigneeError = validateTaskField('taskAssignees', selectedAssignees);
     if (assigneeError) errors.taskAssignees = assigneeError;
 
-    const dueDateError = validateTaskField("taskDueDate", taskDueDate);
+    const dueDateError = validateTaskField('taskDueDate', taskDueDate);
     if (dueDateError) errors.taskDueDate = dueDateError;
 
     setTaskFieldErrors(errors);
@@ -370,15 +450,16 @@ const ProjectDetails = () => {
     if (Object.keys(errors).length > 0) {
       setTimeout(() => {
         const firstErrorField = Object.keys(errors)[0];
-        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
-                            document.querySelector(`#${firstErrorField}`) ||
-                            document.querySelector(`.field-${firstErrorField}`);
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector(`#${firstErrorField}`) ||
+          document.querySelector(`.field-${firstErrorField}`);
         if (errorElement) {
           errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
@@ -389,22 +470,22 @@ const ProjectDetails = () => {
   const validateEditTaskForm = useCallback((): boolean => {
     const errors: Record<string, string> = {};
 
-    const titleError = validateTaskField("taskTitle", editTaskTitle.trim());
+    const titleError = validateTaskField('taskTitle', editTaskTitle.trim());
     if (titleError) errors.taskTitle = titleError;
 
-    const descriptionError = validateTaskField("taskDescription", editTaskDescription.trim());
+    const descriptionError = validateTaskField('taskDescription', editTaskDescription.trim());
     if (descriptionError) errors.taskDescription = descriptionError;
 
-    const priorityError = validateTaskField("taskPriority", editTaskPriority);
+    const priorityError = validateTaskField('taskPriority', editTaskPriority);
     if (priorityError) errors.taskPriority = priorityError;
 
-    const statusError = validateTaskField("taskStatus", editTaskStatus);
+    const statusError = validateTaskField('taskStatus', editTaskStatus);
     if (statusError) errors.taskStatus = statusError;
 
-    const assigneeError = validateTaskField("taskAssignees", editTaskAssignees);
+    const assigneeError = validateTaskField('taskAssignees', editTaskAssignees);
     if (assigneeError) errors.taskAssignees = assigneeError;
 
-    const dueDateError = validateTaskField("taskDueDate", editTaskDueDate);
+    const dueDateError = validateTaskField('taskDueDate', editTaskDueDate);
     if (dueDateError) errors.taskDueDate = dueDateError;
 
     setEditTaskFieldErrors(errors);
@@ -413,65 +494,74 @@ const ProjectDetails = () => {
     if (Object.keys(errors).length > 0) {
       setTimeout(() => {
         const firstErrorField = Object.keys(errors)[0];
-        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
-                            document.querySelector(`#${firstErrorField}`) ||
-                            document.querySelector(`.field-${firstErrorField}`);
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector(`#${firstErrorField}`) ||
+          document.querySelector(`.field-${firstErrorField}`);
         if (errorElement) {
           errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
     return true;
-  }, [editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskDueDate, editTaskTags, editTaskAssignees]);
+  }, [
+    editTaskTitle,
+    editTaskDescription,
+    editTaskPriority,
+    editTaskStatus,
+    editTaskDueDate,
+    editTaskTags,
+    editTaskAssignees,
+  ]);
 
   // Validate note form before submission
   const validateNoteField = (fieldName: string, value: any): string => {
     switch (fieldName) {
-      case "noteTitle":
-        if (!value || !value.trim()) return "Note title is required";
-        if (value.trim().length < 3) return "Note title must be at least 3 characters";
+      case 'noteTitle':
+        if (!value || !value.trim()) return 'Note title is required';
+        if (value.trim().length < 3) return 'Note title must be at least 3 characters';
         break;
-      case "noteContent":
-        if (!value || !value.trim()) return "Note content is required";
-        if (value.trim().length < 10) return "Note content must be at least 10 characters";
+      case 'noteContent':
+        if (!value || !value.trim()) return 'Note content is required';
+        if (value.trim().length < 10) return 'Note content must be at least 10 characters';
         break;
-      case "editNoteTitle":
-        if (!value || !value.trim()) return "Title is required";
-        if (value.trim().length < 3) return "Title must be at least 3 characters";
+      case 'editNoteTitle':
+        if (!value || !value.trim()) return 'Title is required';
+        if (value.trim().length < 3) return 'Title must be at least 3 characters';
         break;
-      case "editNoteContent":
-        if (!value || !value.trim()) return "Content is required";
-        if (value.trim().length < 10) return "Content must be at least 10 characters";
+      case 'editNoteContent':
+        if (!value || !value.trim()) return 'Content is required';
+        if (value.trim().length < 10) return 'Content must be at least 10 characters';
         break;
     }
-    return "";
+    return '';
   };
 
   const handleNoteFieldBlur = useCallback((fieldName: string, value: any) => {
     const error = validateNoteField(fieldName, value);
     if (error) {
-      setNoteFieldErrors(prev => ({ ...prev, [fieldName]: error }));
+      setNoteFieldErrors((prev) => ({ ...prev, [fieldName]: error }));
     }
   }, []);
 
   const handleEditNoteFieldBlur = useCallback((fieldName: string, value: any) => {
     const error = validateNoteField(fieldName, value);
     if (error) {
-      setEditNoteFieldErrors(prev => ({ ...prev, [fieldName]: error }));
+      setEditNoteFieldErrors((prev) => ({ ...prev, [fieldName]: error }));
     }
   }, []);
 
   const validateNoteForm = useCallback((): boolean => {
     const errors: Record<string, string> = {};
 
-    const titleError = validateNoteField("noteTitle", noteTitle);
+    const titleError = validateNoteField('noteTitle', noteTitle);
     if (titleError) errors.noteTitle = titleError;
 
-    const contentError = validateNoteField("noteContent", noteContent);
+    const contentError = validateNoteField('noteContent', noteContent);
     if (contentError) errors.noteContent = contentError;
 
     setNoteFieldErrors(errors);
@@ -480,15 +570,16 @@ const ProjectDetails = () => {
     if (Object.keys(errors).length > 0) {
       setTimeout(() => {
         const firstErrorField = Object.keys(errors)[0];
-        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
-                            document.querySelector(`#${firstErrorField}`) ||
-                            document.querySelector(`.field-${firstErrorField}`);
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector(`#${firstErrorField}`) ||
+          document.querySelector(`.field-${firstErrorField}`);
         if (errorElement) {
           errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
@@ -499,10 +590,10 @@ const ProjectDetails = () => {
   const validateEditNoteForm = useCallback((): boolean => {
     const errors: Record<string, string> = {};
 
-    const titleError = validateNoteField("editNoteTitle", editNoteTitle);
+    const titleError = validateNoteField('editNoteTitle', editNoteTitle);
     if (titleError) errors.editNoteTitle = titleError;
 
-    const contentError = validateNoteField("editNoteContent", editNoteContent);
+    const contentError = validateNoteField('editNoteContent', editNoteContent);
     if (contentError) errors.editNoteContent = contentError;
 
     setEditNoteFieldErrors(errors);
@@ -517,147 +608,180 @@ const ProjectDetails = () => {
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
     return true;
   }, [editNoteTitle, editNoteContent]);
 
-  const handleProjectUpdateResponse = useCallback((response: any) => {
-    const wasProjectUpdate = isSavingProject;
-    const wasMemberUpdate = isSavingMembers;
-    const wasLeadUpdate = isSavingLeads;
-    const wasManagerUpdate = isSavingManagers;
+  const handleProjectUpdateResponse = useCallback(
+    (response: any) => {
+      const wasProjectUpdate = isSavingProject;
+      const wasMemberUpdate = isSavingMembers;
+      const wasLeadUpdate = isSavingLeads;
+      const wasManagerUpdate = isSavingManagers;
 
-    console.log("[ProjectDetails] Received update response:", {
-      done: response.done,
-      tagsInResponse: response.data?.tags,
-      tagsLength: response.data?.tags?.length
-    });
+      console.log('[ProjectDetails] Received update response:', {
+        done: response.done,
+        tagsInResponse: response.data?.tags,
+        tagsLength: response.data?.tags?.length,
+      });
 
-    setIsSavingMembers(false);
-    setIsSavingLeads(false);
-    setIsSavingManagers(false);
-    setIsSavingProject(false);
-    
-    if (response.done && response.data) {
-      // Success case
-      console.log("[ProjectDetails] Tags after update:", response.data.tags);
-      setProject(response.data);
-      setError(null);
-      setMemberModalError(null);
-      setLeadModalError(null);
-      setManagerModalError(null);
-      setEditModalError(null);
-      setFieldErrors({});
-      
-      // Close appropriate modals
-      if (wasProjectUpdate) {
-        setTimeout(() => {
-          closeModalById("edit_project");
-          // Additional cleanup to ensure no backdrops remain
+      setIsSavingMembers(false);
+      setIsSavingLeads(false);
+      setIsSavingManagers(false);
+      setIsSavingProject(false);
+
+      if (response.done && response.data) {
+        // Success case
+        console.log('[ProjectDetails] Tags after update:', response.data.tags);
+        setProject(response.data);
+        setError(null);
+        setMemberModalError(null);
+        setLeadModalError(null);
+        setManagerModalError(null);
+        setEditModalError(null);
+        setFieldErrors({});
+
+        // Close appropriate modals
+        if (wasProjectUpdate) {
           setTimeout(() => {
-            document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
-              backdrop.remove();
-            });
-            document.body.classList.remove("modal-open");
-            document.body.style.removeProperty("overflow");
-            document.body.style.removeProperty("padding-right");
+            closeModalById('edit_project');
+            // Additional cleanup to ensure no backdrops remain
+            setTimeout(() => {
+              document.querySelectorAll('.modal-backdrop').forEach((backdrop) => {
+                backdrop.remove();
+              });
+              document.body.classList.remove('modal-open');
+              document.body.style.removeProperty('overflow');
+              document.body.style.removeProperty('padding-right');
+            }, 100);
           }, 100);
-        }, 100);
-        // Show success message
-        console.log("[ProjectDetails] Project updated successfully");
-      }
-      
-      // Reload project data to ensure consistency
-      setTimeout(() => {
-        loadProject();
-      }, 200);
-    } else {
-      // Error case
-      const message = response?.error || "Failed to update project details";
-      console.error("[ProjectDetails] Update error:", message);
-      
-      if (wasProjectUpdate) {
-        setEditModalError(message);
-      }
-      if (wasMemberUpdate) {
-        setMemberModalError(message);
-      }
-      if (wasLeadUpdate) {
-        setLeadModalError(message);
-      }
-      if (wasManagerUpdate) {
-        setManagerModalError(message);
-      }
-    }
-  }, [loadProject, isSavingProject, isSavingMembers, isSavingLeads, isSavingManagers, closeModalById]);
+          // Show success message
+          console.log('[ProjectDetails] Project updated successfully');
+        }
 
-  const handleSaveTeamMembers = useCallback(() => {
-    if (!socket || !project?._id) return;
+        // Reload project data to ensure consistency
+        setTimeout(() => {
+          loadProject();
+        }, 200);
+      } else {
+        // Error case
+        const message = response?.error || 'Failed to update project details';
+        console.error('[ProjectDetails] Update error:', message);
+
+        if (wasProjectUpdate) {
+          setEditModalError(message);
+        }
+        if (wasMemberUpdate) {
+          setMemberModalError(message);
+        }
+        if (wasLeadUpdate) {
+          setLeadModalError(message);
+        }
+        if (wasManagerUpdate) {
+          setManagerModalError(message);
+        }
+      }
+    },
+    [loadProject, isSavingProject, isSavingMembers, isSavingLeads, isSavingManagers, closeModalById]
+  );
+
+  const handleSaveTeamMembers = useCallback(async () => {
+    if (!project?._id) return;
 
     setIsSavingMembers(true);
     setMemberModalError(null);
 
-    socket.emit("project:update", {
-      projectId: project._id,
-      update: { teamMembers: selectedMembers },
-    });
-  }, [socket, project?._id, selectedMembers]);
+    try {
+      const success = await updateProjectAPI(project._id, { teamMembers: selectedMembers });
+      if (success) {
+        await loadProject();
+        closeModalById('add_team_members_modal');
+      } else {
+        setMemberModalError('Failed to update team members');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating team members:', error);
+      setMemberModalError('An error occurred while updating team members');
+    } finally {
+      setIsSavingMembers(false);
+    }
+  }, [project?._id, selectedMembers, updateProjectAPI, loadProject, closeModalById]);
 
-  const handleSaveTeamLeads = useCallback(() => {
-    if (!socket || !project?._id) return;
+  const handleSaveTeamLeads = useCallback(async () => {
+    if (!project?._id) return;
 
     setIsSavingLeads(true);
     setLeadModalError(null);
 
-    socket.emit("project:update", {
-      projectId: project._id,
-      update: { teamLeader: selectedLeads },
-    });
-  }, [socket, project?._id, selectedLeads]);
+    try {
+      const success = await updateProjectAPI(project._id, { teamLeader: selectedLeads });
+      if (success) {
+        await loadProject();
+        closeModalById('add_team_leads_modal');
+      } else {
+        setLeadModalError('Failed to update team leads');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating team leads:', error);
+      setLeadModalError('An error occurred while updating team leads');
+    } finally {
+      setIsSavingLeads(false);
+    }
+  }, [project?._id, selectedLeads, updateProjectAPI, loadProject, closeModalById]);
 
-  const handleSaveProjectManagers = useCallback(() => {
-    if (!socket || !project?._id) return;
+  const handleSaveProjectManagers = useCallback(async () => {
+    if (!project?._id) return;
 
     setIsSavingManagers(true);
     setManagerModalError(null);
 
-    socket.emit("project:update", {
-      projectId: project._id,
-      update: { projectManager: selectedManagers },
-    });
-  }, [socket, project?._id, selectedManagers]);
+    try {
+      const success = await updateProjectAPI(project._id, { projectManager: selectedManagers });
+      if (success) {
+        await loadProject();
+        closeModalById('add_project_managers_modal');
+      } else {
+        setManagerModalError('Failed to update project managers');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating project managers:', error);
+      setManagerModalError('An error occurred while updating project managers');
+    } finally {
+      setIsSavingManagers(false);
+    }
+  }, [project?._id, selectedManagers, updateProjectAPI, loadProject, closeModalById]);
 
   // Validate a single field and return error message
   const validateField = (fieldName: string, value: any): string => {
     switch (fieldName) {
-      case "name":
-        if (!value || !value.trim()) return "Project name is required";
+      case 'name':
+        if (!value || !value.trim()) return 'Project name is required';
         break;
-      case "client":
-        if (!value || !value.trim()) return "Client is required";
+      case 'client':
+        if (!value || !value.trim()) return 'Client is required';
         break;
-      case "description":
-        if (!value || !value.trim()) return "Description is required";
+      case 'description':
+        if (!value || !value.trim()) return 'Description is required';
         break;
-      case "projectValue":
-        if (!value || !value.toString().trim()) return "Project value is required";
+      case 'projectValue':
+        if (!value || !value.toString().trim()) return 'Project value is required';
         const numValue = parseFloat(value);
-        if (isNaN(numValue) || numValue < 0) return "Project value must be a positive number";
+        if (isNaN(numValue) || numValue < 0) return 'Project value must be a positive number';
         break;
-      case "startDate":
-        if (!value) return "Start date is required";
+      case 'startDate':
+        if (!value) return 'Start date is required';
         break;
-      case "endDate":
-        if (!value) return "End date is required";
+      case 'endDate':
+        if (!value) return 'End date is required';
         break;
-      case "priority":
-        if (!value || value === "Select") return "Please select a priority level";
+      case 'priority':
+        if (!value || value === 'Select') return 'Please select a priority level';
         break;
     }
-    return "";
+    return '';
   };
 
   // Validate form before submission
@@ -665,30 +789,30 @@ const ProjectDetails = () => {
     const errors: Record<string, string> = {};
 
     // Validate all required fields
-    const nameError = validateField("name", editName.trim());
+    const nameError = validateField('name', editName.trim());
     if (nameError) errors.name = nameError;
 
-    const clientError = validateField("client", editClient.trim());
+    const clientError = validateField('client', editClient.trim());
     if (clientError) errors.client = clientError;
 
-    const descriptionError = validateField("description", editDescription.trim());
+    const descriptionError = validateField('description', editDescription.trim());
     if (descriptionError) errors.description = descriptionError;
 
-    const valueError = validateField("projectValue", editValue.trim());
+    const valueError = validateField('projectValue', editValue.trim());
     if (valueError) errors.projectValue = valueError;
 
-    const startDateError = validateField("startDate", editStartDate);
+    const startDateError = validateField('startDate', editStartDate);
     if (startDateError) errors.startDate = startDateError;
 
-    const endDateError = validateField("endDate", editEndDate);
+    const endDateError = validateField('endDate', editEndDate);
     if (endDateError) errors.endDate = endDateError;
 
-    const priorityError = validateField("priority", editPriority);
+    const priorityError = validateField('priority', editPriority);
     if (priorityError) errors.priority = priorityError;
 
     // Date comparison validation
     if (editStartDate && editEndDate && editEndDate.isBefore(editStartDate)) {
-      errors.endDate = "End date must be after start date";
+      errors.endDate = 'End date must be after start date';
     }
 
     setFieldErrors(errors);
@@ -697,35 +821,49 @@ const ProjectDetails = () => {
     if (Object.keys(errors).length > 0) {
       setTimeout(() => {
         const firstErrorField = Object.keys(errors)[0];
-        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
-                            document.querySelector(`#${firstErrorField}`) ||
-                            document.querySelector(`.field-${firstErrorField}`);
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector(`#${firstErrorField}`) ||
+          document.querySelector(`.field-${firstErrorField}`);
         if (errorElement) {
           errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
     return true;
   }, [editName, editClient, editDescription, editValue, editStartDate, editEndDate, editPriority]);
 
-  const handleupdatedresponse = useCallback((response: any) => {
-    if (response.done && response.data) {
-      closeModalById("add_team_members_modal");
-      closeModalById("add_team_leads_modal");
-      closeModalById("add_project_managers_modal");
+  const closeAddNotekModal = useCallback(() => {
+    const modalElement = document.getElementById('add_note_modal');
+    if (!modalElement) return;
 
-      setError(null);
-      loadProject();
-
+    const modalInstance =
+      (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement) ||
+      (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
+    if (modalInstance?.hide) {
+      modalInstance.hide();
     }
-  }, [loadProject, closeModalById]);
 
-  const handleSaveNote = useCallback(() => {
-    if (!socket || !project?._id) return;
+    // Hard fallback in case bootstrap instance is not present or hide did not remove classes/backdrop
+    if (modalElement.classList.contains('show')) {
+      modalElement.classList.remove('show');
+      modalElement.setAttribute('aria-hidden', 'true');
+      modalElement.style.display = 'none';
+    }
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop && backdrop.parentNode) {
+      backdrop.parentNode.removeChild(backdrop);
+    }
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('padding-right');
+  }, []);
+
+  const handleSaveNote = useCallback(async () => {
+    if (!project?._id) return;
 
     // Validate form first
     if (!validateNoteForm()) {
@@ -736,70 +874,60 @@ const ProjectDetails = () => {
     setNoteModalError(null);
     setNoteFieldErrors({});
 
-    socket.emit("project/notes:create", {
-      projectId: project._id,
-      title: noteTitle.trim(),
-      content: noteContent.trim(),
-    });
-  }, [socket, project?._id, noteTitle, noteContent, validateNoteForm]);
+    try {
+      const response = await apiPost(`/project-notes/${project._id}`, {
+        title: noteTitle.trim(),
+        content: noteContent.trim(),
+      });
 
-  const closeAddNotekModal = useCallback(() => {
-    const modalElement = document.getElementById("add_note_modal");
-    if (!modalElement) return;
-
-    const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement)
-      || (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
-    if (modalInstance?.hide) {
-      modalInstance.hide();
+      if (response.success) {
+        setNoteTitle('');
+        setNoteContent('');
+        setNoteModalError(null);
+        setNoteFieldErrors({});
+        loadProjectNotes();
+        closeAddNotekModal();
+      } else {
+        setNoteModalError(response.error?.message || 'Failed to create note');
+      }
+    } catch (error: any) {
+      console.error('[ProjectDetails] Error creating note:', error);
+      setNoteModalError(
+        error.response?.data?.error?.message || 'An error occurred while creating note'
+      );
+    } finally {
+      setIsSavingNote(false);
     }
-
-    // Hard fallback in case bootstrap instance is not present or hide did not remove classes/backdrop
-    if (modalElement.classList.contains("show")) {
-      modalElement.classList.remove("show");
-      modalElement.setAttribute("aria-hidden", "true");
-      modalElement.style.display = "none";
-    }
-    const backdrop = document.querySelector(".modal-backdrop");
-    if (backdrop && backdrop.parentNode) {
-      backdrop.parentNode.removeChild(backdrop);
-    }
-    document.body.classList.remove("modal-open");
-    document.body.style.removeProperty("padding-right");
-  }, []);
-  
-  const handleNoteCreateResponse = useCallback((response: any) => {
-    setIsSavingNote(false);
-    if (response.done) {
-      setNoteTitle("");
-      setNoteContent("");
-      setNoteModalError(null);
-      setNoteFieldErrors({});
-      loadProjectNotes();
-      closeAddNotekModal();
-    } else {
-      setNoteModalError(response.error || "Failed to create note");
-    }
-  }, [loadProjectNotes, closeAddNotekModal]);
+  }, [
+    project?._id,
+    noteTitle,
+    noteContent,
+    validateNoteForm,
+    loadProjectNotes,
+    closeAddNotekModal,
+  ]);
 
   const handleOpenEditNote = useCallback((note: any) => {
     setEditingNote(note);
-    setEditNoteTitle(note.title || "");
-    setEditNoteContent(note.content || "");
+    setEditNoteTitle(note.title || '');
+    setEditNoteContent(note.content || '');
     setEditNoteModalError(null);
     setEditNoteFieldErrors({});
-    
+
     // Open modal
     setTimeout(() => {
-      const modalElement = document.getElementById("edit_note_modal");
+      const modalElement = document.getElementById('edit_note_modal');
       if (modalElement) {
-        const modalInstance = (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
+        const modalInstance = (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(
+          modalElement
+        );
         modalInstance?.show();
       }
     }, 100);
   }, []);
 
   const closeEditNoteModal = useCallback(() => {
-    const modalElement = document.getElementById("edit_note_modal");
+    const modalElement = document.getElementById('edit_note_modal');
     if (!modalElement) return;
 
     const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement);
@@ -808,14 +936,14 @@ const ProjectDetails = () => {
     }
 
     setEditingNote(null);
-    setEditNoteTitle("");
-    setEditNoteContent("");
+    setEditNoteTitle('');
+    setEditNoteContent('');
     setEditNoteModalError(null);
     setEditNoteFieldErrors({});
   }, []);
 
-  const handleSaveEditNote = useCallback(() => {
-    if (!socket || !editingNote?._id) return;
+  const handleSaveEditNote = useCallback(async () => {
+    if (!editingNote?._id || !project?._id) return;
 
     // Validate form first
     if (!validateEditNoteForm()) {
@@ -826,66 +954,95 @@ const ProjectDetails = () => {
     setEditNoteModalError(null);
     setEditNoteFieldErrors({});
 
-    socket.emit("project/notes:update", {
-      noteId: editingNote._id,
-      update: {
+    try {
+      const response = await apiPut(`/project-notes/${project._id}/${editingNote._id}`, {
         title: editNoteTitle.trim(),
         content: editNoteContent.trim(),
-      }
-    });
-  }, [socket, editingNote, editNoteTitle, editNoteContent, validateEditNoteForm]);
+      });
 
-  const handleNoteUpdateResponse = useCallback((response: any) => {
-    setIsSavingEditNote(false);
-    if (response.done) {
-      setEditingNote(null);
-      setEditNoteTitle("");
-      setEditNoteContent("");
-      setEditNoteModalError(null);
-      setEditNoteFieldErrors({});
-      loadProjectNotes();
-      closeEditNoteModal();
-    } else {
-      setEditNoteModalError(response.error || "Failed to update note");
+      if (response.success) {
+        setEditingNote(null);
+        setEditNoteTitle('');
+        setEditNoteContent('');
+        setEditNoteModalError(null);
+        setEditNoteFieldErrors({});
+        loadProjectNotes();
+        closeEditNoteModal();
+      } else {
+        setEditNoteModalError(response.error?.message || 'Failed to update note');
+      }
+    } catch (error: any) {
+      console.error('[ProjectDetails] Error updating note:', error);
+      setEditNoteModalError(
+        error.response?.data?.error?.message || 'An error occurred while updating note'
+      );
+    } finally {
+      setIsSavingEditNote(false);
     }
-  }, [loadProjectNotes, closeEditNoteModal]);
+  }, [
+    editingNote,
+    project?._id,
+    editNoteTitle,
+    editNoteContent,
+    validateEditNoteForm,
+    loadProjectNotes,
+    closeEditNoteModal,
+  ]);
 
   const handleOpenDeleteNote = useCallback((note: any) => {
     setDeletingNote(note);
-    
+
     // Open modal
     setTimeout(() => {
-      const modalElement = document.getElementById("delete_note_modal");
+      const modalElement = document.getElementById('delete_note_modal');
       if (modalElement) {
-        const modalInstance = (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(modalElement);
+        const modalInstance = (window as any)?.bootstrap?.Modal?.getOrCreateInstance?.(
+          modalElement
+        );
         modalInstance?.show();
       }
     }, 100);
   }, []);
 
-  const handleDeleteNote = useCallback(() => {
-    if (!socket || !deletingNote?._id) return;
+  const handleDeleteNote = useCallback(async () => {
+    if (!deletingNote?._id || !project?._id) return;
 
     setIsDeletingNote(true);
 
-    socket.emit("project/notes:delete", {
-      noteId: deletingNote._id
-    });
-  }, [socket, deletingNote]);
+    try {
+      const response = await apiDel(`/project-notes/${project._id}/${deletingNote._id}`);
 
-  const handleNoteDeleteResponse = useCallback((response: any) => {
-    setIsDeletingNote(false);
-    if (response.done) {
-      setDeletingNote(null);
-      loadProjectNotes();
-      closeModalById("delete_note_modal");
-    } else {
-      alert(response.error || "Failed to delete note");
+      if (response.success) {
+        setDeletingNote(null);
+        loadProjectNotes();
+        closeModalById('delete_note_modal');
+      } else {
+        message.error(response.error?.message || 'Failed to delete note');
+      }
+    } catch (error: any) {
+      console.error('[ProjectDetails] Error deleting note:', error);
+      message.error(
+        error.response?.data?.error?.message || 'An error occurred while deleting note'
+      );
+    } finally {
+      setIsDeletingNote(false);
     }
-  }, [loadProjectNotes, closeModalById]);
+  }, [deletingNote, project?._id, loadProjectNotes, closeModalById]);
 
-  const handleSaveTask = useCallback(() => {
-    if (!socket || !project?.projectId) return;
+  const closeAddTaskModal = useCallback(() => {
+    setTaskTitle('');
+    setTaskDescription('');
+    setTaskPriority('Medium');
+    setTaskDueDate(null);
+    setTaskTags([]);
+    setSelectedAssignees([]);
+    setTaskModalError(null);
+    setTaskFieldErrors({});
+    closeModalById('add_task');
+  }, [closeModalById]);
+
+  const handleSaveTask = useCallback(async () => {
+    if (!project?.projectId) return;
 
     // Validate form first
     if (!validateTaskForm()) {
@@ -893,50 +1050,83 @@ const ProjectDetails = () => {
     }
 
     // Filter out empty tags
-    const validTags = taskTags.filter(tag => tag && tag.trim() !== '');
+    const validTags = taskTags.filter((tag) => tag && tag.trim() !== '');
 
     setIsSavingTask(true);
     setTaskModalError(null);
     setTaskFieldErrors({});
 
-    socket.emit("task:create", {
-      projectId: project._id,
-      title: taskTitle,
-      description: taskDescription,
-      priority: taskPriority,
-      tags: validTags,
-      assignee: selectedAssignees,
-      dueDate: taskDueDate ? taskDueDate.toDate() : null,
-      status: "to do",
-    });
-  }, [socket, project?._id, project?.projectId, taskTitle, taskDescription, taskPriority, taskDueDate, taskTags, selectedAssignees, validateTaskForm]);
+    try {
+      const taskData: Partial<Task> = {
+        project: project._id,
+        title: taskTitle,
+        description: taskDescription,
+        priority: taskPriority as 'Low' | 'Medium' | 'High' | 'Urgent',
+        tags: validTags,
+        assignee: selectedAssignees.join(','),
+        dueDate: taskDueDate ? taskDueDate.format('YYYY-MM-DD') : undefined,
+        status: 'Pending' as 'Pending' | 'In Progress' | 'Completed' | 'Cancelled',
+      };
 
-  const handleOpenEditTask = useCallback((task: any) => {
-    setEditingTask(task);
-    setEditTaskTitle(task.title || "");
-    setEditTaskDescription(task.description || "");
-    setEditTaskPriority(task.priority || "Medium");
-    setEditTaskDueDate(task.dueDate ? dayjs(task.dueDate) : null);
-    const matchedStatus = findMatchingStatus(task.status, taskStatuses);
-    setEditTaskStatus(matchedStatus);
-    setEditTaskTags(Array.isArray(task.tags) ? task.tags : []);
-    setEditTaskAssignees(Array.isArray(task.assignee) ? task.assignee.map((a: any) => a.toString()) : []);
-    setEditTaskModalError(null);
-    setEditTaskFieldErrors({});
-  }, [findMatchingStatus, taskStatuses]);
+      const success = await createTaskAPI(taskData);
+      if (success) {
+        closeAddTaskModal();
+        loadProjectTasks();
+      } else {
+        setTaskModalError('Failed to create task');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error creating task:', error);
+      setTaskModalError('An error occurred while creating the task');
+    } finally {
+      setIsSavingTask(false);
+    }
+  }, [
+    project?._id,
+    project?.projectId,
+    taskTitle,
+    taskDescription,
+    taskPriority,
+    taskDueDate,
+    taskTags,
+    selectedAssignees,
+    validateTaskForm,
+    createTaskAPI,
+    closeAddTaskModal,
+    loadProjectTasks,
+  ]);
+
+  const handleOpenEditTask = useCallback(
+    (task: any) => {
+      setEditingTask(task);
+      setEditTaskTitle(task.title || '');
+      setEditTaskDescription(task.description || '');
+      setEditTaskPriority(task.priority || 'Medium');
+      setEditTaskDueDate(task.dueDate ? dayjs(task.dueDate) : null);
+      const matchedStatus = findMatchingStatus(task.status, taskStatuses);
+      setEditTaskStatus(matchedStatus);
+      setEditTaskTags(Array.isArray(task.tags) ? task.tags : []);
+      setEditTaskAssignees(
+        Array.isArray(task.assignee) ? task.assignee.map((a: any) => a.toString()) : []
+      );
+      setEditTaskModalError(null);
+      setEditTaskFieldErrors({});
+    },
+    [findMatchingStatus, taskStatuses]
+  );
 
   const closeEditTaskModal = useCallback(() => {
     setEditingTask(null);
-    setEditTaskTitle("");
-    setEditTaskDescription("");
-    setEditTaskPriority("Medium");
+    setEditTaskTitle('');
+    setEditTaskDescription('');
+    setEditTaskPriority('Medium');
     setEditTaskDueDate(null);
-    setEditTaskStatus("");
+    setEditTaskStatus('');
     setEditTaskTags([]);
     setEditTaskAssignees([]);
     setEditTaskModalError(null);
     setEditTaskFieldErrors({});
-    closeModalById("edit_task");
+    closeModalById('edit_task');
   }, [closeModalById]);
 
   const handleOpenDeleteTask = useCallback((task: any) => {
@@ -947,32 +1137,33 @@ const ProjectDetails = () => {
     setViewingTask(task);
   }, []);
 
-  const handleDeleteTask = useCallback(() => {
-    if (!socket || !deletingTask?._id) return;
+  const handleDeleteTask = useCallback(async () => {
+    if (!deletingTask?._id) return;
 
     setIsDeletingTask(true);
-    console.log("[ProjectDetails] Deleting task:", deletingTask._id);
+    console.log('[ProjectDetails] Deleting task:', deletingTask._id);
 
-    socket.emit("task:delete", {
-      taskId: deletingTask._id
-    });
-  }, [socket, deletingTask]);
-
-  const handleTaskDeleteResponse = useCallback((response: any) => {
-    setIsDeletingTask(false);
-    if (response.done) {
-      console.log("[ProjectDetails] Task deleted successfully");
-      setDeletingTask(null);
-      loadProjectTasks();
-      closeModalById("delete_modal");
-    } else {
-      console.error("[ProjectDetails] Failed to delete task:", response.error);
-      alert(response.error || "Failed to delete task");
+    try {
+      const success = await deleteTaskAPI(deletingTask._id);
+      if (success) {
+        console.log('[ProjectDetails] Task deleted successfully');
+        setDeletingTask(null);
+        loadProjectTasks();
+        closeModalById('delete_modal');
+      } else {
+        console.error('[ProjectDetails] Failed to delete task');
+        alert('Failed to delete task');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error deleting task:', error);
+      alert('An error occurred while deleting the task');
+    } finally {
+      setIsDeletingTask(false);
     }
-  }, [loadProjectTasks, closeModalById]);
+  }, [deletingTask, deleteTaskAPI, loadProjectTasks, closeModalById]);
 
-  const handleSaveEditTask = useCallback(() => {
-    if (!socket || !editingTask?._id) return;
+  const handleSaveEditTask = useCallback(async () => {
+    if (!editingTask?._id) return;
 
     // Validate form first
     if (!validateEditTaskForm()) {
@@ -980,35 +1171,60 @@ const ProjectDetails = () => {
     }
 
     // Filter out empty tags
-    const validTags = editTaskTags.filter(tag => tag && tag.trim() !== '');
+    const validTags = editTaskTags.filter((tag) => tag && tag.trim() !== '');
 
     setIsSavingEditTask(true);
     setEditTaskModalError(null);
     setEditTaskFieldErrors({});
 
-    console.log("[ProjectDetails] Updating task with:", {
+    console.log('[ProjectDetails] Updating task with:', {
       taskId: editingTask._id,
       title: editTaskTitle,
-      assignees: editTaskAssignees
+      assignees: editTaskAssignees,
     });
 
-    socket.emit("task:update", {
-      taskId: editingTask._id,
-      update: {
+    try {
+      const updateData: Partial<Task> = {
         title: editTaskTitle,
         description: editTaskDescription,
-        priority: editTaskPriority,
-        status: editTaskStatus,
+        priority: editTaskPriority as 'Low' | 'Medium' | 'High' | 'Urgent',
+        status: editTaskStatus as 'Pending' | 'In Progress' | 'Completed' | 'Cancelled',
         tags: validTags,
-        assignee: editTaskAssignees,
-        dueDate: editTaskDueDate ? editTaskDueDate.toDate() : null,
-      }
-    });
-  }, [socket, editingTask, editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskDueDate, editTaskTags, editTaskAssignees, validateEditTaskForm]);
+        assignee: editTaskAssignees.join(','),
+        dueDate: editTaskDueDate ? editTaskDueDate.format('YYYY-MM-DD') : undefined,
+      };
 
-  const handleEditProjectSave = useCallback(() => {
-    if (!socket || !project?._id) {
-      setEditModalError("Unable to save. Please try again.");
+      const success = await updateTaskAPI(editingTask._id, updateData);
+      if (success) {
+        closeEditTaskModal();
+        loadProjectTasks();
+      } else {
+        setEditTaskModalError('Failed to update task');
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating task:', error);
+      setEditTaskModalError('An error occurred while updating the task');
+    } finally {
+      setIsSavingEditTask(false);
+    }
+  }, [
+    editingTask,
+    editTaskTitle,
+    editTaskDescription,
+    editTaskPriority,
+    editTaskStatus,
+    editTaskDueDate,
+    editTaskTags,
+    editTaskAssignees,
+    validateEditTaskForm,
+    updateTaskAPI,
+    closeEditTaskModal,
+    loadProjectTasks,
+  ]);
+
+  const handleEditProjectSave = useCallback(async () => {
+    if (!project?._id) {
+      setEditModalError('Unable to save. Please try again.');
       return;
     }
 
@@ -1024,7 +1240,7 @@ const ProjectDetails = () => {
       name: trimmedName,
       client: trimmedClient,
       priority: editPriority,
-      description: editDescription || "",
+      description: editDescription || '',
     };
 
     // Include project value (now required)
@@ -1034,7 +1250,7 @@ const ProjectDetails = () => {
     }
 
     // Include price type if available
-    if (editPriceType && editPriceType.trim() !== "") {
+    if (editPriceType && editPriceType.trim() !== '') {
       update.priceType = editPriceType;
     }
 
@@ -1047,33 +1263,50 @@ const ProjectDetails = () => {
       update.endDate = editEndDate.toDate();
     }
 
-    console.log("[ProjectDetails] Sending update:", update);
+    console.log('[ProjectDetails] Sending update:', update);
     setIsSavingProject(true);
     setEditModalError(null);
     setFieldErrors({});
-    socket.emit("project:update", { projectId: project._id, update });
-  }, [socket, project?._id, editName, editClient, editPriority, editValue, editPriceType, editDescription, editStartDate, editEndDate, validateProjectForm]);
 
-  const closeAddTaskModal = useCallback(() => {
-    setTaskTitle("");
-    setTaskDescription("");
-    setTaskPriority("Medium");
-    setTaskDueDate(null);
-    setTaskTags([]);
-    setSelectedAssignees([]);
-    setTaskModalError(null);
-    setTaskFieldErrors({});
-    closeModalById("add_task");
-  }, [closeModalById]);
+    try {
+      const success = await updateProjectAPI(project._id, update);
+      if (success) {
+        await loadProject(); // Reload to get updated data
+        closeModalById('edit_project');
+        setIsSavingProject(false);
+      } else {
+        setEditModalError('Failed to update project');
+        setIsSavingProject(false);
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating project:', error);
+      setEditModalError('An error occurred while updating the project');
+      setIsSavingProject(false);
+    }
+  }, [
+    updateProjectAPI,
+    project?._id,
+    editName,
+    editClient,
+    editPriority,
+    editValue,
+    editPriceType,
+    editDescription,
+    editStartDate,
+    editEndDate,
+    validateProjectForm,
+    loadProject,
+    closeModalById,
+  ]);
 
-  const handleEditProjectMembersSave = useCallback(() => {
-    if (!socket || !project?._id) {
-      setEditModalError("Unable to save. Please try again.");
+  const handleEditProjectMembersSave = useCallback(async () => {
+    if (!project?._id) {
+      setEditModalError('Unable to save. Please try again.');
       return;
     }
 
     // Filter out empty tags
-    const validTags = editTags.filter(tag => tag && tag.trim() !== '');
+    const validTags = editTags.filter((tag) => tag && tag.trim() !== '');
 
     const update: any = {
       teamMembers: editTeamMembers,
@@ -1083,169 +1316,156 @@ const ProjectDetails = () => {
       status: editStatus,
     };
 
-    console.log("[ProjectDetails] Saving members tab:", update);
-    console.log("[ProjectDetails] Tags being sent:", validTags);
-    console.log("[ProjectDetails] Tags array length:", validTags.length);
-    console.log("[ProjectDetails] Tags JSON stringified:", JSON.stringify(validTags));
-    console.log("[ProjectDetails] editTags actual value:", editTags);
-    console.log("[ProjectDetails] Are all tags strings?", validTags.every(t => typeof t === 'string'));
-    console.log("[ProjectDetails] COMPLETE PAYLOAD:", JSON.stringify({ projectId: project._id, update }));
+    console.log('[ProjectDetails] Saving members tab:', update);
     setIsSavingProject(true);
     setEditModalError(null);
-    socket.emit("project:update", { projectId: project._id, update });
-  }, [socket, project?._id, editTeamMembers, editTeamLeaders, editProjectManagers, editTags, editStatus]);
 
-  const handleTaskCreateResponse = useCallback((response: any) => {
-    setIsSavingTask(false);
-    if (response.done) {
-      setTaskTitle("");
-      setTaskDescription("");
-      setTaskPriority("Medium");
-      setTaskTags([]);
-      setSelectedAssignees([]);
-      setTaskModalError(null);
-      setTaskFieldErrors({});
-      loadProjectTasks();
-      closeAddTaskModal();
-    } else {
-      setTaskModalError(response.error || "Failed to create task");
+    try {
+      const success = await updateProjectAPI(project._id, update);
+      if (success) {
+        await loadProject(); // Reload to get updated data
+        closeModalById('edit_project');
+        setIsSavingProject(false);
+      } else {
+        setEditModalError('Failed to update project');
+        setIsSavingProject(false);
+      }
+    } catch (error) {
+      console.error('[ProjectDetails] Error updating project members:', error);
+      setEditModalError('An error occurred while updating the project');
+      setIsSavingProject(false);
     }
-  }, [loadProjectTasks, closeAddTaskModal]);
+  }, [
+    updateProjectAPI,
+    project?._id,
+    editTeamMembers,
+    editTeamLeaders,
+    editProjectManagers,
+    editTags,
+    editStatus,
+    loadProject,
+    closeModalById,
+  ]);
 
-  const handleTaskUpdateResponse = useCallback((response: any) => {
-    setIsSavingEditTask(false);
-    if (response.done) {
-      console.log("[ProjectDetails] Task updated successfully");
-      setEditTaskModalError(null);
-      setEditTaskFieldErrors({});
-      loadProjectTasks();
-      closeEditTaskModal();
-    } else {
-      setEditTaskModalError(response.error || "Failed to update task");
-    }
-  }, [loadProjectTasks, closeEditTaskModal]);
+  const handlePriorityChange = useCallback(
+    async (priority: string) => {
+      if (!project?._id) return;
 
-  const handlePriorityChange = useCallback((priority: string) => {
-    if (!socket || !project?._id) return;
-
-    socket.emit("project:update", {
-      projectId: project._id,
-      update: { priority },
-    });
-  }, [socket, project?._id]);
+      try {
+        const success = await updateProjectAPI(project._id, {
+          priority: priority as 'Low' | 'Medium' | 'High',
+        });
+        if (success) {
+          await loadProject();
+        }
+      } catch (error) {
+        console.error('[ProjectDetails] Error updating priority:', error);
+      }
+    },
+    [project?._id, updateProjectAPI, loadProject]
+  );
 
   useEffect(() => {
     if (Array.isArray(project?.teamMembers)) {
-      setSelectedMembers(project.teamMembers);
-      setEditTeamMembers(project.teamMembers);
+      const memberIds = project.teamMembers.map((m: any) =>
+        typeof m === 'string' ? m : m._id || m
+      );
+      setSelectedMembers(memberIds);
+      setEditTeamMembers(memberIds);
     }
     if (Array.isArray(project?.teamLeader)) {
-      setSelectedLeads(project.teamLeader);
-      setEditTeamLeaders(project.teamLeader);
+      const leadIds = project.teamLeader.map((m: any) => (typeof m === 'string' ? m : m._id || m));
+      setSelectedLeads(leadIds);
+      setEditTeamLeaders(leadIds);
     }
     if (Array.isArray(project?.projectManager)) {
-      setSelectedManagers(project.projectManager);
-      setEditProjectManagers(project.projectManager);
+      const managerIds = project.projectManager.map((m: any) =>
+        typeof m === 'string' ? m : m._id || m
+      );
+      setSelectedManagers(managerIds);
+      setEditProjectManagers(managerIds);
     }
     if (project) {
-      console.log("[ProjectDetails] Syncing project data:", { startDate: project.startDate, endDate: project.endDate });
-      setEditName(project.name || "");
-      setEditClient(project.client || "");
-      setEditPriority(project.priority || "Medium");
-      setEditValue(project.projectValue?.toString() || "");
-      setEditPriceType(project.priceType || "");
-      setEditDescription(project.description || "");
-      setEditStatus(project.status || "Active");
+      console.log('[ProjectDetails] Syncing project data:', {
+        startDate: project.startDate,
+        endDate: project.endDate,
+      });
+      setEditName(project.name || '');
+      setEditClient(project.client || '');
+      setEditPriority(project.priority || 'Medium');
+      setEditValue(project.projectValue?.toString() || '');
+      setEditPriceType(project.priceType || '');
+      setEditDescription(project.description || '');
+      setEditStatus(project.status || 'Active');
       setEditTags(Array.isArray(project.tags) ? project.tags : []);
       const parsedStart = parseDateValue(project.startDate);
       const parsedEnd = parseDateValue(project.endDate);
       setEditStartDate(parsedStart);
       setEditEndDate(parsedEnd);
-      console.log("[ProjectDetails] After sync:", { editStartDate: parsedStart, editEndDate: parsedEnd });
+      console.log('[ProjectDetails] After sync:', {
+        editStartDate: parsedStart,
+        editEndDate: parsedEnd,
+      });
     }
   }, [project, parseDateValue]);
 
+  // Load data on mount
   useEffect(() => {
-    if (socket) {
-      socket.on("project:getById-response", handleProjectResponse);
-      socket.on("task:getByProject-response", handleTasksResponse);
-      socket.on("project/notes:getAll-response", handleNotesResponse);
-      socket.on("admin/invoices/get-response", handleInvoicesResponse);
-      socket.on("project:getAllData-response", handleGetAllDataResponse);
-      socket.on("project:update-response", handleProjectUpdateResponse);
-      socket.on("project/notes:create-response", handleNoteCreateResponse);
-      socket.on("project/notes:update-response", handleNoteUpdateResponse);
-      socket.on("project/notes:delete-response", handleNoteDeleteResponse);
-      socket.on("task:create-response", handleTaskCreateResponse);
-      socket.on("task:update-response", handleTaskUpdateResponse);
-      socket.on("task:delete-response", handleTaskDeleteResponse);
-      socket.on("task:getStatuses-response", handleTaskStatusesResponse);
-      socket.on("project:project-updated", handleupdatedresponse);
-      loadProject();
-      loadTaskStatuses();
-      socket.emit("project:getAllData");
-
-      return () => {
-        socket.off("project:getById-response", handleProjectResponse);
-        socket.off("task:getByProject-response", handleTasksResponse);
-        socket.off("project/notes:getAll-response", handleNotesResponse);
-        socket.off("admin/invoices/get-response", handleInvoicesResponse);
-        socket.off("project:getAllData-response", handleGetAllDataResponse);
-        socket.off("project:update-response", handleProjectUpdateResponse);
-        socket.off("project/notes:create-response", handleNoteCreateResponse);
-        socket.off("project/notes:update-response", handleNoteUpdateResponse);
-        socket.off("project/notes:delete-response", handleNoteDeleteResponse);
-        socket.off("task:create-response", handleTaskCreateResponse);
-        socket.off("task:update-response", handleTaskUpdateResponse);
-        socket.off("task:delete-response", handleTaskDeleteResponse);
-        socket.off("task:getStatuses-response", handleTaskStatusesResponse);
-        socket.off("project:project-updated", handleupdatedresponse);
-      };
-    }
-  }, [socket, handleProjectResponse, handleTasksResponse, handleNotesResponse, handleInvoicesResponse, handleGetAllDataResponse, handleProjectUpdateResponse, handleNoteCreateResponse, handleNoteUpdateResponse, handleNoteDeleteResponse, handleTaskCreateResponse, handleTaskUpdateResponse, handleTaskDeleteResponse, handleTaskStatusesResponse, loadProject, loadProjectTasks, loadProjectNotes, loadProjectInvoices, loadTaskStatuses, handleupdatedresponse]);
+    loadProject();
+    loadTaskStatuses();
+    loadEmployeesAndClients();
+  }, [loadProject, loadTaskStatuses, loadEmployeesAndClients]);
 
   const getModalContainer = () => {
-    const modalElement = document.getElementById("modal-datepicker");
+    const modalElement = document.getElementById('modal-datepicker');
     return modalElement ? modalElement : document.body;
   };
-  const clientChoose = useMemo(() => [
-    { value: "Select", label: "Select" },
-    ...clients.map(client => ({ value: client.label, label: client.label }))
-  ], [clients]);
+  const clientChoose = useMemo(
+    () => [
+      { value: 'Select', label: 'Select' },
+      ...clients.map((client) => ({ value: client.label, label: client.label })),
+    ],
+    [clients]
+  );
   const statusChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Active", label: "Active" },
-    { value: "Inactive", label: "Inactive" },
+    { value: 'Select', label: 'Select' },
+    { value: 'Active', label: 'Active' },
+    { value: 'Inactive', label: 'Inactive' },
   ];
   const priorityChoose = [
-    { value: "Select", label: "Select" },
-    { value: "High", label: "High" },
-    { value: "Medium", label: "Medium" },
-    { value: "Low", label: "Low" },
+    { value: 'Select', label: 'Select' },
+    { value: 'High', label: 'High' },
+    { value: 'Medium', label: 'Medium' },
+    { value: 'Low', label: 'Low' },
   ];
   const tagChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Internal", label: "Internal" },
-    { value: "Projects", label: "Projects" },
-    { value: "Meetings", label: "Meetings" },
-    { value: "Reminder", label: "Reminder" },
+    { value: 'Select', label: 'Select' },
+    { value: 'Internal', label: 'Internal' },
+    { value: 'Projects', label: 'Projects' },
+    { value: 'Meetings', label: 'Meetings' },
+    { value: 'Reminder', label: 'Reminder' },
   ];
-  
+
   // Dynamic assignee options from project team members (store employee object id like team member updates)
   const assigneeChoose = useMemo(() => {
-    const baseOption = [{ value: "Select", label: "Select" }];
-    if (!project?.teamMembersdetail || project.teamMembersdetail.length === 0) {
+    const baseOption = [{ value: 'Select', label: 'Select' }];
+    if (
+      !project?.teamMembers ||
+      !Array.isArray(project.teamMembers) ||
+      project.teamMembers.length === 0
+    ) {
       return baseOption;
     }
 
     const seen = new Set<string>();
-    const teamOptions = project.teamMembersdetail.reduce((acc: any[], member: any) => {
-      const value = (member?._id || member?.id || member?.employeeId || "").toString();
+    const teamOptions = project.teamMembers.reduce((acc: any[], member: any) => {
+      const value = (member?._id || member?.id || member?.employeeId || '').toString();
       if (!value || seen.has(value)) return acc; // skip empty or duplicate ids
       seen.add(value);
       acc.push({
         value,
-        label: `${member?.employeeId || ''} - ${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
+        label:
+          `${member?.employeeId || ''} - ${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
         employeeId: member?.employeeId || '',
         name: `${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
       });
@@ -1253,13 +1473,16 @@ const ProjectDetails = () => {
     }, []);
 
     return [...baseOption, ...teamOptions];
-  }, [project?.teamMembersdetail]);
+  }, [project?.teamMembers]);
 
   if (loading) {
     return (
       <div className="page-wrapper">
         <div className="content">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+          <div
+            className="d-flex justify-content-center align-items-center"
+            style={{ minHeight: '400px' }}
+          >
             <div className="spinner-border text-primary" role="status">
               <span className="visually-hidden">Loading...</span>
             </div>
@@ -1277,10 +1500,7 @@ const ProjectDetails = () => {
             <i className="ti ti-alert-circle fs-1 text-danger mb-3"></i>
             <h5 className="mb-2">Error Loading Project</h5>
             <p className="text-muted mb-3">{error}</p>
-            <button
-              className="btn btn-primary"
-              onClick={loadProject}
-            >
+            <button className="btn btn-primary" onClick={loadProject}>
               Try Again
             </button>
           </div>
@@ -1296,7 +1516,9 @@ const ProjectDetails = () => {
           <div className="text-center py-5">
             <i className="ti ti-folder-x fs-1 text-muted mb-3"></i>
             <h5 className="mb-2">Project Not Found</h5>
-            <p className="text-muted mb-3">The project you're looking for doesn't exist or has been deleted.</p>
+            <p className="text-muted mb-3">
+              The project you're looking for doesn't exist or has been deleted.
+            </p>
             <Link to={all_routes.projectlist} className="btn btn-primary">
               Back to Projects
             </Link>
@@ -1363,7 +1585,9 @@ const ProjectDetails = () => {
                       <div className="d-flex align-items-center justify-content-between">
                         <span>Created on</span>
                         <p className="text-gray-9">
-                          {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : 'N/A'}
+                          {project.createdAt
+                            ? new Date(project.createdAt).toLocaleDateString()
+                            : 'N/A'}
                         </p>
                       </div>
                     </div>
@@ -1371,7 +1595,9 @@ const ProjectDetails = () => {
                       <div className="d-flex align-items-center justify-content-between">
                         <span>Started on</span>
                         <p className="text-gray-9">
-                          {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'}
+                          {project.startDate
+                            ? new Date(project.startDate).toLocaleDateString()
+                            : 'N/A'}
                         </p>
                       </div>
                     </div>
@@ -1382,7 +1608,7 @@ const ProjectDetails = () => {
                           <p className="text-gray-9 mb-0">
                             {(() => {
                               const parsed = parseDateValue(project.endDate);
-                              return parsed ? parsed.format("DD/MM/YYYY") : 'N/A';
+                              return parsed ? parsed.format('DD/MM/YYYY') : 'N/A';
                             })()}
                           </p>
                           {(() => {
@@ -1390,7 +1616,8 @@ const ProjectDetails = () => {
                             return parsed && parsed.isBefore(dayjs(), 'day');
                           })() && (
                             <span className="badge badge-danger d-inline-flex align-items-center ms-2">
-                              <i className="ti ti-clock-stop" />Overdue
+                              <i className="ti ti-clock-stop" />
+                              Overdue
                             </span>
                           )}
                         </div>
@@ -1401,10 +1628,7 @@ const ProjectDetails = () => {
                         <span>Created by</span>
                         <div className="d-flex align-items-center">
                           <span className="avatar avatar-sm avatar-rounded me-2">
-                            <ImageWithBasePath
-                              src="assets/img/profiles/avatar-02.jpg"
-                              alt="Img"
-                            />
+                            <ImageWithBasePath src="assets/img/profiles/avatar-02.jpg" alt="Img" />
                           </span>
                           <p className="text-gray-9 mb-0">{project.createdBy || 'N/A'}</p>
                         </div>
@@ -1413,11 +1637,15 @@ const ProjectDetails = () => {
                     <div className="list-group-item">
                       <div className="d-flex align-items-center justify-content-between">
                         <span>Priority</span>
-                        <span className={`badge d-inline-flex align-items-center ${
-                          project.priority === 'High' ? 'badge-soft-danger' :
-                          project.priority === 'Medium' ? 'badge-soft-warning' :
-                          'badge-soft-success'
-                        }`}>
+                        <span
+                          className={`badge d-inline-flex align-items-center ${
+                            project.priority === 'High'
+                              ? 'badge-soft-danger'
+                              : project.priority === 'Medium'
+                                ? 'badge-soft-warning'
+                                : 'badge-soft-success'
+                          }`}
+                        >
                           <i className="ti ti-point-filled me-1" />
                           {project.priority || 'N/A'}
                         </span>
@@ -1427,17 +1655,27 @@ const ProjectDetails = () => {
                   <h5 className="mb-3">Tasks Details</h5>
                   <div className="bg-light p-2 rounded">
                     <span className="d-block mb-1">Tasks Done</span>
-                    <h4 className="mb-2">{project.completedTasks || 0} / {project.totalTasks || 0}</h4>
+                    <h4 className="mb-2">
+                      {project.completedTasks || 0} / {project.totalTasks || 0}
+                    </h4>
                     <div className="progress progress-xs mb-2">
                       <div
                         className="progress-bar"
                         role="progressbar"
                         style={{
-                          width: project.totalTasks > 0 ? `${(project.completedTasks || 0) / project.totalTasks * 100}%` : '0%'
+                          width:
+                            project.totalTasks > 0
+                              ? `${((project.completedTasks || 0) / project.totalTasks) * 100}%`
+                              : '0%',
                         }}
                       />
                     </div>
-                    <p>{project.totalTasks > 0 ? Math.round((project.completedTasks || 0) / project.totalTasks * 100) : 0}% Completed</p>
+                    <p>
+                      {project.totalTasks > 0
+                        ? Math.round(((project.completedTasks || 0) / project.totalTasks) * 100)
+                        : 0}
+                      % Completed
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1451,19 +1689,18 @@ const ProjectDetails = () => {
                         to={all_routes.projectdetails.replace(':projectId', project._id)}
                         className="flex-shrink-0 me-2"
                       >
-                        <ImageWithBasePath
-                          src="assets/img/social/project-01.svg"
-                          alt="Img"
-                        />
+                        <ImageWithBasePath src="assets/img/social/project-01.svg" alt="Img" />
                       </Link>
                       <div>
                         <h6 className="mb-1">
-                          <Link to={all_routes.projectdetails.replace(':projectId',  project.projectId)}>
+                          <Link
+                            to={all_routes.projectdetails.replace(':projectId', project.projectId)}
+                          >
                             {project.name || 'Untitled Project'}
                           </Link>
                         </h6>
                         <p>
-                          Project ID :{" "}
+                          Project ID :{' '}
                           <span className="text-primary"> {project.projectId || 'N/A'}</span>
                         </p>
                       </div>
@@ -1477,11 +1714,17 @@ const ProjectDetails = () => {
                       </p>
                     </div>
                     <div className="col-sm-9">
-                      <span className={`badge d-inline-flex align-items-center mb-3 ${project.status === 'Active' ? 'badge-soft-success' :
-                        project.status === 'Completed' ? 'badge-soft-primary' :
-                          project.status === 'On Hold' ? 'badge-soft-warning' :
-                            'badge-soft-secondary'
-                        }`}>
+                      <span
+                        className={`badge d-inline-flex align-items-center mb-3 ${
+                          project.status === 'Active'
+                            ? 'badge-soft-success'
+                            : project.status === 'Completed'
+                              ? 'badge-soft-primary'
+                              : project.status === 'On Hold'
+                                ? 'badge-soft-warning'
+                                : 'badge-soft-secondary'
+                        }`}
+                      >
                         <i className="ti ti-point-filled me-1" />
                         {project.status || 'N/A'}
                       </span>
@@ -1494,9 +1737,23 @@ const ProjectDetails = () => {
                     </div>
                     <div className="col-sm-9">
                       <div className="d-flex align-items-center mb-3">
-                        {project.teamMembersdetail && project.teamMembersdetail.length > 0 ? (
-                          project.teamMembersdetail.map((member: any, index: number) => (
-                            <div key={member.employeeId || index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
+                        {(() => {
+                          console.log('[ProjectDetails] Rendering Team Members:', {
+                            exists: !!project.teamMembers,
+                            isArray: Array.isArray(project.teamMembers),
+                            length: project.teamMembers?.length,
+                            data: project.teamMembers,
+                          });
+                          return null;
+                        })()}
+                        {project.teamMembers &&
+                        Array.isArray(project.teamMembers) &&
+                        project.teamMembers.length > 0 ? (
+                          project.teamMembers.map((member: any, index: number) => (
+                            <div
+                              key={member.employeeId || index}
+                              className="bg-gray-100 p-1 rounded d-flex align-items-center me-2"
+                            >
                               <Link
                                 to="#"
                                 className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
@@ -1507,7 +1764,9 @@ const ProjectDetails = () => {
                                 />
                               </Link>
                               <h6 className="fs-12">
-                                <Link to="#">{member.employeeId} - {member.firstName} {member.lastName}</Link>
+                                <Link to="#">
+                                  {member.employeeId} - {member.firstName} {member.lastName}
+                                </Link>
                               </h6>
                             </div>
                           ))
@@ -1535,9 +1794,14 @@ const ProjectDetails = () => {
                     </div>
                     <div className="col-sm-9">
                       <div className="d-flex align-items-center mb-3">
-                        {project.teamLeaderdetail && project.teamLeaderdetail.length > 0 ? (
-                          project.teamLeaderdetail.map((lead: any, index: number) => (
-                            <div key={lead.employeeId || index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
+                        {project.teamLeader &&
+                        Array.isArray(project.teamLeader) &&
+                        project.teamLeader.length > 0 ? (
+                          project.teamLeader.map((lead: any, index: number) => (
+                            <div
+                              key={lead.employeeId || index}
+                              className="bg-gray-100 p-1 rounded d-flex align-items-center me-2"
+                            >
                               <Link
                                 to="#"
                                 className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
@@ -1548,7 +1812,9 @@ const ProjectDetails = () => {
                                 />
                               </Link>
                               <h6 className="fs-12">
-                                <Link to="#">{lead.employeeId} - {lead.firstName} {lead.lastName}</Link>
+                                <Link to="#">
+                                  {lead.employeeId} - {lead.firstName} {lead.lastName}
+                                </Link>
                               </h6>
                             </div>
                           ))
@@ -1576,9 +1842,14 @@ const ProjectDetails = () => {
                     </div>
                     <div className="col-sm-9">
                       <div className="d-flex align-items-center mb-3">
-                        {project.projectManagerdetail && project.projectManagerdetail.length > 0 ? (
-                          project.projectManagerdetail.map((manager: any, index: number) => (
-                            <div key={manager.employeeId || index} className="bg-gray-100 p-1 rounded d-flex align-items-center me-2">
+                        {project.projectManager &&
+                        Array.isArray(project.projectManager) &&
+                        project.projectManager.length > 0 ? (
+                          project.projectManager.map((manager: any, index: number) => (
+                            <div
+                              key={manager.employeeId || index}
+                              className="bg-gray-100 p-1 rounded d-flex align-items-center me-2"
+                            >
                               <Link
                                 to="#"
                                 className="avatar avatar-sm avatar-rounded border border-white flex-shrink-0 me-2"
@@ -1589,7 +1860,9 @@ const ProjectDetails = () => {
                                 />
                               </Link>
                               <h6 className="fs-12">
-                                <Link to="#">{manager.employeeId} - {manager.firstName} {manager.lastName}</Link>
+                                <Link to="#">
+                                  {manager.employeeId} - {manager.firstName} {manager.lastName}
+                                </Link>
                               </h6>
                             </div>
                           ))
@@ -1622,8 +1895,9 @@ const ProjectDetails = () => {
                             <Link
                               key={index}
                               to="#"
-                              className={`badge task-tag rounded-pill me-2 ${index % 2 === 0 ? 'bg-pink' : 'badge-info'
-                                }`}
+                              className={`badge task-tag rounded-pill me-2 ${
+                                index % 2 === 0 ? 'bg-pink' : 'badge-info'
+                              }`}
                             >
                               {tag}
                             </Link>
@@ -1636,18 +1910,15 @@ const ProjectDetails = () => {
                     <div className="col-sm-12">
                       <div className="mb-3">
                         <h6 className="mb-1">Description</h6>
-                        <p>
-                          {project.description || 'No description available for this project.'}
-                        </p>
+                        <p>{project.description || 'No description available for this project.'}</p>
                       </div>
                     </div>
                     <div className="col-md-12">
                       <div className="bg-soft-secondary p-3 rounded d-flex align-items-center justify-content-between">
-                        <p className="text-secondary mb-0">
-                          Time Spent on this project
-                        </p>
+                        <p className="text-secondary mb-0">Time Spent on this project</p>
                         <h3 className="text-secondary">
-                          {project.timeSpent || '0'}/{project.totalHours || '0'} <span className="fs-16">Hrs</span>
+                          {project.timeSpent || '0'}/{project.totalHours || '0'}{' '}
+                          <span className="fs-16">Hrs</span>
                         </h3>
                       </div>
                     </div>
@@ -1655,10 +1926,7 @@ const ProjectDetails = () => {
                 </div>
               </div>
               <div className="custom-accordion-items">
-                <div
-                  className="accordion accordions-items-seperate"
-                  id="accordionExample"
-                >
+                <div className="accordion accordions-items-seperate" id="accordionExample">
                   <div className="accordion-item">
                     <div className="accordion-header" id="headingTwo">
                       <div className="accordion-button">
@@ -1683,13 +1951,25 @@ const ProjectDetails = () => {
                       aria-labelledby="headingTwo"
                       data-bs-parent="#accordionExample"
                     >
-                      <div className="accordion-body" style={{ minHeight: '210px', overflow: 'visible' }}>
-                        <div className="list-group list-group-flush" >
-                          {tasks.length === 0 ? (
+                      <div
+                        className="accordion-body"
+                        style={{ minHeight: '210px', overflow: 'visible' }}
+                      >
+                        <div className="list-group list-group-flush">
+                          {tasksLoading ? (
+                            <div className="text-center py-5">
+                              <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Loading tasks...</span>
+                              </div>
+                              <p className="text-muted mt-3">Loading tasks...</p>
+                            </div>
+                          ) : tasks.length === 0 ? (
                             <div className="text-center py-4">
                               <i className="ti ti-clipboard-x fs-1 text-muted mb-3"></i>
                               <h6 className="text-muted">No tasks found</h6>
-                              <p className="text-muted small">Tasks for this project will appear here</p>
+                              <p className="text-muted small">
+                                Tasks for this project will appear here
+                              </p>
                             </div>
                           ) : (
                             tasks.slice(0, 5).map((task) => (
@@ -1713,12 +1993,12 @@ const ProjectDetails = () => {
                                           />
                                         </div>
                                         <span className="me-2 d-flex align-items-center rating-select">
-                                          <i className={`ti ti-star${task.priority === 'High' ? '-filled filled' : ''}`} />
+                                          <i
+                                            className={`ti ti-star${task.priority === 'High' ? '-filled filled' : ''}`}
+                                          />
                                         </span>
                                         <div className="strike-info">
-                                          <h4 className="fs-14">
-                                            {task.title}
-                                          </h4>
+                                          <h4 className="fs-14">{task.title}</h4>
                                         </div>
                                       </div>
                                     </div>
@@ -1832,7 +2112,7 @@ const ProjectDetails = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="row" >
+                  <div className="row">
                     <div className="col-xl-6 d-flex">
                       <div className="accordion-item flex-fill">
                         <div className="accordion-header" id="headingFive">
@@ -1874,7 +2154,9 @@ const ProjectDetails = () => {
                               <div className="text-center py-4">
                                 <i className="ti ti-note-off fs-1 text-muted mb-3"></i>
                                 <h6 className="text-muted">No notes found</h6>
-                                <p className="text-muted small">Notes for this project will appear here</p>
+                                <p className="text-muted small">
+                                  Notes for this project will appear here
+                                </p>
                               </div>
                             ) : (
                               notes.map((note) => (
@@ -1882,7 +2164,9 @@ const ProjectDetails = () => {
                                   <div className="card-body">
                                     <div className="d-flex align-items-center justify-content-between mb-2">
                                       <h6 className="text-gray-5 fw-medium">
-                                        {note.createdAt ? new Date(note.createdAt).toLocaleDateString() : 'N/A'}
+                                        {note.createdAt
+                                          ? new Date(note.createdAt).toLocaleDateString()
+                                          : 'N/A'}
                                       </h6>
                                       <div className="dropdown">
                                         <Link
@@ -1927,9 +2211,7 @@ const ProjectDetails = () => {
                                       <i className="ti ti-point-filled text-primary me-1" />
                                       {note.title}
                                     </h6>
-                                    <p className="text-truncate line-clamb-3">
-                                      {note.content}
-                                    </p>
+                                    <p className="text-truncate line-clamb-3">{note.content}</p>
                                   </div>
                                 </div>
                               ))
@@ -1973,8 +2255,7 @@ const ProjectDetails = () => {
                         >
                           <div className="accordion-body">
                             <div className="notice-widget">
-                              <div className="d-flex align-items-center justify-content-between mb-4">
-                              </div>
+                              <div className="d-flex align-items-center justify-content-between mb-4"></div>
                             </div>
                           </div>
                         </div>
@@ -2115,7 +2396,7 @@ const ProjectDetails = () => {
                       </li>
                       <li>
                         <Link
-                        to="#"  
+                        to="#"
                           className="dropdown-item rounded-1 d-flex align-items-center"
                           data-bs-toggle="modal"
                           data-bs-target="#add_note_modal"
@@ -2182,9 +2463,11 @@ const ProjectDetails = () => {
                   className="basic-multi-select"
                   classNamePrefix="select"
                   options={memberSelectOptions}
-                  value={memberSelectOptions.filter(opt => selectedMembers.includes(opt.value))}
+                  value={memberSelectOptions.filter((opt) => selectedMembers.includes(opt.value))}
                   onChange={(opts) => setSelectedMembers((opts || []).map((opt) => opt.value))}
-                  placeholder={employeeOptions.length === 0 ? "No employees available" : "Select members"}
+                  placeholder={
+                    employeeOptions.length === 0 ? 'No employees available' : 'Select members'
+                  }
                   isDisabled={employeeOptions.length === 0}
                 />
               </div>
@@ -2209,7 +2492,7 @@ const ProjectDetails = () => {
                 onClick={handleSaveTeamMembers}
                 disabled={isSavingMembers || selectedMembers.length === 0}
               >
-                {isSavingMembers ? "Saving..." : "Save"}
+                {isSavingMembers ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -2239,9 +2522,11 @@ const ProjectDetails = () => {
                   className="basic-multi-select"
                   classNamePrefix="select"
                   options={memberSelectOptions}
-                  value={memberSelectOptions.filter(opt => selectedLeads.includes(opt.value))}
+                  value={memberSelectOptions.filter((opt) => selectedLeads.includes(opt.value))}
                   onChange={(opts) => setSelectedLeads((opts || []).map((opt) => opt.value))}
-                  placeholder={employeeOptions.length === 0 ? "No employees available" : "Select team lead(s)"}
+                  placeholder={
+                    employeeOptions.length === 0 ? 'No employees available' : 'Select team lead(s)'
+                  }
                   isDisabled={employeeOptions.length === 0}
                 />
               </div>
@@ -2266,7 +2551,7 @@ const ProjectDetails = () => {
                 onClick={handleSaveTeamLeads}
                 disabled={isSavingLeads || selectedLeads.length === 0}
               >
-                {isSavingLeads ? "Saving..." : "Save"}
+                {isSavingLeads ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -2296,9 +2581,13 @@ const ProjectDetails = () => {
                   className="basic-multi-select"
                   classNamePrefix="select"
                   options={memberSelectOptions}
-                  value={memberSelectOptions.filter(opt => selectedManagers.includes(opt.value))}
+                  value={memberSelectOptions.filter((opt) => selectedManagers.includes(opt.value))}
                   onChange={(opts) => setSelectedManagers((opts || []).map((opt) => opt.value))}
-                  placeholder={employeeOptions.length === 0 ? "No employees available" : "Select project manager(s)"}
+                  placeholder={
+                    employeeOptions.length === 0
+                      ? 'No employees available'
+                      : 'Select project manager(s)'
+                  }
                   isDisabled={employeeOptions.length === 0}
                 />
               </div>
@@ -2323,7 +2612,7 @@ const ProjectDetails = () => {
                 onClick={handleSaveProjectManagers}
                 disabled={isSavingManagers || selectedManagers.length === 0}
               >
-                {isSavingManagers ? "Saving..." : "Save"}
+                {isSavingManagers ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -2352,7 +2641,9 @@ const ProjectDetails = () => {
                 </div>
               )}
               <div className="mb-3">
-                <label className="form-label">Title <span className="text-danger">*</span></label>
+                <label className="form-label">
+                  Title <span className="text-danger">*</span>
+                </label>
                 <input
                   type="text"
                   name="noteTitle"
@@ -2360,7 +2651,7 @@ const ProjectDetails = () => {
                   value={noteTitle}
                   onChange={(e) => {
                     setNoteTitle(e.target.value);
-                    clearNoteFieldError("noteTitle");
+                    clearNoteFieldError('noteTitle');
                   }}
                   onBlur={(e) => handleNoteFieldBlur('noteTitle', e.target.value)}
                   placeholder="Enter note title (minimum 3 characters)"
@@ -2370,7 +2661,9 @@ const ProjectDetails = () => {
                 )}
               </div>
               <div className="mb-3">
-                <label className="form-label">Content <span className="text-danger">*</span></label>
+                <label className="form-label">
+                  Content <span className="text-danger">*</span>
+                </label>
                 <textarea
                   name="noteContent"
                   className={`form-control ${noteFieldErrors.noteContent ? 'is-invalid' : ''}`}
@@ -2378,7 +2671,7 @@ const ProjectDetails = () => {
                   value={noteContent}
                   onChange={(e) => {
                     setNoteContent(e.target.value);
-                    clearNoteFieldError("noteContent");
+                    clearNoteFieldError('noteContent');
                   }}
                   onBlur={(e) => handleNoteFieldBlur('noteContent', e.target.value)}
                   placeholder="Enter note content (minimum 10 characters)"
@@ -2413,7 +2706,7 @@ const ProjectDetails = () => {
                     Saving...
                   </>
                 ) : (
-                  "Save"
+                  'Save'
                 )}
               </button>
             </div>
@@ -2445,7 +2738,9 @@ const ProjectDetails = () => {
                 </div>
               )}
               <div className="mb-3">
-                <label className="form-label">Title <span className="text-danger">*</span></label>
+                <label className="form-label">
+                  Title <span className="text-danger">*</span>
+                </label>
                 <input
                   type="text"
                   name="editNoteTitle"
@@ -2453,17 +2748,21 @@ const ProjectDetails = () => {
                   value={editNoteTitle}
                   onChange={(e) => {
                     setEditNoteTitle(e.target.value);
-                    clearEditNoteFieldError("editNoteTitle");
+                    clearEditNoteFieldError('editNoteTitle');
                   }}
                   onBlur={(e) => handleEditNoteFieldBlur('editNoteTitle', e.target.value)}
                   placeholder="Enter note title (minimum 3 characters)"
                 />
                 {editNoteFieldErrors.editNoteTitle && (
-                  <div className="invalid-feedback d-block">{editNoteFieldErrors.editNoteTitle}</div>
+                  <div className="invalid-feedback d-block">
+                    {editNoteFieldErrors.editNoteTitle}
+                  </div>
                 )}
               </div>
               <div className="mb-3">
-                <label className="form-label">Content <span className="text-danger">*</span></label>
+                <label className="form-label">
+                  Content <span className="text-danger">*</span>
+                </label>
                 <textarea
                   name="editNoteContent"
                   className={`form-control ${editNoteFieldErrors.editNoteContent ? 'is-invalid' : ''}`}
@@ -2471,13 +2770,15 @@ const ProjectDetails = () => {
                   value={editNoteContent}
                   onChange={(e) => {
                     setEditNoteContent(e.target.value);
-                    clearEditNoteFieldError("editNoteContent");
+                    clearEditNoteFieldError('editNoteContent');
                   }}
                   onBlur={(e) => handleEditNoteFieldBlur('editNoteContent', e.target.value)}
                   placeholder="Enter note content (minimum 10 characters)"
                 />
                 {editNoteFieldErrors.editNoteContent && (
-                  <div className="invalid-feedback d-block">{editNoteFieldErrors.editNoteContent}</div>
+                  <div className="invalid-feedback d-block">
+                    {editNoteFieldErrors.editNoteContent}
+                  </div>
                 )}
               </div>
             </div>
@@ -2507,7 +2808,7 @@ const ProjectDetails = () => {
                     Saving...
                   </>
                 ) : (
-                  "Save Changes"
+                  'Save Changes'
                 )}
               </button>
             </div>
@@ -2527,29 +2828,30 @@ const ProjectDetails = () => {
               <p className="mb-3">
                 {deletingNote && (
                   <>
-                    Are you sure you want to delete the note <strong>"{deletingNote.title}"</strong>?
+                    Are you sure you want to delete the note <strong>"{deletingNote.title}"</strong>
+                    ?
                     <br />
                     This action cannot be undone.
                   </>
                 )}
               </p>
               <div className="d-flex justify-content-center">
-                <button 
-                  type="button" 
-                  className="btn btn-light me-3" 
+                <button
+                  type="button"
+                  className="btn btn-light me-3"
                   data-bs-dismiss="modal"
                   disabled={isDeletingNote}
                   onClick={() => setDeletingNote(null)}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
-                  onClick={handleDeleteNote} 
+                <button
+                  type="button"
+                  onClick={handleDeleteNote}
                   className="btn btn-danger"
                   disabled={isDeletingNote}
                 >
-                  {isDeletingNote ? "Deleting..." : "Yes, Delete"}
+                  {isDeletingNote ? 'Deleting...' : 'Yes, Delete'}
                 </button>
               </div>
             </div>
@@ -2630,18 +2932,12 @@ const ProjectDetails = () => {
                             <div className="profile-upload">
                               <div className="mb-2">
                                 <h6 className="mb-1">Upload Project Logo</h6>
-                                <p className="fs-12">
-                                  Image should be below 4 mb
-                                </p>
+                                <p className="fs-12">Image should be below 4 mb</p>
                               </div>
                               <div className="profile-uploader d-flex align-items-center">
                                 <div className="drag-upload-btn btn btn-sm btn-primary me-2">
                                   Upload
-                                  <input
-                                    type="file"
-                                    className="form-control image-sign"
-                                    multiple
-                                  />
+                                  <input type="file" className="form-control image-sign" multiple />
                                 </div>
                                 <Link to="#" className="btn btn-light btn-sm">
                                   Cancel
@@ -2680,9 +2976,9 @@ const ProjectDetails = () => {
                               <CommonSelect
                                 className="select"
                                 options={clientChoose}
-                                value={clientChoose.find(c => c.value === editClient) || null}
+                                value={clientChoose.find((c) => c.value === editClient) || null}
                                 onChange={(opt: any) => {
-                                  setEditClient(opt?.value || "");
+                                  setEditClient(opt?.value || '');
                                   clearFieldError('client');
                                 }}
                               />
@@ -2703,8 +2999,8 @@ const ProjectDetails = () => {
                                   <DatePicker
                                     className={`form-control datetimepicker ${fieldErrors.startDate ? 'is-invalid' : ''}`}
                                     format={{
-                                      format: "DD-MM-YYYY",
-                                      type: "mask",
+                                      format: 'DD-MM-YYYY',
+                                      type: 'mask',
                                     }}
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
@@ -2719,7 +3015,9 @@ const ProjectDetails = () => {
                                   </span>
                                 </div>
                                 {fieldErrors.startDate && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.startDate}</div>
+                                  <div className="invalid-feedback d-block">
+                                    {fieldErrors.startDate}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2732,8 +3030,8 @@ const ProjectDetails = () => {
                                   <DatePicker
                                     className={`form-control datetimepicker ${fieldErrors.endDate ? 'is-invalid' : ''}`}
                                     format={{
-                                      format: "DD-MM-YYYY",
-                                      type: "mask",
+                                      format: 'DD-MM-YYYY',
+                                      type: 'mask',
                                     }}
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
@@ -2748,7 +3046,9 @@ const ProjectDetails = () => {
                                   </span>
                                 </div>
                                 {fieldErrors.endDate && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.endDate}</div>
+                                  <div className="invalid-feedback d-block">
+                                    {fieldErrors.endDate}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2757,19 +3057,26 @@ const ProjectDetails = () => {
                                 <label className="form-label">
                                   Priority <span className="text-danger">*</span>
                                 </label>
-                                <div id="priority" className={fieldErrors.priority ? 'is-invalid' : ''}>
+                                <div
+                                  id="priority"
+                                  className={fieldErrors.priority ? 'is-invalid' : ''}
+                                >
                                   <CommonSelect
                                     className="select"
                                     options={priorityChoose}
-                                    value={priorityChoose.find(p => p.value === editPriority) || null}
+                                    value={
+                                      priorityChoose.find((p) => p.value === editPriority) || null
+                                    }
                                     onChange={(opt: any) => {
-                                      setEditPriority(opt?.value || "Medium");
+                                      setEditPriority(opt?.value || 'Medium');
                                       clearFieldError('priority');
                                     }}
                                   />
                                 </div>
                                 {fieldErrors.priority && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.priority}</div>
+                                  <div className="invalid-feedback d-block">
+                                    {fieldErrors.priority}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2792,7 +3099,9 @@ const ProjectDetails = () => {
                                   step="0.01"
                                 />
                                 {fieldErrors.projectValue && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.projectValue}</div>
+                                  <div className="invalid-feedback d-block">
+                                    {fieldErrors.projectValue}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2816,7 +3125,9 @@ const ProjectDetails = () => {
                               placeholder="Enter project description"
                             />
                             {fieldErrors.description && (
-                              <div className="invalid-feedback d-block">{fieldErrors.description}</div>
+                              <div className="invalid-feedback d-block">
+                                {fieldErrors.description}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -2843,7 +3154,7 @@ const ProjectDetails = () => {
                           onClick={handleEditProjectSave}
                           disabled={isSavingProject}
                         >
-                          {isSavingProject ? "Saving..." : "Save"}
+                          {isSavingProject ? 'Saving...' : 'Save'}
                         </button>
                       </div>
                     </div>
@@ -2866,51 +3177,69 @@ const ProjectDetails = () => {
                       <div className="row">
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label me-2">
-                              Team Members
-                            </label>
+                            <label className="form-label me-2">Team Members</label>
                             <Select
                               isMulti
                               className="basic-multi-select"
                               classNamePrefix="select"
                               options={memberSelectOptions}
-                              value={memberSelectOptions.filter(opt => editTeamMembers.includes(opt.value))}
-                              onChange={(opts) => setEditTeamMembers((opts || []).map((opt) => opt.value))}
-                              placeholder={employeeOptions.length === 0 ? "No employees available" : "Select team members"}
+                              value={memberSelectOptions.filter((opt) =>
+                                editTeamMembers.includes(opt.value)
+                              )}
+                              onChange={(opts) =>
+                                setEditTeamMembers((opts || []).map((opt) => opt.value))
+                              }
+                              placeholder={
+                                employeeOptions.length === 0
+                                  ? 'No employees available'
+                                  : 'Select team members'
+                              }
                               isDisabled={employeeOptions.length === 0}
                             />
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label me-2">
-                              Team Leader
-                            </label>
+                            <label className="form-label me-2">Team Leader</label>
                             <Select
                               isMulti
                               className="basic-multi-select"
                               classNamePrefix="select"
                               options={memberSelectOptions}
-                              value={memberSelectOptions.filter(opt => editTeamLeaders.includes(opt.value))}
-                              onChange={(opts) => setEditTeamLeaders((opts || []).map((opt) => opt.value))}
-                              placeholder={employeeOptions.length === 0 ? "No employees available" : "Select team leaders"}
+                              value={memberSelectOptions.filter((opt) =>
+                                editTeamLeaders.includes(opt.value)
+                              )}
+                              onChange={(opts) =>
+                                setEditTeamLeaders((opts || []).map((opt) => opt.value))
+                              }
+                              placeholder={
+                                employeeOptions.length === 0
+                                  ? 'No employees available'
+                                  : 'Select team leaders'
+                              }
                               isDisabled={employeeOptions.length === 0}
                             />
                           </div>
                         </div>
                         <div className="col-md-12">
                           <div className="mb-3">
-                            <label className="form-label me-2">
-                              Project Manager
-                            </label>
+                            <label className="form-label me-2">Project Manager</label>
                             <Select
                               isMulti
                               className="basic-multi-select"
                               classNamePrefix="select"
                               options={memberSelectOptions}
-                              value={memberSelectOptions.filter(opt => editProjectManagers.includes(opt.value))}
-                              onChange={(opts) => setEditProjectManagers((opts || []).map((opt) => opt.value))}
-                              placeholder={employeeOptions.length === 0 ? "No employees available" : "Select project managers"}
+                              value={memberSelectOptions.filter((opt) =>
+                                editProjectManagers.includes(opt.value)
+                              )}
+                              onChange={(opts) =>
+                                setEditProjectManagers((opts || []).map((opt) => opt.value))
+                              }
+                              placeholder={
+                                employeeOptions.length === 0
+                                  ? 'No employees available'
+                                  : 'Select project managers'
+                              }
                               isDisabled={employeeOptions.length === 0}
                             />
                           </div>
@@ -2921,9 +3250,17 @@ const ProjectDetails = () => {
                             <CommonTagsInput
                               value={editTags}
                               onChange={(tags) => {
-                                console.log("[ProjectDetails] Tags changed:", tags);
-                                console.log("[ProjectDetails] Number of tags:", tags.length);
-                                console.log("[ProjectDetails] Tag details:", tags.map((t, i) => ({ index: i, value: t, type: typeof t, length: t.length })));
+                                console.log('[ProjectDetails] Tags changed:', tags);
+                                console.log('[ProjectDetails] Number of tags:', tags.length);
+                                console.log(
+                                  '[ProjectDetails] Tag details:',
+                                  tags.map((t, i) => ({
+                                    index: i,
+                                    value: t,
+                                    type: typeof t,
+                                    length: t.length,
+                                  }))
+                                );
                                 setEditTags(tags);
                               }}
                               placeholder="Add new tag"
@@ -2937,8 +3274,10 @@ const ProjectDetails = () => {
                             <CommonSelect
                               className="select"
                               options={statusChoose}
-                              value={statusChoose.find(s => s.value === editStatus) || statusChoose[0]}
-                              onChange={(opt: any) => setEditStatus(opt?.value || "Active")}
+                              value={
+                                statusChoose.find((s) => s.value === editStatus) || statusChoose[0]
+                              }
+                              onChange={(opt: any) => setEditStatus(opt?.value || 'Active')}
                             />
                           </div>
                         </div>
@@ -2960,7 +3299,7 @@ const ProjectDetails = () => {
                           onClick={handleEditProjectMembersSave}
                           disabled={isSavingProject}
                         >
-                          {isSavingProject ? "Saving..." : "Save"}
+                          {isSavingProject ? 'Saving...' : 'Save'}
                         </button>
                       </div>
                     </div>
@@ -2983,24 +3322,18 @@ const ProjectDetails = () => {
                 </span>
                 <h5 className="mb-2">Project Added Successfully</h5>
                 <p className="mb-3">
-                  Stephan Peralt has been added with Client ID :{" "}
+                  Stephan Peralt has been added with Client ID :{' '}
                   <span className="text-primary">#pro - 0004</span>
                 </p>
                 <div>
                   <div className="row g-2">
                     <div className="col-6">
-                      <Link
-                        to={all_routes.projectlist}
-                        className="btn btn-dark w-100"
-                      >
+                      <Link to={all_routes.projectlist} className="btn btn-dark w-100">
                         Back to List
                       </Link>
                     </div>
                     <div className="col-6">
-                      <Link
-                        to={all_routes.projectdetails}
-                        className="btn btn-primary w-100"
-                      >
+                      <Link to={all_routes.projectdetails} className="btn btn-primary w-100">
                         Detail Page
                       </Link>
                     </div>
@@ -3037,7 +3370,9 @@ const ProjectDetails = () => {
               <div className="row">
                 <div className="col-12">
                   <div className="mb-3">
-                    <label className="form-label">Task Title <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Task Title <span className="text-danger">*</span>
+                    </label>
                     <input
                       type="text"
                       name="taskTitle"
@@ -3045,7 +3380,7 @@ const ProjectDetails = () => {
                       value={editTaskTitle}
                       onChange={(e) => {
                         setEditTaskTitle(e.target.value);
-                        clearEditTaskFieldError("taskTitle");
+                        clearEditTaskFieldError('taskTitle');
                       }}
                       placeholder="Enter task title"
                     />
@@ -3066,46 +3401,62 @@ const ProjectDetails = () => {
                 </div>
                 <div className="col-6">
                   <div className="mb-3">
-                    <label className="form-label">Priority <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Priority <span className="text-danger">*</span>
+                    </label>
                     <CommonSelect
                       className={`select ${editTaskFieldErrors.taskPriority ? 'is-invalid' : ''}`}
                       options={priorityChoose}
-                      value={priorityChoose.find(opt => opt.value === editTaskPriority)}
+                      value={priorityChoose.find((opt) => opt.value === editTaskPriority)}
                       onChange={(option: any) => {
-                        setEditTaskPriority(option?.value || "Medium");
-                        clearEditTaskFieldError("taskPriority");
+                        setEditTaskPriority(option?.value || 'Medium');
+                        clearEditTaskFieldError('taskPriority');
                       }}
                     />
                     {editTaskFieldErrors.taskPriority && (
-                      <div className="invalid-feedback d-block">{editTaskFieldErrors.taskPriority}</div>
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskPriority}
+                      </div>
                     )}
                   </div>
                 </div>
                 <div className="col-6">
                   <div className="mb-3">
-                    <label className="form-label">Status <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Status <span className="text-danger">*</span>
+                    </label>
                     <CommonSelect
                       className={`select ${editTaskFieldErrors.taskStatus ? 'is-invalid' : ''}`}
-                      options={taskStatuses.map(status => ({
+                      options={taskStatuses.map((status) => ({
                         value: status.key,
-                        label: status.name
+                        label: status.name,
                       }))}
-                      value={taskStatuses.find(status => status.key === editTaskStatus) 
-                        ? { value: editTaskStatus, label: taskStatuses.find(status => status.key === editTaskStatus)?.name }
-                        : { value: "", label: "" }}
+                      value={
+                        taskStatuses.find((status) => status.key === editTaskStatus)
+                          ? {
+                              value: editTaskStatus,
+                              label: taskStatuses.find((status) => status.key === editTaskStatus)
+                                ?.name,
+                            }
+                          : { value: '', label: '' }
+                      }
                       onChange={(option: any) => {
-                        setEditTaskStatus(option?.value || "");
-                        clearEditTaskFieldError("taskStatus");
+                        setEditTaskStatus(option?.value || '');
+                        clearEditTaskFieldError('taskStatus');
                       }}
                     />
                     {editTaskFieldErrors.taskStatus && (
-                      <div className="invalid-feedback d-block">{editTaskFieldErrors.taskStatus}</div>
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskStatus}
+                      </div>
                     )}
                   </div>
                 </div>
                 <div className="col-12">
                   <div className="mb-3">
-                    <label className="form-label">Description <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Description <span className="text-danger">*</span>
+                    </label>
                     <textarea
                       name="taskDescription"
                       className={`form-control ${editTaskFieldErrors.taskDescription ? 'is-invalid' : ''}`}
@@ -3113,7 +3464,7 @@ const ProjectDetails = () => {
                       value={editTaskDescription}
                       onChange={(e) => {
                         setEditTaskDescription(e.target.value);
-                        clearEditTaskFieldError("taskDescription");
+                        clearEditTaskFieldError('taskDescription');
                       }}
                       placeholder="Enter task description"
                     />
@@ -3124,20 +3475,24 @@ const ProjectDetails = () => {
                 </div>
                 <div className="col-12">
                   <div className="mb-3">
-                    <label className="form-label">Due Date <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Due Date <span className="text-danger">*</span>
+                    </label>
                     <div className="input-icon-end position-relative">
                       <DatePicker
                         className="form-control datetimepicker"
                         format={{
-                          format: "DD-MM-YYYY",
-                          type: "mask",
+                          format: 'DD-MM-YYYY',
+                          type: 'mask',
                         }}
-                        getPopupContainer={() => document.getElementById("edit_task") || document.body}
+                        getPopupContainer={() =>
+                          document.getElementById('edit_task') || document.body
+                        }
                         placeholder="DD-MM-YYYY"
                         value={editTaskDueDate}
                         onChange={(value) => {
                           setEditTaskDueDate(value);
-                          clearEditTaskFieldError("taskDueDate");
+                          clearEditTaskFieldError('taskDueDate');
                           if (value) {
                             handleTaskFieldBlur('taskDueDate', value);
                           }
@@ -3148,27 +3503,33 @@ const ProjectDetails = () => {
                       </span>
                     </div>
                     {editTaskFieldErrors.taskDueDate && (
-                      <div className="invalid-feedback d-block">{editTaskFieldErrors.taskDueDate}</div>
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskDueDate}
+                      </div>
                     )}
                   </div>
                 </div>
                 <div className="col-12">
                   <div className="mb-0">
-                    <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
+                    <label className="form-label">
+                      Add Assignee <span className="text-danger">*</span>
+                    </label>
                     <Select
                       isMulti
                       className={`basic-multi-select ${editTaskFieldErrors.taskAssignees ? 'is-invalid' : ''}`}
                       classNamePrefix="select"
-                      options={assigneeChoose.filter(opt => opt.value !== "Select")}
-                      value={assigneeChoose.filter(opt => editTaskAssignees.includes(opt.value))}
+                      options={assigneeChoose.filter((opt) => opt.value !== 'Select')}
+                      value={assigneeChoose.filter((opt) => editTaskAssignees.includes(opt.value))}
                       onChange={(opts) => {
                         setEditTaskAssignees((opts || []).map((opt) => opt.value));
-                        clearEditTaskFieldError("taskAssignees");
+                        clearEditTaskFieldError('taskAssignees');
                       }}
                       placeholder="Select assignees"
                     />
                     {editTaskFieldErrors.taskAssignees && (
-                      <div className="invalid-feedback d-block">{editTaskFieldErrors.taskAssignees}</div>
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskAssignees}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -3184,13 +3545,13 @@ const ProjectDetails = () => {
               >
                 Cancel
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="btn btn-primary"
                 onClick={handleSaveEditTask}
                 disabled={isSavingEditTask}
               >
-                {isSavingEditTask ? "Saving..." : "Save Changes"}
+                {isSavingEditTask ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -3209,29 +3570,30 @@ const ProjectDetails = () => {
               <p className="mb-3">
                 {deletingTask && (
                   <>
-                    Are you sure you want to delete the task <strong>"{deletingTask.title}"</strong>?
+                    Are you sure you want to delete the task <strong>"{deletingTask.title}"</strong>
+                    ?
                     <br />
                     This action cannot be undone.
                   </>
                 )}
               </p>
               <div className="d-flex justify-content-center">
-                <button 
-                  type="button" 
-                  className="btn btn-light me-3" 
+                <button
+                  type="button"
+                  className="btn btn-light me-3"
                   data-bs-dismiss="modal"
                   disabled={isDeletingTask}
                   onClick={() => setDeletingTask(null)}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
-                  onClick={handleDeleteTask} 
+                <button
+                  type="button"
+                  onClick={handleDeleteTask}
                   className="btn btn-danger"
                   disabled={isDeletingTask}
                 >
-                  {isDeletingTask ? "Deleting..." : "Yes, Delete"}
+                  {isDeletingTask ? 'Deleting...' : 'Yes, Delete'}
                 </button>
               </div>
             </div>
@@ -3244,15 +3606,17 @@ const ProjectDetails = () => {
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header bg-dark">
-              <h4 className="modal-title text-white">
-                {viewingTask?.title || "Task Details"}
-              </h4>
+              <h4 className="modal-title text-white">{viewingTask?.title || 'Task Details'}</h4>
               {viewingTask?.priority && (
-                <span className={`badge d-inline-flex align-items-center ms-2 ${
-                  viewingTask.priority === 'High' ? 'badge-danger' :
-                  viewingTask.priority === 'Medium' ? 'badge-warning' :
-                  'badge-success'
-                }`}>
+                <span
+                  className={`badge d-inline-flex align-items-center ms-2 ${
+                    viewingTask.priority === 'High'
+                      ? 'badge-danger'
+                      : viewingTask.priority === 'Medium'
+                        ? 'badge-warning'
+                        : 'badge-success'
+                  }`}
+                >
                   <i className="ti ti-point-filled me-1" />
                   {viewingTask.priority}
                 </span>
@@ -3274,11 +3638,11 @@ const ProjectDetails = () => {
                     <div className="text-center">
                       <span className="d-block mb-1 text-muted">Created On</span>
                       <p className="text-dark mb-0">
-                        {viewingTask?.createdAt 
-                          ? new Date(viewingTask.createdAt).toLocaleDateString('en-US', { 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
+                        {viewingTask?.createdAt
+                          ? new Date(viewingTask.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
                             })
                           : 'N/A'}
                       </p>
@@ -3288,11 +3652,11 @@ const ProjectDetails = () => {
                     <div className="text-center">
                       <span className="d-block mb-1 text-muted">Last Updated</span>
                       <p className="text-dark mb-0">
-                        {viewingTask?.updatedAt 
-                          ? new Date(viewingTask.updatedAt).toLocaleDateString('en-US', { 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
+                        {viewingTask?.updatedAt
+                          ? new Date(viewingTask.updatedAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
                             })
                           : 'N/A'}
                       </p>
@@ -3302,15 +3666,22 @@ const ProjectDetails = () => {
                     <div className="text-center">
                       <span className="d-block mb-1 text-muted">Status</span>
                       {viewingTask?.status && (
-                        <span className={`badge d-inline-flex align-items-center ${
-                          viewingTask.status.toLowerCase() === 'completed' ? 'badge-soft-success' :
-                          viewingTask.status.toLowerCase() === 'inprogress' ? 'badge-soft-primary' :
-                          viewingTask.status.toLowerCase() === 'pending' ? 'badge-soft-warning' :
-                          viewingTask.status.toLowerCase() === 'onhold' ? 'badge-soft-danger' :
-                          'badge-soft-secondary'
-                        }`}>
+                        <span
+                          className={`badge d-inline-flex align-items-center ${
+                            viewingTask.status.toLowerCase() === 'completed'
+                              ? 'badge-soft-success'
+                              : viewingTask.status.toLowerCase() === 'inprogress'
+                                ? 'badge-soft-primary'
+                                : viewingTask.status.toLowerCase() === 'pending'
+                                  ? 'badge-soft-warning'
+                                  : viewingTask.status.toLowerCase() === 'onhold'
+                                    ? 'badge-soft-danger'
+                                    : 'badge-soft-secondary'
+                          }`}
+                        >
                           <i className="fas fa-circle fs-6 me-1" />
-                          {taskStatuses.find(s => s.key === viewingTask.status.toLowerCase())?.name || viewingTask.status}
+                          {taskStatuses.find((s) => s.key === viewingTask.status.toLowerCase())
+                            ?.name || viewingTask.status}
                         </span>
                       )}
                     </div>
@@ -3320,9 +3691,7 @@ const ProjectDetails = () => {
               {viewingTask?.description && (
                 <div className="mb-3">
                   <h5 className="mb-2">Description</h5>
-                  <p className="text-muted">
-                    {viewingTask.description}
-                  </p>
+                  <p className="text-muted">{viewingTask.description}</p>
                 </div>
               )}
               {viewingTask?.tags && viewingTask.tags.length > 0 && (
@@ -3330,12 +3699,18 @@ const ProjectDetails = () => {
                   <h5 className="mb-2">Tags</h5>
                   <div className="d-flex align-items-center flex-wrap gap-2">
                     {viewingTask.tags.map((tag: string, index: number) => (
-                      <span key={index} className={`badge ${
-                        index % 4 === 0 ? 'badge-danger' :
-                        index % 4 === 1 ? 'badge-success' :
-                        index % 4 === 2 ? 'badge-info' :
-                        'badge-warning'
-                      }`}>
+                      <span
+                        key={index}
+                        className={`badge ${
+                          index % 4 === 0
+                            ? 'badge-danger'
+                            : index % 4 === 1
+                              ? 'badge-success'
+                              : index % 4 === 2
+                                ? 'badge-info'
+                                : 'badge-warning'
+                        }`}
+                      >
                         {tag}
                       </span>
                     ))}
@@ -3347,8 +3722,8 @@ const ProjectDetails = () => {
                   <h5 className="mb-2">Assignees</h5>
                   <div className="d-flex flex-column gap-2">
                     {viewingTask.assignee.map((assigneeId: string, index: number) => {
-                      const member = project?.teamMembersdetail?.find((m: any) => 
-                        m._id?.toString() === assigneeId.toString()
+                      const member = project?.teamMembers?.find(
+                        (m: any) => m._id?.toString() === assigneeId.toString()
                       );
                       return member ? (
                         <div key={index} className="d-flex align-items-center bg-light p-2 rounded">
@@ -3359,7 +3734,9 @@ const ProjectDetails = () => {
                             />
                           </span>
                           <div>
-                            <h6 className="mb-0">{member.firstName} {member.lastName}</h6>
+                            <h6 className="mb-0">
+                              {member.firstName} {member.lastName}
+                            </h6>
                             <small className="text-muted">{member.employeeId}</small>
                           </div>
                         </div>
@@ -3404,7 +3781,9 @@ const ProjectDetails = () => {
                 <div className="row">
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Task Title <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Task Title <span className="text-danger">*</span>
+                      </label>
                       <input
                         type="text"
                         name="taskTitle"
@@ -3428,8 +3807,8 @@ const ProjectDetails = () => {
                       <CommonTagsInput
                         value={taskTags}
                         onChange={(tags) => {
-                          console.log("[ProjectDetails] Task tags changed:", tags);
-                          console.log("[ProjectDetails] Task tags count:", tags.length);
+                          console.log('[ProjectDetails] Task tags changed:', tags);
+                          console.log('[ProjectDetails] Task tags count:', tags.length);
                           setTaskTags(tags);
                         }}
                         placeholder="Add task tags"
@@ -3438,27 +3817,39 @@ const ProjectDetails = () => {
                   </div>
                   <div className="col-6">
                     <div className="mb-3">
-                      <label className="form-label">Priority <span className="text-danger">*</span></label>
-                      <div id="taskPriority" className={taskFieldErrors.taskPriority ? 'is-invalid' : ''}>
+                      <label className="form-label">
+                        Priority <span className="text-danger">*</span>
+                      </label>
+                      <div
+                        id="taskPriority"
+                        className={taskFieldErrors.taskPriority ? 'is-invalid' : ''}
+                      >
                         <CommonSelect
                           className={`select ${taskFieldErrors.taskPriority ? 'is-invalid' : ''}`}
                           options={priorityChoose}
-                          defaultValue={priorityChoose.find(p => p.value === taskPriority) || priorityChoose[2]}
+                          defaultValue={
+                            priorityChoose.find((p) => p.value === taskPriority) ||
+                            priorityChoose[2]
+                          }
                           onChange={(option: any) => {
-                            setTaskPriority(option?.value || "Medium");
+                            setTaskPriority(option?.value || 'Medium');
                             clearTaskFieldError('taskPriority');
-                            handleTaskFieldBlur('taskPriority', option?.value || "Medium");
+                            handleTaskFieldBlur('taskPriority', option?.value || 'Medium');
                           }}
                         />
                       </div>
                       {taskFieldErrors.taskPriority && (
-                        <div className="invalid-feedback d-block">{taskFieldErrors.taskPriority}</div>
+                        <div className="invalid-feedback d-block">
+                          {taskFieldErrors.taskPriority}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="col-lg-12">
                     <div className="mb-3">
-                      <label className="form-label">Description <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Description <span className="text-danger">*</span>
+                      </label>
                       <textarea
                         name="taskDescription"
                         className={`form-control ${taskFieldErrors.taskDescription ? 'is-invalid' : ''}`}
@@ -3472,13 +3863,17 @@ const ProjectDetails = () => {
                         placeholder="Enter task description (minimum 10 characters)"
                       />
                       {taskFieldErrors.taskDescription && (
-                        <div className="invalid-feedback d-block">{taskFieldErrors.taskDescription}</div>
+                        <div className="invalid-feedback d-block">
+                          {taskFieldErrors.taskDescription}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Add Assignee <span className="text-danger">*</span>
+                      </label>
                       <div
                         id="taskAssignees"
                         className={`field-taskAssignees ${taskFieldErrors.taskAssignees ? 'is-invalid' : ''}`}
@@ -3487,34 +3882,46 @@ const ProjectDetails = () => {
                           isMulti
                           className="basic-multi-select"
                           classNamePrefix="select"
-                          options={assigneeChoose.filter(opt => opt.value !== "Select")}
-                          value={assigneeChoose.filter(opt => selectedAssignees.includes(opt.value))}
+                          options={assigneeChoose.filter((opt) => opt.value !== 'Select')}
+                          value={assigneeChoose.filter((opt) =>
+                            selectedAssignees.includes(opt.value)
+                          )}
                           onChange={(opts) => {
                             const values = (opts || []).map((opt) => opt.value);
                             setSelectedAssignees(values);
                             clearTaskFieldError('taskAssignees');
                             handleTaskFieldBlur('taskAssignees', values);
                           }}
-                          placeholder={assigneeChoose.length === 1 ? "No team members available" : "Select assignees"}
+                          placeholder={
+                            assigneeChoose.length === 1
+                              ? 'No team members available'
+                              : 'Select assignees'
+                          }
                           isDisabled={assigneeChoose.length === 1}
                         />
                       </div>
                       {taskFieldErrors.taskAssignees && (
-                        <div className="invalid-feedback d-block">{taskFieldErrors.taskAssignees}</div>
+                        <div className="invalid-feedback d-block">
+                          {taskFieldErrors.taskAssignees}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="col-12">
                     <div className="mb-3">
-                      <label className="form-label">Due Date <span className="text-danger">*</span></label>
+                      <label className="form-label">
+                        Due Date <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
                           format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
+                            format: 'DD-MM-YYYY',
+                            type: 'mask',
                           }}
-                          getPopupContainer={() => document.getElementById("add_task") || document.body}
+                          getPopupContainer={() =>
+                            document.getElementById('add_task') || document.body
+                          }
                           placeholder="DD-MM-YYYY"
                           value={taskDueDate}
                           onChange={(value) => {
@@ -3530,30 +3937,22 @@ const ProjectDetails = () => {
                         </span>
                       </div>
                       {taskFieldErrors.taskDueDate && (
-                        <div className="invalid-feedback d-block">{taskFieldErrors.taskDueDate}</div>
+                        <div className="invalid-feedback d-block">
+                          {taskFieldErrors.taskDueDate}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="col-12">
                     <div className="mb-0">
                       <label className="form-label">Status</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value="To do"
-                        disabled
-                        readOnly
-                      />
+                      <input type="text" className="form-control" value="To do" disabled readOnly />
                     </div>
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-light me-2"
-                  data-bs-dismiss="modal"
-                >
+                <button type="button" className="btn btn-light me-2" data-bs-dismiss="modal">
                   Cancel
                 </button>
                 <button
@@ -3572,7 +3971,7 @@ const ProjectDetails = () => {
                       Saving...
                     </>
                   ) : (
-                    "Add New Task"
+                    'Add New Task'
                   )}
                 </button>
               </div>

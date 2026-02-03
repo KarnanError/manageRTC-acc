@@ -4,23 +4,57 @@
  */
 
 import mongoose from 'mongoose';
-import Task from '../../models/task/task.schema.js';
 import {
+  asyncHandler,
   buildNotFoundError,
-  buildConflictError,
   buildValidationError,
-  asyncHandler
 } from '../../middleware/errorHandler.js';
+import Task from '../../models/task/task.schema.js';
+import TaskStatus from '../../models/task/taskstatus.schema.js';
 import {
-  sendSuccess,
-  sendCreated,
-  filterAndPaginate,
   buildSearchFilter,
   extractUser,
-  getRequestId
+  filterAndPaginate,
+  sendCreated,
+  sendSuccess,
 } from '../../utils/apiResponse.js';
 import { generateTaskId } from '../../utils/idGenerator.js';
-import { getSocketIO, broadcastTaskEvents } from '../../utils/socketBroadcaster.js';
+import { getTenantModel } from '../../utils/mongooseMultiTenant.js';
+import { broadcastTaskEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
+
+/**
+ * Helper function to get tenant-specific Task model
+ */
+const getTaskModel = (companyId) => {
+  if (!companyId) {
+    return Task;
+  }
+  return getTenantModel(companyId, 'Task', Task.schema);
+};
+
+/**
+ * Helper function to get tenant-specific TaskStatus model
+ */
+const getTaskStatusModel = (companyId) => {
+  if (!companyId) {
+    return TaskStatus;
+  }
+  return getTenantModel(companyId, 'TaskStatus', TaskStatus.schema);
+};
+
+const getProjectModel = (companyId) => {
+  if (!companyId) {
+    return mongoose.model('Project');
+  }
+  return getTenantModel(companyId, 'Project', mongoose.model('Project').schema);
+};
+
+const getEmployeeModel = (companyId) => {
+  if (!companyId) {
+    return mongoose.model('Employee');
+  }
+  return getTenantModel(companyId, 'Employee', mongoose.model('Employee').schema);
+};
 
 /**
  * @desc    Get all tasks with pagination and filtering
@@ -31,9 +65,12 @@ export const getTasks = asyncHandler(async (req, res) => {
   const { page, limit, search, project, assignee, status, priority, sortBy, order } = req.query;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Build filter
   let filter = {
-    isDeleted: false
+    isDeleted: false,
   };
 
   // Apply project filter
@@ -71,20 +108,20 @@ export const getTasks = asyncHandler(async (req, res) => {
   }
 
   // Get paginated results
-  const result = await filterAndPaginate(Task, filter, {
+  const result = await filterAndPaginate(TaskModel, filter, {
     page: parseInt(page) || 1,
     limit: parseInt(limit) || 20,
     sort,
     populate: [
       {
         path: 'projectId',
-        select: 'name projectId status progress'
+        select: 'name projectId status progress',
       },
       {
         path: 'assignee',
-        select: 'firstName lastName fullName employeeId'
-      }
-    ]
+        select: 'firstName lastName fullName employeeId',
+      },
+    ],
   });
 
   return sendSuccess(res, result.data, 'Tasks retrieved successfully', 200, result.pagination);
@@ -99,16 +136,20 @@ export const getTaskById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid task ID format');
   }
 
   // Find task
-  const task = await Task.findOne({
+  const task = await TaskModel.findOne({
     _id: id,
-    isDeleted: false
-  }).populate('projectId', 'name projectId status progress')
+    isDeleted: false,
+  })
+    .populate('projectId', 'name projectId status progress')
     .populate('assignee', 'firstName lastName fullName employeeId');
 
   if (!task) {
@@ -127,11 +168,14 @@ export const createTask = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const taskData = req.body;
 
+  // Get tenant-specific models
+  const TaskModel = getTaskModel(user.companyId);
+  const ProjectModel = getProjectModel(user.companyId);
+
   // Verify project exists
-  const Project = mongoose.model('Project');
-  const project = await Project.findOne({
+  const project = await ProjectModel.findOne({
     _id: taskData.projectId,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (!project) {
@@ -147,7 +191,7 @@ export const createTask = asyncHandler(async (req, res) => {
   taskData.createdBy = user.userId;
 
   // Create task
-  const task = await Task.create(taskData);
+  const task = await TaskModel.create(taskData);
 
   // Populate references for response
   await task.populate('projectId', 'name projectId status progress');
@@ -172,15 +216,18 @@ export const updateTask = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid task ID format');
   }
 
   // Find task
-  const task = await Task.findOne({
+  const task = await TaskModel.findOne({
     _id: id,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (!task) {
@@ -213,15 +260,18 @@ export const deleteTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid task ID format');
   }
 
   // Find task
-  const task = await Task.findOne({
+  const task = await TaskModel.findOne({
     _id: id,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (!task) {
@@ -238,11 +288,15 @@ export const deleteTask = asyncHandler(async (req, res) => {
     broadcastTaskEvents.deleted(io, user.companyId, task.taskId, task.projectId);
   }
 
-  return sendSuccess(res, {
-    _id: task._id,
-    taskId: task.taskId,
-    isDeleted: true
-  }, 'Task deleted successfully');
+  return sendSuccess(
+    res,
+    {
+      _id: task._id,
+      taskId: task.taskId,
+      isDeleted: true,
+    },
+    'Task deleted successfully'
+  );
 });
 
 /**
@@ -254,9 +308,12 @@ export const getMyTasks = asyncHandler(async (req, res) => {
   const { status, project, page, limit } = req.query;
   const user = extractUser(req);
 
+  // Get tenant-specific models
+  const TaskModel = getTaskModel(user.companyId);
+  const EmployeeModel = getEmployeeModel(user.companyId);
+
   // Find the Employee record for this user
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({ clerkUserId: user.userId });
+  const employee = await EmployeeModel.findOne({ clerkUserId: user.userId });
 
   if (!employee) {
     return sendSuccess(res, [], 'No tasks found');
@@ -265,7 +322,7 @@ export const getMyTasks = asyncHandler(async (req, res) => {
   // Build filter - tasks where user is assigned
   let filter = {
     assignee: employee._id,
-    isDeleted: false
+    isDeleted: false,
   };
 
   if (status) {
@@ -276,7 +333,7 @@ export const getMyTasks = asyncHandler(async (req, res) => {
     filter.projectId = project;
   }
 
-  const tasks = await Task.find(filter)
+  const tasks = await TaskModel.find(filter)
     .populate('projectId', 'name projectId status progress')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit) || 50);
@@ -294,6 +351,9 @@ export const getTasksByProject = asyncHandler(async (req, res) => {
   const { status } = req.query;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(projectId)) {
     throw buildValidationError('projectId', 'Invalid project ID format');
@@ -302,14 +362,14 @@ export const getTasksByProject = asyncHandler(async (req, res) => {
   // Build filter
   let filter = {
     projectId,
-    isDeleted: false
+    isDeleted: false,
   };
 
   if (status) {
     filter.status = status;
   }
 
-  const tasks = await Task.find(filter)
+  const tasks = await TaskModel.find(filter)
     .populate('assignee', 'firstName lastName fullName employeeId')
     .sort({ createdAt: -1 });
 
@@ -326,10 +386,16 @@ export const updateTaskStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Validate status
   const validStatuses = ['Pending', 'Inprogress', 'Completed', 'Onhold'];
   if (!validStatuses.includes(status)) {
-    throw buildValidationError('status', `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    throw buildValidationError(
+      'status',
+      `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+    );
   }
 
   // Validate ObjectId
@@ -338,9 +404,9 @@ export const updateTaskStatus = asyncHandler(async (req, res) => {
   }
 
   // Find task
-  const task = await Task.findOne({
+  const task = await TaskModel.findOne({
     _id: id,
-    isDeleted: false
+    isDeleted: false,
   });
 
   if (!task) {
@@ -357,11 +423,15 @@ export const updateTaskStatus = asyncHandler(async (req, res) => {
     broadcastTaskEvents.statusChanged(io, user.companyId, task);
   }
 
-  return sendSuccess(res, {
-    _id: task._id,
-    taskId: task.taskId,
-    status: task.status
-  }, 'Task status updated successfully');
+  return sendSuccess(
+    res,
+    {
+      _id: task._id,
+      taskId: task.taskId,
+      status: task.status,
+    },
+    'Task status updated successfully'
+  );
 });
 
 /**
@@ -373,6 +443,9 @@ export const getTaskStats = asyncHandler(async (req, res) => {
   const { projectId } = req.query;
   const user = extractUser(req);
 
+  // Get tenant-specific model
+  const TaskModel = getTaskModel(user.companyId);
+
   // Build match filter
   let matchFilter = { isDeleted: false };
 
@@ -380,31 +453,31 @@ export const getTaskStats = asyncHandler(async (req, res) => {
     matchFilter.projectId = new mongoose.Types.ObjectId(projectId);
   }
 
-  const stats = await Task.aggregate([
+  const stats = await TaskModel.aggregate([
     { $match: matchFilter },
     {
       $group: {
         _id: null,
         total: { $sum: 1 },
         pending: {
-          $sum: { $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0] },
         },
         inProgress: {
-          $sum: { $cond: [{ $eq: ['$status', 'Inprogress'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$status', 'Inprogress'] }, 1, 0] },
         },
         completed: {
-          $sum: { $cond: [{ $eq: ['$status', 'Completed'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$status', 'Completed'] }, 1, 0] },
         },
         onHold: {
-          $sum: { $cond: [{ $eq: ['$status', 'Onhold'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$status', 'Onhold'] }, 1, 0] },
         },
         highPriority: {
-          $sum: { $cond: [{ $eq: ['$priority', 'High'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$priority', 'High'] }, 1, 0] },
         },
         totalEstimatedHours: { $sum: '$estimatedHours' },
-        totalActualHours: { $sum: '$actualHours' }
-      }
-    }
+        totalActualHours: { $sum: '$actualHours' },
+      },
+    },
   ]);
 
   const result = stats[0] || {
@@ -415,10 +488,90 @@ export const getTaskStats = asyncHandler(async (req, res) => {
     onHold: 0,
     highPriority: 0,
     totalEstimatedHours: 0,
-    totalActualHours: 0
+    totalActualHours: 0,
   };
 
   return sendSuccess(res, result, 'Task statistics retrieved successfully');
+});
+
+/**
+ * @desc    Get all task status boards
+ * @route   GET /api/tasks/statuses
+ * @access  Private
+ */
+export const getTaskStatuses = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  // Get tenant-specific TaskStatus model
+  const TaskStatusModel = getTaskStatusModel(user.companyId);
+
+  const statuses = await TaskStatusModel.find().sort({ order: 1 }).lean();
+
+  return sendSuccess(res, statuses, 'Task statuses retrieved successfully');
+});
+
+/**
+ * @desc    Create a new task status board
+ * @route   POST /api/tasks/statuses
+ * @access  Private (Admin, Superadmin)
+ */
+export const createTaskStatus = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+  const { name, colorName, colorHex } = req.body;
+
+  // Get tenant-specific TaskStatus model
+  const TaskStatusModel = getTaskStatusModel(user.companyId);
+
+  // Generate order (last + 1)
+  const lastStatus = await TaskStatusModel.findOne().sort({ order: -1 });
+  const order = (lastStatus?.order || 0) + 1;
+
+  // Create normalized key from name
+  const key = name.toLowerCase().replace(/\s+/g, '');
+
+  const newStatus = await TaskStatusModel.create({
+    key,
+    name,
+    colorName: colorName || 'purple',
+    colorHex: colorHex || '#6f42c1',
+    order,
+    companyId: user.companyId,
+  });
+
+  return sendCreated(res, newStatus, 'Task status created successfully');
+});
+
+/**
+ * @desc    Update task status board
+ * @route   PUT /api/tasks/statuses/:id
+ * @access  Private (Admin, Superadmin)
+ */
+export const updateTaskStatusBoard = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+  const { id } = req.params;
+  const { name, colorName, colorHex, order } = req.body;
+
+  // Get tenant-specific TaskStatus model
+  const TaskStatusModel = getTaskStatusModel(user.companyId);
+
+  const status = await TaskStatusModel.findById(id);
+
+  if (!status) {
+    throw buildNotFoundError('Task status not found');
+  }
+
+  // Update fields
+  if (name) {
+    status.name = name;
+    status.key = name.toLowerCase().replace(/\s+/g, '');
+  }
+  if (colorName) status.colorName = colorName;
+  if (colorHex) status.colorHex = colorHex;
+  if (typeof order === 'number') status.order = order;
+
+  await status.save();
+
+  return sendSuccess(res, status, 'Task status updated successfully');
 });
 
 export default {
@@ -430,5 +583,8 @@ export default {
   getMyTasks,
   getTasksByProject,
   updateTaskStatus,
-  getTaskStats
+  getTaskStats,
+  getTaskStatuses,
+  createTaskStatus,
+  updateTaskStatusBoard,
 };

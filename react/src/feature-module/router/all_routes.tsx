@@ -314,7 +314,7 @@ export const all_routes = {
   clientdetils: "/clients-details/:clientId",
   project: "/projects-grid",
   projectlist: "/projects",
-  projectdetails: "/projects-details",
+  projectdetails: "/projects-details/:projectId",
   tasks: "/tasks",
   tasksdetails: "/task-details/:taskId",
   taskboard: "/task-board",

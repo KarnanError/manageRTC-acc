@@ -10,20 +10,23 @@ import { get, post, put, del, patch, buildParams, ApiResponse } from '../service
 
 export interface Project {
   _id: string;
+  projectId: string;
   name: string;
   description?: string;
   client?: string;
-  status: 'Not Started' | 'In Progress' | 'On Hold' | 'Completed' | 'Cancelled';
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  startDate?: string;
-  endDate?: string;
+  status: 'Active' | 'Completed' | 'On Hold' | 'Cancelled';
+  priority: 'High' | 'Medium' | 'Low';
+  startDate?: Date;
+  dueDate?: Date;
   budget?: number;
   progress: number;
-  teamLeader?: string;
+  teamLeader?: string[];
   teamMembers?: string[];
+  projectManager?: string[];
+  projectValue?: number;
   tags?: string[];
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ProjectFilters {
@@ -58,6 +61,17 @@ export const useProjectsREST = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Helper function to convert date strings to Date objects
+  const convertDatesToDateObjects = useCallback((project: any): Project => {
+    return {
+      ...project,
+      startDate: project.startDate ? new Date(project.startDate) : undefined,
+      dueDate: project.dueDate ? new Date(project.dueDate) : undefined,
+      createdAt: project.createdAt ? new Date(project.createdAt) : new Date(),
+      updatedAt: project.updatedAt ? new Date(project.updatedAt) : new Date(),
+    };
+  }, []);
+
   const fetchProjects = useCallback(async (filters: ProjectFilters = {}) => {
     setLoading(true);
     setError(null);
@@ -66,7 +80,8 @@ export const useProjectsREST = () => {
       const response: ApiResponse<Project[]> = await get('/projects', { params });
 
       if (response.success && response.data) {
-        setProjects(response.data);
+        const projectsWithDates = response.data.map(convertDatesToDateObjects);
+        setProjects(projectsWithDates);
       } else {
         throw new Error(response.error?.message || 'Failed to fetch projects');
       }
@@ -77,7 +92,7 @@ export const useProjectsREST = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [convertDatesToDateObjects]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -96,7 +111,7 @@ export const useProjectsREST = () => {
       const response: ApiResponse<Project> = await get(`/projects/${projectId}`);
 
       if (response.success && response.data) {
-        return response.data;
+        return convertDatesToDateObjects(response.data);
       }
       throw new Error(response.error?.message || 'Failed to fetch project');
     } catch (err: any) {
@@ -104,7 +119,7 @@ export const useProjectsREST = () => {
       message.error(errorMessage);
       return null;
     }
-  }, []);
+  }, [convertDatesToDateObjects]);
 
   const createProject = useCallback(async (projectData: Partial<Project>): Promise<boolean> => {
     try {
@@ -185,7 +200,8 @@ export const useProjectsREST = () => {
       const response: ApiResponse<Project[]> = await get('/projects/my');
 
       if (response.success && response.data) {
-        setProjects(response.data);
+        const projectsWithDates = response.data.map(convertDatesToDateObjects);
+        setProjects(projectsWithDates);
       }
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch my projects';
@@ -193,6 +209,20 @@ export const useProjectsREST = () => {
       message.error(errorMessage);
     } finally {
       setLoading(false);
+    }
+  }, [convertDatesToDateObjects]);
+
+  const getProjectTeamMembers = useCallback(async (projectId: string) => {
+    try {
+      const response: ApiResponse<Project> = await get(`/projects/${projectId}`);
+
+      if (response.success && response.data) {
+        return response.data.teamMembers || [];
+      }
+      return [];
+    } catch (err: any) {
+      console.error('[useProjectsREST] Failed to fetch team members:', err);
+      return [];
     }
   }, []);
 
@@ -249,7 +279,8 @@ export const useProjectsREST = () => {
     updateProject,
     deleteProject,
     updateProgress,
-    getMyProjects
+    getMyProjects,
+    getProjectTeamMembers
   };
 };
 

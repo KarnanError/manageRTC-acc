@@ -9,10 +9,10 @@ import CommonTagsInput from "../../../core/common/Taginput";
 import CommonTextEditor from "../../../core/common/textEditor";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import { useSocket } from "../../../SocketContext";
 import { all_routes } from "../../router/all_routes";
 import Footer from "../../../core/common/footer";
-import { emit } from "process";
+import { useTasksREST } from "../../../hooks/useTasksREST";
+import { useProjectsREST } from "../../../hooks/useProjectsREST";
 
 const Task = () => {
   const getModalContainer = () => {
@@ -20,12 +20,21 @@ const Task = () => {
     return modalElement ? modalElement : document.body;
   };
 
-  const socket = useSocket() as any;
   const { userId } = useAuth();
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
+  const {
+    tasks,
+    loading: tasksLoading,
+    fetchTasks,
+    createTask,
+    updateTask,
+    deleteTask,
+    getTasksByProject
+  } = useTasksREST();
+  const {
+    projects,
+    getProjectTeamMembers
+  } = useProjectsREST();
   const [employees, setEmployees] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>({});
   const [error, setError] = useState<string | null>(null);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [filters, setFilters] = useState({
@@ -125,18 +134,28 @@ const Task = () => {
   ];
 
   const loadTasks = useCallback(() => {
-    if (!socket) return;
-
     setError(null);
-    socket.emit("task:getAllData", filters);
-  }, [socket, filters]);
+    // Convert filters to REST format
+    const restFilters: any = {};
+    if (filters.priority && filters.priority !== 'all') {
+      restFilters.priority = filters.priority;
+    }
+    if (filters.status && filters.status !== 'all') {
+      restFilters.status = filters.status;
+    }
+    if (filters.project && filters.project !== 'all') {
+      restFilters.project = filters.project;
+    }
+    if (filters.search) {
+      restFilters.search = filters.search;
+    }
+    fetchTasks(restFilters);
+  }, [filters, fetchTasks]);
 
   const loadProjects = useCallback(() => {
-    if (!socket) return;
-
-    // Load all projects and filter non-completed ones in frontend
-    socket.emit("project:getAll", {});
-  }, [socket]);
+    // Projects are already loaded by the hook on mount
+    // No need to reload
+  }, []);
 
   const validateField = useCallback((field: string, value: any): string => {
     switch (field) {
@@ -153,8 +172,8 @@ const Task = () => {
       case "dueDate":
         if (!value) return "Due date is required";
         const selectedProjectData = projects.find(p => p._id === addForm.projectId);
-        if (selectedProjectData?.endDate && dayjs(value).isAfter(dayjs(selectedProjectData.endDate))) {
-          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.endDate).format('DD-MM-YYYY')})`;
+        if (selectedProjectData?.dueDate && dayjs(value).isAfter(dayjs(selectedProjectData.dueDate))) {
+          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.dueDate).format('DD-MM-YYYY')})`;
         }
         return "";
       case "priority":
@@ -178,8 +197,8 @@ const Task = () => {
       case "dueDate":
         if (!value) return "Due date is required";
         const selectedProjectData = projects.find(p => p._id === editForm.projectId);
-        if (selectedProjectData?.endDate && dayjs(value).isAfter(dayjs(selectedProjectData.endDate))) {
-          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.endDate).format('DD-MM-YYYY')})`;
+        if (selectedProjectData?.dueDate && dayjs(value).isAfter(dayjs(selectedProjectData.dueDate))) {
+          return `Due date cannot exceed project end date (${dayjs(selectedProjectData.dueDate).format('DD-MM-YYYY')})`;
         }
         return "";
       case "priority":
@@ -258,7 +277,7 @@ const Task = () => {
     return Object.keys(errors).length === 0;
   }, [addForm, validateField]);
 
-  const handleProjectSelection = useCallback((projectId: string) => {
+  const handleProjectSelection = useCallback(async (projectId: string) => {
     console.log('Selected project ID:', projectId);
     if (!projectId || projectId === "Select") {
       setSelectedProject(null);
@@ -270,28 +289,13 @@ const Task = () => {
     setSelectedProject(projectId);
     setAddForm(prev => ({ ...prev, projectId, assignees: [] }));
     clearFieldError("projectId");
-    if (!socket) return;
     setLoadingTeamMembers(true);
     setProjectTeamMembers([]);
-    socket.emit("project:getTeamMembers", { projectId });
-  }, [socket, clearFieldError]);
 
-  const handleProjectResponse = useCallback((response: any) => {
-    if (response.done && response.data) {
-      setProjects(response.data || []);
-      console.log('Loaded projects:', response.data); 
-    }
-  }, []);
-
-  const handleEmployeeResponse = useCallback((response: any) => {
+    const teamMembers = await getProjectTeamMembers(projectId);
+    setProjectTeamMembers(teamMembers);
     setLoadingTeamMembers(false);
-    if (response.done && response.data) {
-      setProjectTeamMembers(response.data.teamMembers || response.data || []);
-    } else {
-      console.error('Failed to load team members:', response.error);
-      setProjectTeamMembers([]);
-    }
-  }, []);
+  }, [getProjectTeamMembers, clearFieldError]);
 
   const handlePriorityFilter = useCallback((priority: string) => {
     setFilters(prev => ({ ...prev, priority }));
@@ -300,10 +304,8 @@ const Task = () => {
   const handleProjectTasksClick = useCallback((projectId) => {
     console.log('Filtering tasks for project:', projectId);
     if (!projectId) return;
-    if (socket) {
-      socket.emit("task:getByProject", { projectId });
-    }
-  }, [socket]);
+    getTasksByProject(projectId);
+  }, [getTasksByProject]);
 
   const resetAddForm = useCallback(() => {
     setAddForm({
@@ -341,10 +343,9 @@ const Task = () => {
     }
   }, []);
 
-  const handleTaskCreateResponse = useCallback((response: any) => {
+  const handleTaskCreateResponse = useCallback((success: boolean, errorMsg?: string) => {
     setCreatingTask(false);
-    if (response?.done) {
-      message.success("Task created successfully");
+    if (success) {
       // Close modal first, then reset form state
       closeAddModal();
       resetAddForm();
@@ -354,16 +355,9 @@ const Task = () => {
       return;
     }
 
-    const errorMsg = response?.error || "Failed to create task";
-    setFormError(errorMsg);
-    message.error(errorMsg);
+    setFormError(errorMsg || "Failed to create task");
+    if (errorMsg) message.error(errorMsg);
   }, [closeAddModal, loadTasks, loadProjects, resetAddForm]);
-
-  const handleTaskCreatedBroadcast = useCallback((response: any) => {
-    if (response?.done) {
-      loadTasks();
-    }
-  }, [loadTasks]);
 
   const closeEditModal = useCallback(() => {
     const modalElement = document.getElementById("edit_task");
@@ -383,9 +377,9 @@ const Task = () => {
     }
   }, []);
 
-  const handleTaskUpdateResponse = useCallback((response: any) => {
+  const handleTaskUpdateResponse = useCallback((success: boolean, errorMsg?: string) => {
     setSavingEditTask(false);
-    if (response?.done) {
+    if (success) {
       message.success("Task updated successfully");
       closeEditModal();
       setEditFieldErrors({});
@@ -395,46 +389,28 @@ const Task = () => {
       return;
     }
 
-    const errorMsg = response?.error || "Failed to update task";
-    setEditFormError(errorMsg);
-    message.error(errorMsg);
+    setEditFormError(errorMsg || "Failed to update task");
+    if (errorMsg) message.error(errorMsg);
   }, [closeEditModal, loadTasks, loadProjects]);
 
-  const handleDeleteTask = useCallback(() => {
-    if (!socket) {
-      message.error("Unable to delete task: socket not connected");
-      return;
-    }
-
+  const handleDeleteTask = useCallback(async () => {
     if (!deleteTaskId) {
       message.error("Task ID not found");
       return;
     }
 
     setDeletingTask(true);
-    socket.emit("task:delete", { taskId: deleteTaskId });
-  }, [socket, deleteTaskId]);
-
-  const handleTaskDeleteResponse = useCallback((response: any) => {
-    setDeletingTask(false);
-    if (response?.done) {
+    const success = await deleteTask(deleteTaskId);
+    if (success) {
       message.success("Task deleted successfully");
       setDeleteTaskId(null);
       loadTasks();
       loadProjects();
-      return;
     }
+    setDeletingTask(false);
+  }, [deleteTaskId, deleteTask, loadTasks, loadProjects]);
 
-    const errorMsg = response?.error || "Failed to delete task";
-    message.error(errorMsg);
-  }, [loadTasks, loadProjects]);
-
-  const handleSaveEditTask = useCallback(() => {
-    if (!socket) {
-      message.error("Unable to update task: socket not connected");
-      return;
-    }
-
+  const handleSaveEditTask = useCallback(async () => {
     if (!editTaskId) {
       message.error("Task ID not found");
       return;
@@ -444,44 +420,46 @@ const Task = () => {
       return;
     }
 
-    const { title, projectId, assignees, dueDate, status, priority, description, tags } = editForm;
+    const { title, assignees, dueDate, status, priority, description, tags } = editForm;
 
-    const payload: any = {
-      taskId: editTaskId,
-      update: {
-        title: title.trim(),
-        projectId,
-        assignee: assignees,
-        status,
-        priority,
-        description,
-        tags,
-      }
+    const updateData: any = {
+      title: title.trim(),
+      assignee: assignees,
+      status,
+      priority,
+      description,
+      tags,
     };
 
     if (dueDate) {
-      payload.update.dueDate = dueDate.toDate();
+      updateData.dueDate = dueDate.toDate();
     }
 
     setSavingEditTask(true);
     setEditFormError(null);
     setEditFieldErrors({});
-    socket.emit("task:update", payload);
-  }, [socket, editForm, editTaskId, validateEditForm]);
 
-  const handleAddTaskSubmit = useCallback(() => {
-    if (!socket) {
-      message.error("Unable to create task: socket not connected");
-      return;
+    const success = await updateTask(editTaskId, updateData);
+    if (success) {
+      message.success("Task updated successfully");
+      closeEditModal();
+      setEditFieldErrors({});
+      setEditFormError(null);
+      loadTasks();
+      loadProjects();
+    } else {
+      setSavingEditTask(false);
     }
+  }, [editForm, editTaskId, validateEditForm, updateTask, closeEditModal, loadTasks, loadProjects]);
 
+  const handleAddTaskSubmit = useCallback(async () => {
     if (!validateForm()) {
       return;
     }
 
     const { title, projectId, assignees, dueDate, status, priority, description, tags } = addForm;
 
-    const payload: any = {
+    const taskData: any = {
       title: title.trim(),
       projectId,
       assignee: assignees,
@@ -493,14 +471,25 @@ const Task = () => {
     };
 
     if (dueDate) {
-      payload.dueDate = dueDate.toDate();
+      taskData.dueDate = dueDate.toDate();
     }
 
     setCreatingTask(true);
     setFormError(null);
     setFieldErrors({});
-    socket.emit("task:create", payload);
-  }, [socket, addForm, userId, validateForm]);
+
+    const success = await createTask(taskData);
+    if (success) {
+      // Close modal first, then reset form state
+      closeAddModal();
+      resetAddForm();
+      // Reload tasks and projects to refresh all counts and lists
+      loadTasks();
+      loadProjects();
+    } else {
+      setCreatingTask(false);
+    }
+  }, [addForm, userId, validateForm, createTask, closeAddModal, resetAddForm, loadTasks, loadProjects]);
 
   const getEmployeeById = useCallback((employeeId: string) => {
     if (!employeeId || !employees.length) return null;
@@ -514,36 +503,11 @@ const Task = () => {
     return null;
   }, [employees]);
 
-  const handleTaskByProject = useCallback((response: any) => {
-    if (response.done && response.data) {
-      setTasks(response.data.tasks || []);
-    } else {
-      setError(response.error || "Failed to load tasks for the project");
-    }
-  }, []);
+  // Initial load - load tasks and projects on mount
   useEffect(() => {
-    if (socket) {
-      socket.on("task:create-response", handleTaskCreateResponse);
-      socket.on("task:task-created", handleTaskCreatedBroadcast);
-      socket.on("task:update-response", handleTaskUpdateResponse);
-      socket.on("task:delete-response", handleTaskDeleteResponse);
-      socket.on("project:getAll-response", handleProjectResponse);
-      socket.on("project:getTeamMembers-response", handleEmployeeResponse);
-      loadTasks();
-      loadProjects();
-      socket.on("task:getByProject-response", handleTaskByProject);
-
-      return () => {
-        socket.off("task:create-response", handleTaskCreateResponse);
-        socket.off("task:task-created", handleTaskCreatedBroadcast);
-        socket.off("task:update-response", handleTaskUpdateResponse);
-        socket.off("task:delete-response", handleTaskDeleteResponse);
-        socket.off("project:getAll-response", handleProjectResponse);
-        socket.off("project:getTeamMembers-response", handleEmployeeResponse);
-        socket.off("task:getByProject-response", handleTaskByProject);
-      };
-    }
-  }, [socket, handleTaskByProject, handleProjectResponse, handleEmployeeResponse, loadTasks, loadProjects, handleTaskCreateResponse, handleTaskCreatedBroadcast, handleTaskUpdateResponse, handleTaskDeleteResponse]);
+    loadTasks();
+    loadProjects();
+  }, []); // Only run once on mount
 
   useEffect(() => {
     loadTasks();
@@ -683,7 +647,7 @@ const Task = () => {
                             <div className="mb-3">
                               <span className="mb-1 d-block">Deadline</span>
                               <p className="text-dark">
-                                {project.endDate ? new Date(project.endDate).toLocaleDateString('en-GB', {
+                                {project.dueDate ? new Date(project.dueDate).toLocaleDateString('en-GB', {
                                   day: 'numeric',
                                   month: 'short',
                                   year: 'numeric'
@@ -1012,7 +976,7 @@ const Task = () => {
                                       className="dropdown-item rounded-1"
                                       data-bs-toggle="modal"
                                       data-bs-target="#edit_task"
-                                      onClick={() => {
+                                      onClick={async () => {
                                         setEditTaskId(task._id);
                                         setEditForm({
                                           title: task.title || "",
@@ -1027,9 +991,11 @@ const Task = () => {
                                         setEditFieldErrors({});
                                         setEditFormError(null);
                                         // Load team members for the project
-                                        if (task.projectId && socket) {
+                                        if (task.projectId) {
                                           setLoadingTeamMembers(true);
-                                          socket.emit("project:getTeamMembers", { projectId: task.projectId });
+                                          const teamMembers = await getProjectTeamMembers(task.projectId);
+                                          setProjectTeamMembers(teamMembers);
+                                          setLoadingTeamMembers(false);
                                         }
                                       }}
                                     >

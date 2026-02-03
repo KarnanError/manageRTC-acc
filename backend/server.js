@@ -1,54 +1,54 @@
-import { config } from "dotenv";
+import { config } from 'dotenv';
 config();
 
-import { clerkClient } from "@clerk/clerk-sdk-node";
-import cors from "cors";
-import express from "express";
-import fs from "fs";
-import { createServer } from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-import { connectDB } from "./config/db.js";
-import { startPromotionScheduler } from "./jobs/promotionScheduler.js";
-import companiesRoutes from "./routes/companies.routes.js";
-import contactRoutes from "./routes/contacts.routes.js";
-import dealRoutes from "./routes/deal.routes.js";
-import goalTrackingRoutes from "./routes/performance/goalTracking.routes.js";
-import goalTypeRoutes from "./routes/performance/goalType.routes.js";
-import socialFeedRoutes from "./routes/socialfeed.routes.js";
-import ticketRoutes from "./routes/tickets.routes.js";
-import { socketHandler } from "./socket/index.js";
+import { clerkClient } from '@clerk/clerk-sdk-node';
+import cors from 'cors';
+import express from 'express';
+import fs from 'fs';
+import { createServer } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { connectDB } from './config/db.js';
+import { startPromotionScheduler } from './jobs/promotionScheduler.js';
+import companiesRoutes from './routes/companies.routes.js';
+import contactRoutes from './routes/contacts.routes.js';
+import dealRoutes from './routes/deal.routes.js';
+import goalTrackingRoutes from './routes/performance/goalTracking.routes.js';
+import goalTypeRoutes from './routes/performance/goalType.routes.js';
+import socialFeedRoutes from './routes/socialfeed.routes.js';
+import ticketRoutes from './routes/tickets.routes.js';
+import { socketHandler } from './socket/index.js';
 
 // Swagger/OpenAPI Documentation
-import { specs, swaggerUi } from "./config/swagger.js";
+import { specs, swaggerUi } from './config/swagger.js';
 
-
-
-import performanceAppraisalRoutes from "./routes/performance/performanceAppraisal.routes.js";
-import performanceIndicatorRoutes from "./routes/performance/performanceIndicator.routes.js";
-import performanceReviewRoutes from "./routes/performance/performanceReview.routes.js";
+import performanceAppraisalRoutes from './routes/performance/performanceAppraisal.routes.js';
+import performanceIndicatorRoutes from './routes/performance/performanceIndicator.routes.js';
+import performanceReviewRoutes from './routes/performance/performanceReview.routes.js';
 
 // REST API Routes (Socket.IO to REST Migration)
-import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
-import activityRoutes from "./routes/api/activities.js";
-import assetRoutes from "./routes/api/assets.js";
-import attendanceRoutes from "./routes/api/attendance.js";
-import clientRoutes from "./routes/api/clients.js";
-import departmentRoutes from "./routes/api/departments.js";
-import designationRoutes from "./routes/api/designations.js";
-import employeeRoutes from "./routes/api/employees.js";
-import holidayTypeRoutes from "./routes/api/holiday-types.js";
-import holidayRoutes from "./routes/api/holidays.js";
-import leadRoutes from "./routes/api/leads.js";
-import leaveRoutes from "./routes/api/leave.js";
-import pipelineRoutes from "./routes/api/pipelines.js";
-import policyRoutes from "./routes/api/policies.js";
-import projectRoutes from "./routes/api/projects.js";
-import promotionRoutes from "./routes/api/promotions.js";
-import resignationRoutes from "./routes/api/resignations.js";
-import taskRoutes from "./routes/api/tasks.js";
-import terminationRoutes from "./routes/api/terminations.js";
-import trainingRoutes from "./routes/api/training.js";
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import activityRoutes from './routes/api/activities.js';
+import assetRoutes from './routes/api/assets.js';
+import attendanceRoutes from './routes/api/attendance.js';
+import clientRoutes from './routes/api/clients.js';
+import departmentRoutes from './routes/api/departments.js';
+import designationRoutes from './routes/api/designations.js';
+import employeeRoutes from './routes/api/employees.js';
+import holidayTypeRoutes from './routes/api/holiday-types.js';
+import holidayRoutes from './routes/api/holidays.js';
+import leadRoutes from './routes/api/leads.js';
+import leaveRoutes from './routes/api/leave.js';
+import pipelineRoutes from './routes/api/pipelines.js';
+import policyRoutes from './routes/api/policies.js';
+import projectRoutes from './routes/api/projects.js';
+import promotionRoutes from './routes/api/promotions.js';
+import resignationRoutes from './routes/api/resignations.js';
+import taskRoutes from './routes/api/tasks.js';
+import terminationRoutes from './routes/api/terminations.js';
+import trainingRoutes from './routes/api/training.js';
+import projectNotesRoutes from './routes/api/project-notes.js';
+import invoiceRoutes from './routes/api/invoices.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,32 +58,34 @@ const httpServer = createServer(app);
 
 // CORS configuration
 const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "https://dev.manage-rtc.com",
-  "https://apidev.manage-rtc.com",
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://dev.manage-rtc.com',
+  'https://apidev.manage-rtc.com',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}));
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  })
+);
 
 app.use(express.json());
 
-console.log("[Deployment]: TEST TEST");
+console.log('[Deployment]: TEST TEST');
 
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
@@ -93,30 +95,30 @@ app.use('/exports', express.static(path.join(__dirname, 'public', 'exports')));
 
 // Serve static files from the temp directory
 app.use(
-  "/temp",
-  express.static(path.join(__dirname, "temp"), {
+  '/temp',
+  express.static(path.join(__dirname, 'temp'), {
     setHeaders: (res, path) => {
       // Set appropriate headers based on file type
-      if (path.endsWith(".pdf")) {
-        res.set("Content-Type", "application/pdf");
-        res.set("Content-Disposition", "attachment");
-      } else if (path.endsWith(".xlsx")) {
+      if (path.endsWith('.pdf')) {
+        res.set('Content-Type', 'application/pdf');
+        res.set('Content-Disposition', 'attachment');
+      } else if (path.endsWith('.xlsx')) {
         res.set(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         );
-        res.set("Content-Disposition", "attachment");
+        res.set('Content-Disposition', 'attachment');
       }
       // Security headers
-      res.set("Cache-Control", "no-cache, no-store, must-revalidate");
-      res.set("Pragma", "no-cache");
-      res.set("Expires", "0");
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
     },
   })
 );
 
 // Create temp directory if it doesn't exist
-const tempDir = path.join(__dirname, "temp");
+const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir);
 }
@@ -125,73 +127,77 @@ if (!fs.existsSync(tempDir)) {
 const initializeServer = async () => {
   try {
     await connectDB();
-    console.log("Database connection established successfully");
+    console.log('Database connection established successfully');
 
     // Routes
-    app.use("/api/socialfeed", socialFeedRoutes);
-    app.use("/api/deals", dealRoutes);
-    app.use("/api/companies", companiesRoutes);
-    app.use("/api/contacts", contactRoutes);
-    app.use("/api/performance/goal-types", goalTypeRoutes);
-    app.use("/api/performance/goal-trackings", goalTrackingRoutes);
-    app.use("/api/tickets", ticketRoutes);
+    app.use('/api/socialfeed', socialFeedRoutes);
+    app.use('/api/deals', dealRoutes);
+    app.use('/api/companies', companiesRoutes);
+    app.use('/api/contacts', contactRoutes);
+    app.use('/api/performance/goal-types', goalTypeRoutes);
+    app.use('/api/performance/goal-trackings', goalTrackingRoutes);
+    app.use('/api/tickets', ticketRoutes);
 
-
-
-    app.use("/api/performance/indicators", performanceIndicatorRoutes);
-    app.use("/api/performance/appraisals", performanceAppraisalRoutes);
-    app.use("/api/performance/reviews", performanceReviewRoutes);
+    app.use('/api/performance/indicators', performanceIndicatorRoutes);
+    app.use('/api/performance/appraisals', performanceAppraisalRoutes);
+    app.use('/api/performance/reviews', performanceReviewRoutes);
 
     // REST API Routes (Socket.IO to REST Migration)
-    app.use("/api/employees", employeeRoutes);
-    app.use("/api/projects", projectRoutes);
-    app.use("/api/tasks", taskRoutes);
-    app.use("/api/leads", leadRoutes);
-    app.use("/api/clients", clientRoutes);
-    app.use("/api/attendance", attendanceRoutes);
-    app.use("/api/leaves", leaveRoutes);
-    app.use("/api/assets", assetRoutes);
-    app.use("/api/trainings", trainingRoutes);
-    app.use("/api/activities", activityRoutes);
-    app.use("/api/pipelines", pipelineRoutes);
-    app.use("/api/holiday-types", holidayTypeRoutes);
-    app.use("/api/promotions", promotionRoutes);
-    app.use("/api/departments", departmentRoutes);
-    app.use("/api/policies", policyRoutes);
-    app.use("/api/designations", designationRoutes);
-    app.use("/api/resignations", resignationRoutes);
-    app.use("/api/terminations", terminationRoutes);
-    app.use("/api/holidays", holidayRoutes);
+    app.use('/api/employees', employeeRoutes);
+    app.use('/api/projects', projectRoutes);
+    app.use('/api/tasks', taskRoutes);
+    app.use('/api/leads', leadRoutes);
+    app.use('/api/clients', clientRoutes);
+    app.use('/api/attendance', attendanceRoutes);
+    app.use('/api/leaves', leaveRoutes);
+    app.use('/api/assets', assetRoutes);
+    app.use('/api/trainings', trainingRoutes);
+    app.use('/api/activities', activityRoutes);
+    app.use('/api/pipelines', pipelineRoutes);
+    app.use('/api/holiday-types', holidayTypeRoutes);
+    app.use('/api/promotions', promotionRoutes);
+    app.use('/api/departments', departmentRoutes);
+    app.use('/api/policies', policyRoutes);
+    app.use('/api/designations', designationRoutes);
+    app.use('/api/resignations', resignationRoutes);
+    app.use('/api/terminations', terminationRoutes);
+    app.use('/api/holidays', holidayRoutes);
+    app.use('/api/project-notes', projectNotesRoutes);
+    app.use('/api/invoices', invoiceRoutes);
 
     // API Documentation (Swagger)
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
-      explorer: true,
-      customCss: '.swagger-ui .topbar { display: none }',
-      customSiteTitle: 'manageRTC API Documentation',
-      swaggerOptions: {
-        persistAuthorization: true
-      }
-    }));
+    app.use(
+      '/api-docs',
+      swaggerUi.serve,
+      swaggerUi.setup(specs, {
+        explorer: true,
+        customCss: '.swagger-ui .topbar { display: none }',
+        customSiteTitle: 'manageRTC API Documentation',
+        swaggerOptions: {
+          persistAuthorization: true,
+        },
+      })
+    );
 
-    app.get("/", (req, res) => {
-      res.send("API is running");
+    app.get('/', (req, res) => {
+      res.send('API is running');
     });
 
-    app.get("/health", (req, res) => {
+    app.get('/health', (req, res) => {
       res.json({
-        status: "ok",
+        status: 'ok',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || "development",
+        environment: process.env.NODE_ENV || 'development',
       });
     });
 
-    app.post("/api/update-role", async (req, res) => {
+    app.post('/api/update-role', async (req, res) => {
       try {
         const { userId, companyId, role } = req.body;
         console.log(userId, companyId, role);
 
         if (!userId) {
-          return res.status(400).json({ error: "User ID is required" });
+          return res.status(400).json({ error: 'User ID is required' });
         }
 
         const updatedUser = await clerkClient.users.updateUserMetadata(userId, {
@@ -201,10 +207,10 @@ const initializeServer = async () => {
           },
         });
 
-        res.json({ message: "User metadata updated", user: updatedUser });
+        res.json({ message: 'User metadata updated', user: updatedUser });
       } catch (error) {
-        console.error("Error updating user:", error);
-        res.status(500).json({ error: "Failed to update user metadata" });
+        console.error('Error updating user:', error);
+        res.status(500).json({ error: 'Failed to update user metadata' });
       }
     });
 
@@ -236,7 +242,6 @@ const initializeServer = async () => {
         res.status(500).json({ error: 'Failed to download file' });
       }
     });
-
 
     app.get('/download-export/:filename', (req, res) => {
       try {
@@ -275,18 +280,31 @@ const initializeServer = async () => {
     app.set('io', io);
 
     // Start promotion scheduler for automatic promotion application
-    await startPromotionScheduler();
-    console.log('✅ Promotion scheduler initialized');
+    try {
+      await startPromotionScheduler();
+      console.log('✅ Promotion scheduler initialized');
+    } catch (err) {
+      console.error('⚠️  Promotion scheduler failed to initialize:', err.message);
+      // Continue server startup even if scheduler fails
+    }
 
     // Server listen
     const PORT = process.env.PORT || 5000;
+    console.log(`[Server] About to listen on port ${PORT}...`);
+
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       // console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
       console.log(`Environment: Development`);
     });
+
+    httpServer.on('error', (err) => {
+      console.error('[Server] HTTP Server error:', err);
+      process.exit(1);
+    });
   } catch (error) {
-    console.error("Failed to initialize server:", error);
+    console.error('Failed to initialize server:', error);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 };

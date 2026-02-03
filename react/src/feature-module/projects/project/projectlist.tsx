@@ -4,7 +4,6 @@ import { all_routes } from "../../router/all_routes";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import Table from "../../../core/common/dataTable/index";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useSocket } from "../../../SocketContext";
 import { toast } from "react-toastify";
 import CommonSelect, { Option } from "../../../core/common/commonSelect";
 import CommonTagsInput from "../../../core/common/Taginput";
@@ -12,24 +11,7 @@ import Select from "react-select";
 import { DatePicker, TimePicker } from "antd";
 import dayjs from "dayjs";
 import Footer from "../../../core/common/footer";
-
-interface Project {
-  _id: string;
-  projectId: string;
-  name: string;
-  description?: string;
-  status: string;
-  priority: string;
-  client?: string;
-  teamMembers?: string[];
-  teamLeader?: string[];
-  projectManager?: string[];
-  projectValue?: number;
-  startDate?: Date;
-  endDate?: Date;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
+import { useProjectsREST, Project } from "../../../hooks/useProjectsREST";
 
 interface ProjectStats {
   total: number;
@@ -39,11 +21,18 @@ interface ProjectStats {
   overdue: number;
 }
 
+interface ProjectListFilters {
+  status: string;
+  priority: string;
+  client: string;
+  search: string;
+}
+
 interface FormData {
   name: string;
   client: string;
   startDate: string;
-  endDate: string;
+  dueDate: string;
   priority: string;
   projectValue: string;
   totalWorkingHours: string;
@@ -60,7 +49,7 @@ const initialFormData: FormData = {
   name: "",
   client: "",
   startDate: "",
-  endDate: "",
+  dueDate: "",
   priority: "Medium",
   projectValue: "",
   totalWorkingHours: "",
@@ -74,10 +63,16 @@ const initialFormData: FormData = {
 };
 
 const ProjectList = () => {
-  const socket = useSocket() as any;
-
-  useEffect(() => {
-  }, [socket]);
+  const {
+    projects: hookProjects,
+    loading: hookLoading,
+    error: hookError,
+    fetchProjects,
+    createProject,
+    updateProject,
+    deleteProject,
+    getProjectById
+  } = useProjectsREST();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [stats, setStats] = useState<ProjectStats>({ total: 0, active: 0, completed: 0, onHold: 0, overdue: 0 });
@@ -85,7 +80,7 @@ const ProjectList = () => {
   const [employees, setEmployees] = useState<Array<{ value: string; label: string; position: string; department: string; employeeId?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<ProjectListFilters>({
     status: "all",
     priority: "all",
     client: "all",
@@ -151,41 +146,85 @@ const ProjectList = () => {
     });
   }, []);
 
-  const loadProjects = useCallback((filterParams = {}) => {
-
-    if (!socket) return;
-
+  const loadProjects = useCallback(async (filterParams: Partial<ProjectListFilters> = {}) => {
     setLoading(true);
-    socket.emit("project:getAllData", filterParams);
-  }, [socket]);
+    try {
+      // Build filters for REST API
+      const filters: any = {};
+      if (filterParams.status && filterParams.status !== "all") {
+        filters.status = filterParams.status;
+      }
+      if (filterParams.priority && filterParams.priority !== "all") {
+        filters.priority = filterParams.priority;
+      }
+      if (filterParams.client && filterParams.client !== "all") {
+        filters.client = filterParams.client;
+      }
+      if (filterParams.search) {
+        filters.search = filterParams.search;
+      }
 
-  const handleCreateProject = useCallback((projectData: any) => {
-    if (!socket) return;
+      await fetchProjects(filters);
+      // The hook will update the projects state
+    } catch (err) {
+      setError("Failed to load projects");
+      toast.error("Failed to load projects");
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchProjects]);
 
-    socket.emit("project:create", projectData);
-  }, [socket]);
+  const handleCreateProject = useCallback(async (projectData: any) => {
+    try {
+      const success = await createProject(projectData);
+      if (success) {
+        setFormData(initialFormData);
+        setCurrentStep(1);
+        setLogo(null);
+        removeLogo();
+        setShowAddModal(false);
+        setFieldErrors({});
+        loadProjects(filters);
+      }
+    } catch (err) {
+      setFormError("Failed to create project");
+      toast.error("Failed to create project");
+    }
+  }, [createProject, filters]);
 
-  const handleUpdateProject = useCallback((projectId: string, updateData: any) => {
-    if (!socket) return;
+  const handleUpdateProject = useCallback(async (projectId: string, updateData: any) => {
+    try {
+      const success = await updateProject(projectId, updateData);
+      if (success) {
+        setFormData(initialFormData);
+        setEditingProject(null);
+        setShowEditModal(false);
+        setFieldErrors({});
+        loadProjects(filters);
+      }
+    } catch (err) {
+      setFormError("Failed to update project");
+      toast.error("Failed to update project");
+    }
+  }, [updateProject, filters]);
 
-    socket.emit("project:update", { projectId, update: updateData });
-  }, [socket]);
-
-  const handleDeleteProject = useCallback((projectId: string) => {
-    if (!socket) return;
-
-    socket.emit("project:delete", { projectId });
-  }, [socket]);
+  const handleDeleteProject = useCallback(async (projectId: string) => {
+    try {
+      const success = await deleteProject(projectId);
+      if (success) {
+        setDeletingProject(null);
+        setShowDeleteModal(false);
+        loadProjects(filters);
+      }
+    } catch (err) {
+      toast.error("Failed to delete project");
+    }
+  }, [deleteProject, filters]);
 
   const loadModalData = useCallback(() => {
-    console.log("[ProjectList] loadModalData called, socket:", !!socket);
-    if (!socket) {
-      console.warn("[ProjectList] Socket not available");
-      return;
-    }
-    console.log("[ProjectList] Emitting project:getAllData");
-    socket.emit("project:getAllData");
-  }, [socket]);
+    // Load any additional modal data if needed
+    // Currently handled by the REST hook
+  }, []);
 
   // Image upload function
   const uploadImage = async (file: File): Promise<string> => {
@@ -266,7 +305,7 @@ const ProjectList = () => {
       case "startDate":
         if (!value) return "Start date is required";
         break;
-      case "endDate":
+      case "dueDate":
         if (!value) return "End date is required";
         break;
       case "priority":
@@ -327,8 +366,8 @@ const ProjectList = () => {
     const startError = validateProjectField("startDate", data.startDate);
     if (startError) errors.startDate = startError;
 
-    const endError = validateProjectField("endDate", data.endDate);
-    if (endError) errors.endDate = endError;
+    const endError = validateProjectField("dueDate", data.dueDate);
+    if (endError) errors.dueDate = endError;
 
     const priorityError = validateProjectField("priority", data.priority);
     if (priorityError) errors.priority = priorityError;
@@ -348,11 +387,11 @@ const ProjectList = () => {
     const projectManagerError = validateProjectField("projectManager", data.projectManager);
     if (projectManagerError) errors.projectManager = projectManagerError;
 
-    if (data.startDate && data.endDate) {
+    if (data.startDate && data.dueDate) {
       const start = dayjs(data.startDate, "DD-MM-YYYY");
-      const end = dayjs(data.endDate, "DD-MM-YYYY");
+      const end = dayjs(data.dueDate, "DD-MM-YYYY");
       if (start.isValid() && end.isValid() && !end.isAfter(start)) {
-        errors.endDate = "End date must be after start date";
+        errors.dueDate = "End date must be after start date";
       }
     }
 
@@ -373,7 +412,7 @@ const ProjectList = () => {
 
   const validateEditBasicInfo = useCallback((): boolean => {
     const errors = computeProjectErrors(formData);
-    const basicInfoFields = ["name", "client", "startDate", "endDate", "priority", "projectValue", "description"];
+    const basicInfoFields = ["name", "client", "startDate", "dueDate", "priority", "projectValue", "description"];
     const basicInfoErrors: Record<string, string> = {};
     basicInfoFields.forEach((field) => {
       if (errors[field]) {
@@ -445,7 +484,7 @@ const ProjectList = () => {
 
   const validateAddStepOne = useCallback((): boolean => {
     const errors = computeProjectErrors(formData);
-    const stepFields = ["name", "client", "startDate", "endDate", "priority", "projectValue", "description"];
+    const stepFields = ["name", "client", "startDate", "dueDate", "priority", "projectValue", "description"];
     const stepErrors: Record<string, string> = {};
     stepFields.forEach((field) => {
       if (errors[field]) {
@@ -488,18 +527,19 @@ const ProjectList = () => {
     setFormError(null);
   };
 
-  const handleModalSubmit = () => {
+  const handleModalSubmit = async () => {
     if (!validateAddProjectForm()) {
       return;
     }
 
     setIsSubmitting(true);
     setFormError(null);
-    socket?.emit("project:create", {
+
+    const projectData = {
       name: formData.name,
       client: formData.client,
       startDate: formData.startDate,
-      endDate: formData.endDate,
+      dueDate: formData.dueDate,
       priority: formData.priority,
       projectValue: formData.projectValue,
       description: formData.description,
@@ -509,10 +549,12 @@ const ProjectList = () => {
       status: formData.status,
       tags: formData.tags,
       logo: logo,
-    });
+    };
+
+    await handleCreateProject(projectData);
   };
 
-  const handleEditBasicInfoSave = () => {
+  const handleEditBasicInfoSave = async () => {
     if (!editingProject) return;
 
     if (!validateEditBasicInfo()) {
@@ -522,22 +564,21 @@ const ProjectList = () => {
     setIsSubmitting(true);
     setFormError(null);
 
-    socket?.emit("project:update", {
-      projectId: editingProject._id,
-      update: {
-        name: formData.name.trim(),
-        client: formData.client.trim(),
-        status: formData.status,
-        priority: formData.priority,
-        projectValue: formData.projectValue,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        description: formData.description,
-      }
-    });
+    const updateData = {
+      name: formData.name.trim(),
+      client: formData.client.trim(),
+      status: formData.status,
+      priority: formData.priority,
+      projectValue: formData.projectValue,
+      startDate: formData.startDate,
+      dueDate: formData.dueDate,
+      description: formData.description,
+    };
+
+    await handleUpdateProject(editingProject._id, updateData);
   };
 
-  const handleEditProjectSubmit = () => {
+  const handleEditProjectSubmit = async () => {
     if (!editingProject) return;
 
     if (!validateEditTeamMembers()) {
@@ -547,115 +588,67 @@ const ProjectList = () => {
     setIsSubmitting(true);
     setFormError(null);
 
-    socket?.emit("project:update", {
-      projectId: editingProject._id,
-      update: {
-        name: formData.name.trim(),
-        client: formData.client.trim(),
-        status: formData.status,
-        priority: formData.priority,
-        projectValue: formData.projectValue,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        description: formData.description,
-        teamMembers: (formData.teamMembers || []).map((member: any) => member.value),
-        teamLeader: (formData.teamLeader || []).map((leader: any) => leader.value),
-        projectManager: (formData.projectManager || []).map((manager: any) => manager.value),
-        tags: formData.tags,
-      }
-    });
+    const updateData = {
+      name: formData.name.trim(),
+      client: formData.client.trim(),
+      status: formData.status,
+      priority: formData.priority,
+      projectValue: formData.projectValue,
+      startDate: formData.startDate,
+      dueDate: formData.dueDate,
+      description: formData.description,
+      teamMembers: (formData.teamMembers || []).map((member: any) => member.value),
+      teamLeader: (formData.teamLeader || []).map((leader: any) => leader.value),
+      projectManager: (formData.projectManager || []).map((manager: any) => manager.value),
+      tags: formData.tags,
+    };
+
+    await handleUpdateProject(editingProject._id, updateData);
   };
 
 
+  // Sync hook projects with local state
   useEffect(() => {
-    if (!socket) return;
+    if (hookProjects && hookProjects.length > 0) {
+      setProjects(hookProjects);
+      // Calculate stats from projects
+      const total = hookProjects.length;
+      const active = hookProjects.filter((p: any) => p.status === "Active").length;
+      const completed = hookProjects.filter((p: any) => p.status === "Completed").length;
+      const onHold = hookProjects.filter((p: any) => p.status === "On Hold").length;
+      const overdue = hookProjects.filter((p: any) => {
+        return p.dueDate && new Date(p.dueDate) < new Date() && p.status !== "Completed";
+      }).length;
+      setStats({ total, active, completed, onHold, overdue });
 
-    const handleGetAllDataResponse = (response: any) => {
-      setLoading(false);
-
-      if (response.done) {
-        setProjects(response.data.projects || []);
-        setStats(response.data.stats || { total: 0, active: 0, completed: 0, onHold: 0, overdue: 0 });
-        // Transform clients from string[] to { value, label }[] format
-        const transformedClients = (response.data.clients || []).map((client: string) => ({
-          value: client,
-          label: client
-        }));
-        setClients(transformedClients);
-        setEmployees(response.data.employees || []);
-        setError(null);
-      } else {
-        setError(response.error || "Failed to load projects");
-        toast.error(response.error || "Failed to load projects");
-      }
-    };
-
-    const handleCreateResponse = (response: any) => {
-      setIsSubmitting(false);
-      if (response.done) {
-        toast.success("Project created successfully");
-        setFormData(initialFormData);
-        setCurrentStep(1);
-        setLogo(null);
-        removeLogo();
-        setShowAddModal(false);
-        setFieldErrors({});
-        loadProjects(filters);
-      } else {
-        setFormError(response.error || "Failed to create project");
-        toast.error(response.error || "Failed to create project");
-      }
-    };
-
-    const handleUpdateResponse = (response: any) => {
-      setIsSubmitting(false);
-      if (response.done) {
-        toast.success("Project updated successfully");
-        setFormData(initialFormData);
-        setEditingProject(null);
-        setShowEditModal(false);
-        setFieldErrors({});
-        loadProjects(filters);
-      } else {
-        setFormError(response.error || "Failed to update project");
-        toast.error(response.error || "Failed to update project");
-      }
-    };
-
-    const handleDeleteResponse = (response: any) => {
-      if (response.done) {
-        toast.success("Project deleted successfully");
-        setDeletingProject(null);
-        setShowDeleteModal(false);
-        loadProjects(filters);
-      } else {
-        toast.error(response.error || "Failed to delete project");
-      }
-    };
-
-
-    socket.on("project:getAllData-response", handleGetAllDataResponse);
-    socket.on("project:create-response", handleCreateResponse);
-    socket.on("project:update-response", handleUpdateResponse);
-    socket.on("project:delete-response", handleDeleteResponse);
-
-
-    loadProjects(filters);
-
-    return () => {
-      socket.off("project:getAllData-response", handleGetAllDataResponse);
-      socket.off("project:create-response", handleCreateResponse);
-      socket.off("project:update-response", handleUpdateResponse);
-      socket.off("project:delete-response", handleDeleteResponse);
-    };
-  }, [socket, loadProjects, filters]);
-
-
-  useEffect(() => {
-    if (socket) {
-      loadProjects(filters);
+      // Extract unique clients
+      const uniqueClients = Array.from(new Set(hookProjects.map((p: any) => p.client).filter(Boolean)));
+      const transformedClients = uniqueClients.map((client: string) => ({
+        value: client,
+        label: client
+      }));
+      setClients(transformedClients);
     }
-  }, [filters, socket, loadProjects]);
+    setLoading(false);
+  }, [hookProjects]);
+
+  // Handle errors from hook
+  useEffect(() => {
+    if (hookError) {
+      setError(hookError);
+      toast.error(hookError);
+    }
+  }, [hookError]);
+
+  // Initial load
+  useEffect(() => {
+    loadProjects(filters);
+  }, []);
+
+  // Reload when filters change
+  useEffect(() => {
+    loadProjects(filters);
+  }, [filters]);
 
 
   useEffect(() => {
@@ -682,7 +675,7 @@ const ProjectList = () => {
       dataIndex: "name",
       render: (text: string, record: Project) => (
         <h6 className="fw-medium">
-          <Link to={`${all_routes.projectdetails}/${record._id}`}>
+          <Link to={all_routes.projectdetails.replace(':projectId', record._id)}>
             {record.name || "Unnamed Project"}
           </Link>
         </h6>
@@ -740,15 +733,15 @@ const ProjectList = () => {
     },
     {
       title: "Deadline",
-      dataIndex: "endDate",
+      dataIndex: "dueDate",
       render: (text: Date, record: Project) => (
         <span>
-          {record.endDate ? new Date(record.endDate).toLocaleDateString() : "No Deadline"}
+          {record.dueDate ? new Date(record.dueDate).toLocaleDateString() : "No Deadline"}
         </span>
       ),
       sorter: (a: Project, b: Project) => {
-        const aDate = a.endDate ? new Date(a.endDate).getTime() : 0;
-        const bDate = b.endDate ? new Date(b.endDate).getTime() : 0;
+        const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+        const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 0;
         return aDate - bDate;
       },
     },
@@ -823,7 +816,7 @@ const ProjectList = () => {
                 name: record.name,
                 client: record.client || "",
                 startDate: record.startDate ? dayjs(record.startDate).format("DD-MM-YYYY") : "",
-                endDate: record.endDate ? dayjs(record.endDate).format("DD-MM-YYYY") : "",
+                dueDate: record.dueDate ? dayjs(record.dueDate).format("DD-MM-YYYY") : "",
                 priority: record.priority || "Medium",
                 projectValue: record.projectValue !== undefined && record.projectValue !== null ? String(record.projectValue) : "",
                 totalWorkingHours: "",
@@ -1190,12 +1183,12 @@ const ProjectList = () => {
                                     format="DD-MM-YYYY"
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
-                                    value={formData.endDate ? dayjs(formData.endDate, "DD-MM-YYYY") : null}
+                                    value={formData.dueDate ? dayjs(formData.dueDate, "DD-MM-YYYY") : null}
                                     onChange={(date, dateString: any) => {
                                       const dateStr = typeof dateString === 'string' ? dateString : (Array.isArray(dateString) ? dateString[0] : '');
-                                      setFormData(prev => ({ ...prev, endDate: dateStr }));
-                                      clearFieldError("endDate");
-                                      handleEditFieldBlur("endDate", dateStr);
+                                      setFormData(prev => ({ ...prev, dueDate: dateStr }));
+                                      clearFieldError("dueDate");
+                                      handleEditFieldBlur("dueDate", dateStr);
                                     }}
                                     disabledDate={(current) => {
                                       if (!formData.startDate) return false;
@@ -1207,8 +1200,8 @@ const ProjectList = () => {
                                     <i className="ti ti-calendar text-gray-7" />
                                   </span>
                                 </div>
-                                {fieldErrors.endDate && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.endDate}</div>
+                                {fieldErrors.dueDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.dueDate}</div>
                                 )}
                               </div>
                             </div>
@@ -1722,12 +1715,12 @@ const ProjectList = () => {
                                     format="DD-MM-YYYY"
                                     getPopupContainer={getModalContainer}
                                     placeholder="DD-MM-YYYY"
-                                    value={formData.endDate ? dayjs(formData.endDate, "DD-MM-YYYY") : null}
+                                    value={formData.dueDate ? dayjs(formData.dueDate, "DD-MM-YYYY") : null}
                                     onChange={(date, dateString: any) => {
                                       const dateStr = typeof dateString === "string" ? dateString : (Array.isArray(dateString) ? dateString[0] : "");
-                                      setFormData(prev => ({ ...prev, endDate: dateStr }));
-                                      clearFieldError("endDate");
-                                      handleEditFieldBlur("endDate", dateStr);
+                                      setFormData(prev => ({ ...prev, dueDate: dateStr }));
+                                      clearFieldError("dueDate");
+                                      handleEditFieldBlur("dueDate", dateStr);
                                     }}
                                     disabledDate={(current) => {
                                       if (!formData.startDate) return false;
@@ -1739,8 +1732,8 @@ const ProjectList = () => {
                                     <i className="ti ti-calendar text-gray-7" />
                                   </span>
                                 </div>
-                                {fieldErrors.endDate && (
-                                  <div className="invalid-feedback d-block">{fieldErrors.endDate}</div>
+                                {fieldErrors.dueDate && (
+                                  <div className="invalid-feedback d-block">{fieldErrors.dueDate}</div>
                                 )}
                               </div>
                             </div>
@@ -1985,8 +1978,10 @@ const ProjectList = () => {
                     </button>
                     <button
                       className="btn btn-danger"
-                      onClick={() => {
-                        socket?.emit("project:delete", { projectId: deletingProject._id });
+                      onClick={async () => {
+                        if (deletingProject) {
+                          await handleDeleteProject(deletingProject._id);
+                        }
                       }}
                     >
                       Delete

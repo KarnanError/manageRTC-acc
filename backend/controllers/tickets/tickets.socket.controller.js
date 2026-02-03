@@ -1,10 +1,7 @@
-import * as ticketsService from '../../services/tickets/tickets.services.js';
 import { getTenantCollections } from '../../config/db.js';
-import { ObjectId } from 'mongodb';
+import * as ticketsService from '../../services/tickets/tickets.services.js';
 
 const ticketsSocketController = (socket, io) => {
-  console.log('Attaching tickets socket controller...');
-
   // Get tickets dashboard statistics
   socket.on('tickets/dashboard/get-stats', async (data) => {
     try {
@@ -14,7 +11,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error getting tickets stats:', error);
       socket.emit('tickets/dashboard/get-stats-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -28,7 +25,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error getting tickets list:', error);
       socket.emit('tickets/list/get-tickets-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -43,7 +40,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error getting ticket details:', error);
       socket.emit('tickets/details/get-ticket-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -53,10 +50,10 @@ const ticketsSocketController = (socket, io) => {
     try {
       console.log('Creating ticket with data:', data);
       console.log('Company ID:', socket.companyId);
-      
+
       const result = await ticketsService.createTicket(socket.companyId, data);
       console.log('Create ticket result:', result);
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
@@ -70,7 +67,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error creating ticket:', error);
       socket.emit('tickets/create-ticket-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -81,14 +78,14 @@ const ticketsSocketController = (socket, io) => {
       console.log('🔄 UPDATE TICKET REQUEST RECEIVED:');
       console.log('📦 Data received:', JSON.stringify(data, null, 2));
       console.log('🏢 Company ID:', socket.companyId);
-      
+
       const { ticketId, updateData } = data;
       console.log('🎫 Ticket ID:', ticketId);
       console.log('📝 Update Data:', JSON.stringify(updateData, null, 2));
-      
+
       const result = await ticketsService.updateTicket(socket.companyId, ticketId, updateData);
       console.log('✅ Update result:', JSON.stringify(result, null, 2));
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
@@ -103,7 +100,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('❌ Error updating ticket:', error);
       socket.emit('tickets/update-ticket-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -114,7 +111,7 @@ const ticketsSocketController = (socket, io) => {
       const { ticketId, text, author, isInternal = false, attachments = [] } = data;
       const commentData = { text, author, isInternal, attachments };
       const result = await ticketsService.addComment(socket.companyId, ticketId, commentData);
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
@@ -126,7 +123,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error adding comment:', error);
       socket.emit('tickets/add-comment-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -136,14 +133,14 @@ const ticketsSocketController = (socket, io) => {
     try {
       const { ticketId } = data;
       const result = await ticketsService.deleteTicket(socket.companyId, ticketId);
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
         console.log('📡 Broadcasting ticket-deleted event to company room:', companyRoom);
         io.to(companyRoom).emit('tickets/ticket-deleted', {
           done: true,
-          ticketId: ticketId
+          ticketId: ticketId,
         });
         console.log('✅ Ticket-deleted event broadcasted successfully');
       }
@@ -153,7 +150,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error deleting ticket:', error);
       socket.emit('tickets/delete-ticket-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -163,7 +160,7 @@ const ticketsSocketController = (socket, io) => {
     try {
       const { ticketIds } = data;
       const result = await ticketsService.bulkDeleteTickets(socket.companyId, ticketIds);
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
@@ -175,7 +172,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error bulk deleting tickets:', error);
       socket.emit('tickets/bulk-delete-tickets-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -189,7 +186,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error getting ticket categories:', error);
       socket.emit('tickets/categories/get-categories-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -235,22 +232,24 @@ const ticketsSocketController = (socket, io) => {
         .toArray();
 
       // Get ticket counts per agent (exclude Closed and Solved tickets)
-      const ticketCounts = await collections.tickets.aggregate([
-        {
-          $match: {
-            status: { $nin: ['Closed', 'Solved'] }
-          }
-        },
-        {
-          $group: {
-            _id: '$assignedTo._id',
-            count: { $sum: 1 }
-          }
-        }
-      ]).toArray();
+      const ticketCounts = await collections.tickets
+        .aggregate([
+          {
+            $match: {
+              status: { $nin: ['Closed', 'Solved'] },
+            },
+          },
+          {
+            $group: {
+              _id: '$assignedTo._id',
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .toArray();
 
       const ticketCountMap = {};
-      ticketCounts.forEach(tc => {
+      ticketCounts.forEach((tc) => {
         if (tc._id) {
           ticketCountMap[String(tc._id)] = tc.count;
         }
@@ -281,18 +280,18 @@ const ticketsSocketController = (socket, io) => {
   socket.on('tickets/categories/add-category', async (data) => {
     try {
       console.log('Adding ticket category with data:', data);
-      const userId = socket.user?.sub || "System";
-      
+      const userId = socket.user?.sub || 'System';
+
       // Fetch employee info to get employeeId
       const collections = getTenantCollections(socket.companyId);
       const employee = await collections.employees.findOne(
         { userId: userId },
         { projection: { employeeId: 1 } }
       );
-      
+
       const createdBy = employee?.employeeId || userId;
       const result = await ticketsService.addTicketCategory(socket.companyId, data, createdBy);
-      
+
       if (result.done) {
         // Broadcast to all connected clients in the company room
         const companyRoom = `company_${socket.companyId}`;
@@ -304,7 +303,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error adding ticket category:', error);
       socket.emit('tickets/categories/add-category-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -313,8 +312,12 @@ const ticketsSocketController = (socket, io) => {
   socket.on('tickets/categories/update-category', async (data) => {
     try {
       const { categoryId, updateData } = data;
-      const result = await ticketsService.updateTicketCategory(socket.companyId, categoryId, updateData);
-      
+      const result = await ticketsService.updateTicketCategory(
+        socket.companyId,
+        categoryId,
+        updateData
+      );
+
       if (result.done) {
         const companyRoom = `company_${socket.companyId}`;
         io.to(companyRoom).emit('tickets/category-updated', result);
@@ -325,7 +328,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error updating ticket category:', error);
       socket.emit('tickets/categories/update-category-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });
@@ -335,12 +338,12 @@ const ticketsSocketController = (socket, io) => {
     try {
       const { categoryId } = data;
       const result = await ticketsService.deleteTicketCategory(socket.companyId, categoryId);
-      
+
       if (result.done) {
         const companyRoom = `company_${socket.companyId}`;
-        io.to(companyRoom).emit('tickets/category-deleted', { 
-          done: true, 
-          categoryId 
+        io.to(companyRoom).emit('tickets/category-deleted', {
+          done: true,
+          categoryId,
         });
       }
 
@@ -349,7 +352,7 @@ const ticketsSocketController = (socket, io) => {
       console.error('Error deleting ticket category:', error);
       socket.emit('tickets/categories/delete-category-response', {
         done: false,
-        error: error.message
+        error: error.message,
       });
     }
   });

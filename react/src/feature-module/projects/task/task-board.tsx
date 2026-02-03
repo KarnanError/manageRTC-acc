@@ -1,877 +1,916 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import ImageWithBasePath from '../../../core/common/imageWithBasePath'
-import { Link } from 'react-router-dom'
-import { all_routes } from '../../router/all_routes'
-import CommonSelect from '../../../core/common/commonSelect'
-import { label } from 'yet-another-react-lightbox/*'
-import { DatePicker } from 'antd'
-import Footer from "../../../core/common/footer";
-import CommonTagsInput from '../../../core/common/Taginput'
-import CommonTextEditor from '../../../core/common/textEditor'
-import dragula, { Drake } from "dragula";
-import "dragula/dist/dragula.css";
-import CollapseHeader from '../../../core/common/collapse-header/collapse-header'
-import { useSocket } from '../../../SocketContext'
-import { toast } from 'react-toastify'
-import Select from 'react-select'
-import dayjs, { Dayjs } from 'dayjs'
+import { DatePicker } from 'antd';
+import dayjs, { Dayjs } from 'dayjs';
+import dragula, { Drake } from 'dragula';
+import 'dragula/dist/dragula.css';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import Select from 'react-select';
+import { toast } from 'react-toastify';
+import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
+import CommonSelect from '../../../core/common/commonSelect';
+import Footer from '../../../core/common/footer';
+import ImageWithBasePath from '../../../core/common/imageWithBasePath';
+import CommonTagsInput from '../../../core/common/Taginput';
+import CommonTextEditor from '../../../core/common/textEditor';
+import { useProjectsREST } from '../../../hooks/useProjectsREST';
+import { Task, useTasksREST } from '../../../hooks/useTasksREST';
+import { useTaskStatusREST } from '../../../hooks/useTaskStatusREST';
 
 const TaskBoard = () => {
-    const socket = useSocket();
-    const [selectedProject, setSelectedProject] = useState("Select");
-    const [projects, setProjects] = useState<any[]>([]);
-    const [tasks, setTasks] = useState<any[]>([]);
-    const [taskStatuses, setTaskStatuses] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [tasksLoading, setTasksLoading] = useState(false);
-    const [showStatusModal, setShowStatusModal] = useState(false);
-    const [newBoardName, setNewBoardName] = useState("");
-    const [newBoardColor, setNewBoardColor] = useState("purple");
-    const [savingBoard, setSavingBoard] = useState(false);
-    const addBoardModalRef = useRef<any>(null);
-    const addBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
-    const [editBoardData, setEditBoardData] = useState<any>(null);
-    const [editBoardName, setEditBoardName] = useState("");
-    const [editBoardColor, setEditBoardColor] = useState("purple");
-    const editBoardModalRef = useRef<any>(null);
-    const editBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
-    const [editingTask, setEditingTask] = useState<any>(null);
-    const [editTaskTitle, setEditTaskTitle] = useState("");
-    const [editTaskDescription, setEditTaskDescription] = useState("");
-    const [editTaskPriority, setEditTaskPriority] = useState("Medium");
-    const [editTaskDueDate, setEditTaskDueDate] = useState<Dayjs | null>(null);
-    const [editTaskStatus, setEditTaskStatus] = useState("");
-    const [editTaskTags, setEditTaskTags] = useState<string[]>([]);
-    const [editTaskAssignees, setEditTaskAssignees] = useState<string[]>([]);
-    const [isSavingEditTask, setIsSavingEditTask] = useState(false);
-    const [editTaskModalError, setEditTaskModalError] = useState<string | null>(null);
-    const [editTaskFieldErrors, setEditTaskFieldErrors] = useState<Record<string, string>>({});
-    const editTaskCloseButtonRef = useRef<HTMLButtonElement>(null);
-    const [sortBy, setSortBy] = useState<"createdDate" | "dueDate">("createdDate");
-    const [filterPriority, setFilterPriority] = useState<string>("All");
-    const [dueDateFilterFrom, setDueDateFilterFrom] = useState<Dayjs | null>(null);
-    const [dueDateFilterTo, setDueDateFilterTo] = useState<Dayjs | null>(null);
-    const [pendingStatusChange, setPendingStatusChange] = useState<{
-        taskId: string;
-        newStatus: string;
-        taskTitle: string;
-        progress?: number;
-    } | null>(null);
+  // Initialize REST API hooks for tasks
+  const {
+    tasks: tasksList,
+    loading: tasksLoading,
+    updateTask: updateTaskAPI,
+    updateStatus: updateTaskStatusAPI,
+    getTasksByProject: fetchTasksByProject,
+  } = useTasksREST();
 
-    // Fallback statuses in case API fails or returns empty
-    const defaultTaskStatuses = useMemo(() => ([
-        { key: 'todo', name: 'To Do', colorName: 'purple', order: 1 },
-        { key: 'pending', name: 'Pending', colorName: 'pink', order: 2 },
-        { key: 'inprogress', name: 'Inprogress', colorName: 'blue', order: 3 },
-        { key: 'onhold', name: 'Onhold', colorName: 'yellow', order: 4 },
-        { key: 'review', name: 'Review', colorName: 'orange', order: 5 },
-        { key: 'completed', name: 'Completed', colorName: 'green', order: 6 },
-        { key: 'cancelled', name: 'Canceled', colorName: 'red', order: 7 },
-    ]), []);
+  // Initialize REST API hooks for projects
+  const { projects: projectsList, fetchProjects: fetchProjectsAPI } = useProjectsREST();
 
-    const getModalContainer = () => {
-        const modalElement = document.getElementById('modal-datepicker');
-        return modalElement ? modalElement : document.body;
-    };
+  // Initialize REST API hooks for task statuses
+  const {
+    statuses: statusesFromHook,
+    fetchTaskStatuses: fetchTaskStatusesAPI,
+    createTaskStatus: createTaskStatusAPI,
+    updateTaskStatus: updateTaskStatusBoardAPI,
+  } = useTaskStatusREST();
 
-    const loadProjects = useCallback(() => {
-        if (!socket) return;
-        setLoading(true);
-        socket.emit("project:getAllData", {});
-    }, [socket]);
+  const [selectedProject, setSelectedProject] = useState('Select');
+  const [projects, setProjects] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [taskStatuses, setTaskStatuses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
+  const [newBoardColor, setNewBoardColor] = useState('purple');
+  const [savingBoard, setSavingBoard] = useState(false);
+  const addBoardModalRef = useRef<any>(null);
+  const addBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const [editBoardData, setEditBoardData] = useState<any>(null);
+  const [editBoardName, setEditBoardName] = useState('');
+  const [editBoardColor, setEditBoardColor] = useState('purple');
+  const editBoardModalRef = useRef<any>(null);
+  const editBoardCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const [editingTask, setEditingTask] = useState<any>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDescription, setEditTaskDescription] = useState('');
+  const [editTaskPriority, setEditTaskPriority] = useState('Medium');
+  const [editTaskDueDate, setEditTaskDueDate] = useState<Dayjs | null>(null);
+  const [editTaskStatus, setEditTaskStatus] = useState('');
+  const [editTaskTags, setEditTaskTags] = useState<string[]>([]);
+  const [editTaskAssignees, setEditTaskAssignees] = useState<string[]>([]);
+  const [isSavingEditTask, setIsSavingEditTask] = useState(false);
+  const [editTaskModalError, setEditTaskModalError] = useState<string | null>(null);
+  const [editTaskFieldErrors, setEditTaskFieldErrors] = useState<Record<string, string>>({});
+  const editTaskCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const [sortBy, setSortBy] = useState<'createdDate' | 'dueDate'>('createdDate');
+  const [filterPriority, setFilterPriority] = useState<string>('All');
+  const [dueDateFilterFrom, setDueDateFilterFrom] = useState<Dayjs | null>(null);
+  const [dueDateFilterTo, setDueDateFilterTo] = useState<Dayjs | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    taskId: string;
+    newStatus: string;
+    taskTitle: string;
+    progress?: number;
+  } | null>(null);
 
-    const loadTaskStatuses = useCallback(() => {
-        if (!socket) return;
-        socket.emit("task:getStatuses");
-    }, [socket]);
+  // Fallback statuses in case API fails or returns empty
+  const defaultTaskStatuses = useMemo(
+    () => [
+      { key: 'todo', name: 'To Do', colorName: 'purple', order: 1 },
+      { key: 'pending', name: 'Pending', colorName: 'pink', order: 2 },
+      { key: 'inprogress', name: 'Inprogress', colorName: 'blue', order: 3 },
+      { key: 'onhold', name: 'Onhold', colorName: 'yellow', order: 4 },
+      { key: 'review', name: 'Review', colorName: 'orange', order: 5 },
+      { key: 'completed', name: 'Completed', colorName: 'green', order: 6 },
+      { key: 'cancelled', name: 'Canceled', colorName: 'red', order: 7 },
+    ],
+    []
+  );
 
-    const loadprojecttasks = useCallback((projectId: string) => {
-        if (!socket) return;
-        setTasksLoading(true);
-        setTasks([]);
-        socket.emit("task:getByProject", { projectId });
-    }, [socket]);
-    
-    const projectChoose = [
-        { value: "Select", label: "Select" },
-        ...projects.map(project => ({
-            value: project._id,
-            label: project.projectId ? `${project.name} (${project.projectId})` : project.name
-        }))
-    ];
-    const statusChoose = [
-        { value: "Select", label: "Select" },
-        { value: "Inprogress", label: "Inprogress" },
-        { value: "Completed", label: "Completed" },
-        { value: "Pending", label: "Pending" },
-        { value: "Onhold", label: "Onhold" },
+  const getModalContainer = () => {
+    const modalElement = document.getElementById('modal-datepicker');
+    return modalElement ? modalElement : document.body;
+  };
 
-    ];
-    const priorityChoose = [
-        { value: "Select", label: "Select" },
-        { value: "Medium", label: "Medium" },
-        { value: "High", label: "High" },
-        { value: "Low", label: "Low" },
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      await fetchProjectsAPI();
+    } catch (error) {
+      console.error('[TaskBoard] Error loading projects:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchProjectsAPI]);
 
-    ];
+  const loadTaskStatuses = useCallback(async () => {
+    try {
+      await fetchTaskStatusesAPI();
+    } catch (error) {
+      console.error('[TaskBoard] Error loading task statuses:', error);
+    }
+  }, [fetchTaskStatusesAPI]);
 
-    // Dynamic assignee options from current project's team members
-    const assigneeChoose = useMemo(() => {
-        const baseOption = [{ value: "Select", label: "Select" }];
-        const currentProject = projects.find(p => p._id === selectedProject || p.projectId === selectedProject);
-        
-        if (!currentProject?.teamMembersdetail || currentProject.teamMembersdetail.length === 0) {
-            return baseOption;
-        }
+  const loadprojecttasks = useCallback(
+    async (projectId: string) => {
+      if (!projectId || projectId === 'Select') return;
+      setTasks([]);
+      await fetchTasksByProject(projectId);
+    },
+    [fetchTasksByProject]
+  );
 
-        const seen = new Set<string>();
-        const teamOptions = currentProject.teamMembersdetail.reduce((acc: any[], member: any) => {
-            const value = (member?._id || member?.id || member?.employeeId || "").toString();
-            if (!value || seen.has(value)) return acc;
-            seen.add(value);
-            acc.push({
-                value,
-                label: `${member?.employeeId || ''} - ${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
-                employeeId: member?.employeeId || '',
-                name: `${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
-            });
-            return acc;
-        }, []);
+  // Sync tasks from REST API hook to local state
+  useEffect(() => {
+    if (tasksList) {
+      setTasks(tasksList);
+    }
+  }, [tasksList]);
 
-        return [...baseOption, ...teamOptions];
-    }, [projects, selectedProject]);
+  // Sync projects from REST API hook to local state
+  useEffect(() => {
+    if (projectsList) {
+      setProjects(projectsList);
+    }
+  }, [projectsList]);
 
-    const [tags, setTags] = useState<string[]>(["Jerald", "Andrew", "Philip", "Davis"]);
-    const [tags1, setTags1] = useState<string[]>(["Collab", "Rated"]);
+  const projectChoose = [
+    { value: 'Select', label: 'Select' },
+    ...projects.map((project) => ({
+      value: project._id,
+      label: project.projectId ? `${project.name} (${project.projectId})` : project.name,
+    })),
+  ];
+  const statusChoose = [
+    { value: 'Select', label: 'Select' },
+    { value: 'Inprogress', label: 'Inprogress' },
+    { value: 'Completed', label: 'Completed' },
+    { value: 'Pending', label: 'Pending' },
+    { value: 'Onhold', label: 'Onhold' },
+  ];
+  const priorityChoose = [
+    { value: 'Select', label: 'Select' },
+    { value: 'Medium', label: 'Medium' },
+    { value: 'High', label: 'High' },
+    { value: 'Low', label: 'Low' },
+  ];
 
-    const normalizeStatus = (status?: string) => (status || "Pending").toLowerCase();
+  // Dynamic assignee options from current project's team members
+  const assigneeChoose = useMemo(() => {
+    const baseOption = [{ value: 'Select', label: 'Select' }];
+    const currentProject = projects.find(
+      (p) => p._id === selectedProject || p.projectId === selectedProject
+    );
 
-    // Normalize status keys across cases, spaces, hyphens, and underscores
-    const normalizeKey = useCallback((value?: string) => {
-        return (value || "")
-            .toLowerCase()
-            .replace(/[\s_-]+/g, "");
+    if (!currentProject?.teamMembersdetail || currentProject.teamMembersdetail.length === 0) {
+      return baseOption;
+    }
+
+    const seen = new Set<string>();
+    const teamOptions = currentProject.teamMembersdetail.reduce((acc: any[], member: any) => {
+      const value = (member?._id || member?.id || member?.employeeId || '').toString();
+      if (!value || seen.has(value)) return acc;
+      seen.add(value);
+      acc.push({
+        value,
+        label:
+          `${member?.employeeId || ''} - ${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
+        employeeId: member?.employeeId || '',
+        name: `${(member?.firstName || '').trim()} ${(member?.lastName || '').trim()}`.trim(),
+      });
+      return acc;
     }, []);
 
-    // Color hex map for saving to backend
-    const colorHexMap = useMemo(() => ({
-        purple: "#6f42c1",
-        pink: "#d63384",
-        blue: "#0d6efd",
-        yellow: "#ffc107",
-        green: "#198754",
-        orange: "#fd7e14",
-        red: "#dc3545",
-    }), []);
+    return [...baseOption, ...teamOptions];
+  }, [projects, selectedProject]);
 
-    // Sort and filter tasks based on selected sort option and priority filter
-    const sortedTasks = useMemo(() => {
-        let tasksCopy = [...tasks];
-        
-        // Filter by priority
-        if (filterPriority !== "All") {
-            tasksCopy = tasksCopy.filter(task => task.priority === filterPriority);
-        }
-        
-        // Filter by due date range
-        if (dueDateFilterFrom || dueDateFilterTo) {
-            tasksCopy = tasksCopy.filter(task => {
-                if (!task.dueDate) return false;
-                const taskDueDate = dayjs(task.dueDate);
-                
-                if (dueDateFilterFrom && taskDueDate.isBefore(dueDateFilterFrom, 'day')) {
-                    return false;
-                }
-                
-                if (dueDateFilterTo && taskDueDate.isAfter(dueDateFilterTo, 'day')) {
-                    return false;
-                }
-                
-                return true;
-            });
-        }
-        
-        if (sortBy === "dueDate") {
-            // Sort by due date in ascending order (earliest first)
-            return tasksCopy.sort((a, b) => {
-                const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-                const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-                return dateA - dateB;
-            });
-        } else {
-            // Sort by created date in ascending order (earliest first)
-            return tasksCopy.sort((a, b) => {
-                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
-                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : Infinity;
-                return dateA - dateB;
-            });
-        }
-    }, [tasks, sortBy, filterPriority, dueDateFilterFrom, dueDateFilterTo]);
+  const [tags, setTags] = useState<string[]>(['Jerald', 'Andrew', 'Philip', 'Davis']);
+  const [tags1, setTags1] = useState<string[]>(['Collab', 'Rated']);
 
-    // Dynamic status count helper
-    const getStatusCount = useCallback((statusKey: string) => {
-        const target = normalizeKey(statusKey);
-        return sortedTasks.filter((task) => {
-            const taskStatus = normalizeKey(task.status);
-            return taskStatus === target;
-        }).length;
-    }, [tasks, normalizeKey]);
+  const normalizeStatus = (status?: string) => (status || 'Pending').toLowerCase();
 
-    const totalTasks = tasks.length;
-    const totalpendingCount = tasks.filter((task) => {
-        const s = normalizeStatus(task.status);
-        return s === "pending" || s === "to do" || s === "todo" || s === "inprogress" || s === "in progress";
-    }).length;
-    const totalcompletedCount = tasks.filter((task) => {
-        const s = normalizeStatus(task.status);
-        return s === "completed" || s === "review";
-    }).length;
+  // Normalize status keys across cases, spaces, hyphens, and underscores
+  const normalizeKey = useCallback((value?: string) => {
+    return (value || '').toLowerCase().replace(/[\s_-]+/g, '');
+  }, []);
 
-    // Dynamic counts per status from taskStatuses collection
-    const todoingCount = getStatusCount("todo");
-    const canceledCount = getStatusCount("cancelled");
-    const reviewCount = getStatusCount("review");
-    const onholdCount = getStatusCount("onhold");
-    const pendingCount = getStatusCount("pending");
-    const inprogressCount = getStatusCount("inprogress");
-    const completedCount = getStatusCount("completed");
+  // Color hex map for saving to backend
+  const colorHexMap = useMemo(
+    () => ({
+      purple: '#6f42c1',
+      pink: '#d63384',
+      blue: '#0d6efd',
+      yellow: '#ffc107',
+      green: '#198754',
+      orange: '#fd7e14',
+      red: '#dc3545',
+    }),
+    []
+  );
 
-    // Helper to get color classes for status badges
-    const getColorClass = useCallback((colorName?: string) => {
-        const colorMap: Record<string, { bg: string; soft: string }> = {
-            purple: { bg: 'bg-purple', soft: 'bg-transparent-purple' },
-            pink: { bg: 'bg-pink', soft: 'bg-soft-pink' },
-            blue: { bg: 'bg-skyblue', soft: 'bg-soft-skyblue' },
-            yellow: { bg: 'bg-warning', soft: 'bg-soft-warning' },
-            green: { bg: 'bg-success', soft: 'bg-soft-success' },
-            orange: { bg: 'bg-orange', soft: 'bg-soft-orange' },
-            red: { bg: 'bg-danger', soft: 'bg-soft-danger' },
-        };
-        return colorMap[colorName?.toLowerCase() || 'purple'] || colorMap.purple;
-    }, []);
+  // Sort and filter tasks based on selected sort option and priority filter
+  const sortedTasks = useMemo(() => {
+    let tasksCopy = [...tasks];
 
-    const updateTaskStatus = useCallback((taskId: string, newStatus: string, progressOverride?: number) => {
-        if (!socket) return;
+    // Filter by priority
+    if (filterPriority !== 'All') {
+      tasksCopy = tasksCopy.filter((task) => task.priority === filterPriority);
+    }
 
-        // Map status to progress percentage
-        const progressByStatus: Record<string, number> = {
-            "To Do": 0,
-            "Pending": 20,
-            "Inprogress": 50,
-            "Completed": 100,
-        };
-        const progress =
-            typeof progressOverride === "number"
-                ? progressOverride
-                : (progressByStatus[newStatus] ?? 0);
+    // Filter by due date range
+    if (dueDateFilterFrom || dueDateFilterTo) {
+      tasksCopy = tasksCopy.filter((task) => {
+        if (!task.dueDate) return false;
+        const taskDueDate = dayjs(task.dueDate);
 
-        socket.emit("task:update", {
-            taskId,
-            update: {
-                status: newStatus,
-                progress,
-            }
-        });
-
-        socket.once("task:update-response", (response: any) => {
-            if (response.done) {
-                toast.success("Task status updated successfully");
-                // Reload tasks to reflect the change
-                if (selectedProject !== "Select") {
-                    loadprojecttasks(selectedProject);
-                }
-            } else {
-                toast.error(response.error || "Failed to update task status");
-            }
-        });
-    }, [socket, selectedProject, loadprojecttasks]);
-
-    const handleConfirmStatusChange = () => {
-        if (pendingStatusChange) {
-            updateTaskStatus(
-                pendingStatusChange.taskId,
-                pendingStatusChange.newStatus,
-                pendingStatusChange.progress
-            );
-        }
-        setShowStatusModal(false);
-        setPendingStatusChange(null);
-    };
-
-    const handleCancelStatusChange = () => {
-        // Reload tasks to reset the UI
-        if (selectedProject !== "Select") {
-            loadprojecttasks(selectedProject);
-        }
-        setShowStatusModal(false);
-        setPendingStatusChange(null);
-    };
-
-    const handleAddBoardSubmit = useCallback((e: React.FormEvent) => {
-        e.preventDefault();
-        if (!socket) return;
-        if (!newBoardName.trim()) {
-            toast.error("Board name is required");
-            return;
+        if (dueDateFilterFrom && taskDueDate.isBefore(dueDateFilterFrom, 'day')) {
+          return false;
         }
 
-        setSavingBoard(true);
-        socket.emit("task:addStatus", {
-            name: newBoardName.trim(),
-            colorName: newBoardColor,
-            colorHex: colorHexMap[newBoardColor] || "",
-        });
-    }, [socket, newBoardName, newBoardColor, colorHexMap]);
-
-    const handleEditBoardClick = useCallback((status: any) => {
-        setEditBoardData(status);
-        setEditBoardName(status.name || "");
-        setEditBoardColor(status.colorName || "purple");
-    }, []);
-
-    const handleEditBoardSubmit = useCallback((e: React.FormEvent) => {
-        e.preventDefault();
-        if (!socket) return;
-        if (!editBoardName.trim()) {
-            toast.error("Board name is required");
-            return;
-        }
-        if (!editBoardData?._id) {
-            toast.error("Invalid board data");
-            return;
-        }
-
-        setSavingBoard(true);
-        socket.emit("task:updateStatusBoard", {
-            statusId: editBoardData._id,
-            name: editBoardName.trim(),
-            colorName: editBoardColor,
-            colorHex: colorHexMap[editBoardColor] || "",
-        });
-    }, [socket, editBoardName, editBoardColor, editBoardData, colorHexMap]);
-
-    // Edit Task Functions
-    const closeModalById = useCallback((modalId: string) => {
-        const modalElement = document.getElementById(modalId);
-        if (modalElement) {
-            const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement);
-            if (modalInstance) {
-                modalInstance.hide();
-            }
-        }
-    }, []);
-
-    const clearEditTaskFieldError = (fieldName: string) => {
-        setEditTaskFieldErrors(prev => {
-            const newErrors = { ...prev };
-            delete newErrors[fieldName];
-            return newErrors;
-        });
-    };
-
-    const validateTaskField = (fieldName: string, value: any): string => {
-        switch (fieldName) {
-            case "taskTitle":
-                if (!value || !value.trim()) return "Task title is required";
-                if (value.trim().length < 3) return "Task title must be at least 3 characters";
-                break;
-            case "taskDescription":
-                if (!value || !value.trim()) return "Task description is required";
-                if (value.trim().length < 10) return "Task description must be at least 10 characters";
-                break;
-            case "taskPriority":
-                if (!value || value === "Select") return "Please select a priority level";
-                break;
-            case "taskStatus":
-                if (!value || value === "Select") return "Please select a status";
-                break;
-            case "taskAssignees":
-                if (!Array.isArray(value) || value.length === 0) return "Please select at least one assignee";
-                break;
-            case "taskDueDate":
-                if (!value) return "Due date is required";
-                // Get current project
-                const currentProject = projects.find(p => p._id === selectedProject || p.projectId === selectedProject);
-                if (currentProject?.endDate && dayjs(value).isAfter(dayjs(currentProject.endDate))) {
-                    return `Due date cannot exceed project end date (${dayjs(currentProject.endDate).format('DD-MM-YYYY')})`;
-                }
-                // Check if due date is in the past
-                if (dayjs(value).isBefore(dayjs(), 'day')) {
-                    return "Due date cannot be in the past";
-                }
-                break;
-        }
-        return "";
-    };
-
-    const validateEditTaskForm = useCallback((): boolean => {
-        const errors: Record<string, string> = {};
-
-        const titleError = validateTaskField("taskTitle", editTaskTitle.trim());
-        if (titleError) errors.taskTitle = titleError;
-
-        const descriptionError = validateTaskField("taskDescription", editTaskDescription.trim());
-        if (descriptionError) errors.taskDescription = descriptionError;
-
-        const priorityError = validateTaskField("taskPriority", editTaskPriority);
-        if (priorityError) errors.taskPriority = priorityError;
-
-        const statusError = validateTaskField("taskStatus", editTaskStatus);
-        if (statusError) errors.taskStatus = statusError;
-
-        const assigneeError = validateTaskField("taskAssignees", editTaskAssignees);
-        if (assigneeError) errors.taskAssignees = assigneeError;
-
-        const dueDateError = validateTaskField("taskDueDate", editTaskDueDate);
-        if (dueDateError) errors.taskDueDate = dueDateError;
-
-        setEditTaskFieldErrors(errors);
-
-        if (Object.keys(errors).length > 0) {
-            setTimeout(() => {
-                const firstErrorField = Object.keys(errors)[0];
-                const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
-                                    document.querySelector(`#${firstErrorField}`) ||
-                                    document.querySelector(`.field-${firstErrorField}`);
-                if (errorElement) {
-                    errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    (errorElement as HTMLElement).focus?.();
-                }
-            }, 100);
-            
-            return false;
+        if (dueDateFilterTo && taskDueDate.isAfter(dueDateFilterTo, 'day')) {
+          return false;
         }
 
         return true;
-    }, [editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskDueDate, editTaskAssignees, projects, selectedProject]);
+      });
+    }
 
-    const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
-        if (!taskStatus || !statuses || statuses.length === 0) {
-            return "";
-        }
+    if (sortBy === 'dueDate') {
+      // Sort by due date in ascending order (earliest first)
+      return tasksCopy.sort((a, b) => {
+        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        return dateA - dateB;
+      });
+    } else {
+      // Sort by created date in ascending order (earliest first)
+      return tasksCopy.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : Infinity;
+        return dateA - dateB;
+      });
+    }
+  }, [tasks, sortBy, filterPriority, dueDateFilterFrom, dueDateFilterTo]);
 
-        const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
-        
-        const exactMatch = statuses.find(s => s.key.toLowerCase() === normalizedTaskStatus);
-        if (exactMatch) return exactMatch.key;
-        
-        const nameMatch = statuses.find(s => 
-            s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
-        );
-        if (nameMatch) return nameMatch.key;
-        
-        const partialMatch = statuses.find(s => {
-            const key = s.key.toLowerCase();
-            const name = s.name.toLowerCase();
-            return key.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(key) ||
-                   name.includes(normalizedTaskStatus) || normalizedTaskStatus.includes(name);
-        });
-        if (partialMatch) return partialMatch.key;
-        
-        return "";
-    }, []);
+  // Dynamic status count helper
+  const getStatusCount = useCallback(
+    (statusKey: string) => {
+      const target = normalizeKey(statusKey);
+      return sortedTasks.filter((task) => {
+        const taskStatus = normalizeKey(task.status);
+        return taskStatus === target;
+      }).length;
+    },
+    [tasks, normalizeKey]
+  );
 
-    const handleOpenEditTask = useCallback((task: any) => {
-        setEditingTask(task);
-        setEditTaskTitle(task.title || "");
-        setEditTaskDescription(task.description || "");
-        setEditTaskPriority(task.priority || "Medium");
-        setEditTaskDueDate(task.dueDate ? dayjs(task.dueDate) : null);
-        const matchedStatus = findMatchingStatus(task.status, taskStatuses);
-        setEditTaskStatus(matchedStatus);
-        setEditTaskTags(Array.isArray(task.tags) ? task.tags : []);
-        setEditTaskAssignees(Array.isArray(task.assignee) ? task.assignee.map((a: any) => a.toString()) : []);
-        setEditTaskModalError(null);
-        setEditTaskFieldErrors({});
-    }, [findMatchingStatus, taskStatuses]);
-
-    const closeEditTaskModal = useCallback(() => {
-        setEditingTask(null);
-        setEditTaskTitle("");
-        setEditTaskDescription("");
-        setEditTaskPriority("Medium");
-        setEditTaskDueDate(null);
-        setEditTaskStatus("");
-        setEditTaskTags([]);
-        setEditTaskAssignees([]);
-        setEditTaskModalError(null);
-        setEditTaskFieldErrors({});
-        closeModalById("edit_task");
-    }, [closeModalById]);
-
-    const handleSaveEditTask = useCallback(() => {
-        if (!socket || !editingTask?._id) return;
-
-        if (!validateEditTaskForm()) {
-            return;
-        }
-
-        const validTags = editTaskTags.filter(tag => tag && tag.trim() !== '');
-
-        setIsSavingEditTask(true);
-        setEditTaskModalError(null);
-        setEditTaskFieldErrors({});
-
-        socket.emit("task:update", {
-            taskId: editingTask._id,
-            update: {
-                title: editTaskTitle,
-                description: editTaskDescription,
-                priority: editTaskPriority,
-                status: editTaskStatus,
-                tags: validTags,
-                assignee: editTaskAssignees,
-                dueDate: editTaskDueDate ? editTaskDueDate.toDate() : null,
-            }
-        });
-    }, [socket, editingTask, editTaskTitle, editTaskDescription, editTaskPriority, editTaskStatus, editTaskTags, editTaskAssignees, editTaskDueDate, validateEditTaskForm]);
-
-    // Dynamically create container refs based on taskStatuses count
-    const containerRefs = useMemo(
-        () => Array.from({ length: taskStatuses.length }, () => React.createRef<HTMLDivElement>()),
-        [taskStatuses.length]
-    );
-
-    useEffect(() => {
-        // Skip if no taskStatuses or containerRefs
-        if (taskStatuses.length === 0 || containerRefs.length === 0) return;
-
-        // Get all non-null container elements from dynamic refs
-        const containers = containerRefs
-            .map(ref => ref.current)
-            .filter((container): container is HTMLDivElement => container !== null);
-
-        // Skip if no containers are ready
-        if (containers.length === 0) return;
-
-        const drake: Drake = dragula(containers);
-        
-        drake.on('drop', (el, target, source) => {
-            if (target && source && target !== source) {
-                // Get the task ID from the element
-                const taskId = el.getAttribute('data-task-id');
-                const taskTitle = el.getAttribute('data-task-title');
-                
-                if (taskId && target) {
-                    // Determine new status based on target container - dynamically from taskStatuses
-                    let newStatus = "";
-                    let sourceStatus = "";
-                    
-                    // Find target container index
-                    const targetIndex = containerRefs.findIndex(ref => ref.current === target);
-                    if (targetIndex !== -1 && taskStatuses[targetIndex]) {
-                        newStatus = taskStatuses[targetIndex].name;
-                    }
-
-                    // Find source container index
-                    const sourceIndex = containerRefs.findIndex(ref => ref.current === source);
-                    if (sourceIndex !== -1 && taskStatuses[sourceIndex]) {
-                        sourceStatus = taskStatuses[sourceIndex].name;
-                    }
-                    
-                    if (newStatus) {
-                        // Cancel the drop temporarily
-                        drake.cancel(true);
-                        
-                        // Compute progress: use fixed mapping when available; otherwise preserve from source status
-                        const progressByStatus: Record<string, number> = {
-                            "To Do": 0,
-                            "Pending": 20,
-                            "Inprogress": 50,
-                            "Completed": 100,
-                        };
-                        let proposedProgress: number | undefined = progressByStatus[newStatus];
-                        if (typeof proposedProgress === "undefined") {
-                            proposedProgress = progressByStatus[sourceStatus] ?? 0;
-                        }
-
-                        // Show confirmation modal
-                        setPendingStatusChange({
-                            taskId,
-                            newStatus,
-                            taskTitle: taskTitle || 'this task',
-                            progress: proposedProgress,
-                        });
-                        setShowStatusModal(true);
-                    }
-                }
-            }
-        });
-        
-        return () => {
-            drake.destroy();
-        };
-    }, [taskStatuses]);
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleProjectsResponse = (response: any) => {
-            setLoading(false);
-            if (response.done) {
-                setProjects(response.data.projects || []);
-            } else {
-                toast.error(response.error || "Failed to load projects");
-            }
-        };
-
-        socket.on("project:getAllData-response", handleProjectsResponse);
-        loadProjects();
-
-        return () => {
-            socket.off("project:getAllData-response", handleProjectsResponse);
-        };
-    }, [socket, loadProjects]);
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleTasksResponse = (response: any) => {
-            setTasksLoading(false);
-            if (response?.done) {
-                setTasks(response.data?.tasks || []);
-            } else {
-                toast.error(response?.error || "Failed to load tasks");
-            }
-        };
-
-        socket.on("task:getByProject-response", handleTasksResponse);
-
-        return () => {
-            socket.off("task:getByProject-response", handleTasksResponse);
-        };
-    }, [socket]);
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleTaskStatusesResponse = (response: any) => {
-            console.log("Task statuses response:", response);
-            if (response.done) {
-                const incoming = Array.isArray(response.data) ? response.data : [];
-                const ordered = incoming.sort((a, b) => (a.order || 0) - (b.order || 0));
-                const toSet = ordered.length ? ordered : defaultTaskStatuses;
-                console.log("Setting task statuses:", toSet);
-                setTaskStatuses(toSet);
-            } else {
-                console.error("Failed to load task statuses:", response.error);
-                setTaskStatuses(defaultTaskStatuses);
-                toast.error(response.error || "Failed to load task statuses. Using defaults.");
-            }
-        };
-
-        socket.on("task:getStatuses-response", handleTaskStatusesResponse);
-        loadTaskStatuses();
-
-        return () => {
-            socket.off("task:getStatuses-response", handleTaskStatusesResponse);
-        };
-    }, [socket, loadTaskStatuses]);
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleAddStatusResponse = (response: any) => {
-            setSavingBoard(false);
-            if (response?.done) {
-                toast.success("Board added successfully");
-                setNewBoardName("");
-                setNewBoardColor("purple");
-                loadTaskStatuses();
-                
-                // Close modal by clicking the close button
-                if (addBoardCloseButtonRef.current) {
-                    addBoardCloseButtonRef.current.click();
-                }
-            } else {
-                toast.error(response?.error || "Failed to add board");
-            }
-        };
-
-        const handleUpdateStatusResponse = (response: any) => {
-            setSavingBoard(false);
-            if (response?.done) {
-                toast.success("Board updated successfully");
-                setEditBoardData(null);
-                setEditBoardName("");
-                setEditBoardColor("purple");
-                loadTaskStatuses();
-                
-                // Close modal by clicking the close button
-                if (editBoardCloseButtonRef.current) {
-                    editBoardCloseButtonRef.current.click();
-                }
-            } else {
-                toast.error(response?.error || "Failed to update board");
-            }
-        };
-
-        const handleTaskUpdateResponse = (response: any) => {
-            setIsSavingEditTask(false);
-            if (response?.done) {
-                toast.success("Task updated successfully");
-                closeEditTaskModal();
-                if (selectedProject !== "Select") {
-                    loadprojecttasks(selectedProject);
-                }
-            } else {
-                setEditTaskModalError(response?.error || "Failed to update task");
-                toast.error(response?.error || "Failed to update task");
-            }
-        };
-
-        socket.on("task:addStatus-response", handleAddStatusResponse);
-        socket.on("task:updateStatusBoard-response", handleUpdateStatusResponse);
-        socket.on("task:update-response", handleTaskUpdateResponse);
-
-        return () => {
-            socket.off("task:addStatus-response", handleAddStatusResponse);
-            socket.off("task:updateStatusBoard-response", handleUpdateStatusResponse);
-            socket.off("task:update-response", handleTaskUpdateResponse);
-        };
-    }, [socket, loadTaskStatuses, closeEditTaskModal, selectedProject, loadprojecttasks]);
-
+  const totalTasks = tasks.length;
+  const totalpendingCount = tasks.filter((task) => {
+    const s = normalizeStatus(task.status);
     return (
-        <>
-            {/* Page Wrapper */}
-            <div className="page-wrapper">
-                <div className="content">
-                    {/* Breadcrumb */}
-                    <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
-                        <div className="my-auto mb-2">
-                            <h2 className="mb-1">Task Board</h2>
-                            <nav>
-                                <ol className="breadcrumb mb-0">
-                                    <li className="breadcrumb-item">
-                                        <Link to="index.html">
-                                            <i className="ti ti-smart-home" />
-                                        </Link>
-                                    </li>
-                                    <li className="breadcrumb-item">Projects</li>
-                                    <li className="breadcrumb-item active" aria-current="page">
-                                        Task Board
-                                    </li>
-                                </ol>
-                            </nav>
-                        </div>
-                        <div className="d-flex my-xl-auto right-content align-items-center flex-wrap ">
-                            <div className="dropdown me-2">
-                                <button
-                                    className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
-                                    type="button"
-                                    data-bs-toggle="dropdown"
-                                    aria-expanded="false"
-                                    onClick={() => console.log("Export clicked")}
-                                >
-                                    <i className="ti ti-file-export me-2" /> Export
-                                </button>
-                                <ul className="dropdown-menu dropdown-menu-end p-3">
-                                    <li>
-                                        <a
-                                            href="#"
-                                            className="dropdown-item rounded-1"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                console.log("Export as PDF clicked");
-                                            }}
-                                        >
-                                            <i className="ti ti-file-type-pdf me-1" />
-                                            Export as PDF
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a
-                                            href="#"
-                                            className="dropdown-item rounded-1"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                console.log("Export as Excel clicked");
-                                            }}
-                                        >
-                                            <i className="ti ti-file-type-xls me-1" />
-                                            Export as Excel{" "}
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                            <Link
-                                to="#"
-                                className="btn btn-primary d-inline-flex align-items-center"
-                                data-bs-toggle="modal" 
-                                data-inert={true}
-                                data-bs-target="#add_board"
-                            >
-                                <i className="ti ti-circle-plus me-1" />
-                                Add Board
-                            </Link>
-                            <div className="head-icons ms-2 mb-0">
-                                <CollapseHeader />
-                            </div>
-                        </div>
+      s === 'pending' || s === 'to do' || s === 'todo' || s === 'inprogress' || s === 'in progress'
+    );
+  }).length;
+  const totalcompletedCount = tasks.filter((task) => {
+    const s = normalizeStatus(task.status);
+    return s === 'completed' || s === 'review';
+  }).length;
+
+  // Dynamic counts per status from taskStatuses collection
+  const todoingCount = getStatusCount('todo');
+  const canceledCount = getStatusCount('cancelled');
+  const reviewCount = getStatusCount('review');
+  const onholdCount = getStatusCount('onhold');
+  const pendingCount = getStatusCount('pending');
+  const inprogressCount = getStatusCount('inprogress');
+  const completedCount = getStatusCount('completed');
+
+  // Helper to get color classes for status badges
+  const getColorClass = useCallback((colorName?: string) => {
+    const colorMap: Record<string, { bg: string; soft: string }> = {
+      purple: { bg: 'bg-purple', soft: 'bg-transparent-purple' },
+      pink: { bg: 'bg-pink', soft: 'bg-soft-pink' },
+      blue: { bg: 'bg-skyblue', soft: 'bg-soft-skyblue' },
+      yellow: { bg: 'bg-warning', soft: 'bg-soft-warning' },
+      green: { bg: 'bg-success', soft: 'bg-soft-success' },
+      orange: { bg: 'bg-orange', soft: 'bg-soft-orange' },
+      red: { bg: 'bg-danger', soft: 'bg-soft-danger' },
+    };
+    return colorMap[colorName?.toLowerCase() || 'purple'] || colorMap.purple;
+  }, []);
+
+  const updateTaskStatus = useCallback(
+    async (taskId: string, newStatus: string, progressOverride?: number) => {
+      try {
+        // Map status to progress percentage
+        const progressByStatus: Record<string, number> = {
+          'To Do': 0,
+          Pending: 20,
+          Inprogress: 50,
+          Completed: 100,
+        };
+        const progress =
+          typeof progressOverride === 'number'
+            ? progressOverride
+            : (progressByStatus[newStatus] ?? 0);
+
+        const success = await updateTaskStatusAPI(taskId, newStatus);
+
+        if (success) {
+          toast.success('Task status updated successfully');
+          // Reload tasks to reflect the change
+          if (selectedProject !== 'Select') {
+            loadprojecttasks(selectedProject);
+          }
+        } else {
+          toast.error('Failed to update task status');
+        }
+      } catch (error) {
+        console.error('[TaskBoard] Error updating task status:', error);
+        toast.error('Failed to update task status');
+      }
+    },
+    [updateTaskStatusAPI, selectedProject, loadprojecttasks]
+  );
+
+  const handleConfirmStatusChange = () => {
+    if (pendingStatusChange) {
+      updateTaskStatus(
+        pendingStatusChange.taskId,
+        pendingStatusChange.newStatus,
+        pendingStatusChange.progress
+      );
+    }
+    setShowStatusModal(false);
+    setPendingStatusChange(null);
+  };
+
+  const handleCancelStatusChange = () => {
+    // Reload tasks to reset the UI
+    if (selectedProject !== 'Select') {
+      loadprojecttasks(selectedProject);
+    }
+    setShowStatusModal(false);
+    setPendingStatusChange(null);
+  };
+
+  const handleAddBoardSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newBoardName.trim()) {
+        toast.error('Board name is required');
+        return;
+      }
+
+      setSavingBoard(true);
+      try {
+        const success = await createTaskStatusAPI({
+          name: newBoardName.trim(),
+          colorName: newBoardColor,
+          colorHex: colorHexMap[newBoardColor] || '',
+        });
+
+        if (success) {
+          setNewBoardName('');
+          setNewBoardColor('purple');
+          await loadTaskStatuses();
+          if (addBoardCloseButtonRef.current) {
+            addBoardCloseButtonRef.current.click();
+          }
+        }
+      } catch (error) {
+        console.error('[TaskBoard] Error adding board:', error);
+      } finally {
+        setSavingBoard(false);
+      }
+    },
+    [newBoardName, newBoardColor, colorHexMap, createTaskStatusAPI, loadTaskStatuses]
+  );
+
+  const handleEditBoardClick = useCallback((status: any) => {
+    setEditBoardData(status);
+    setEditBoardName(status.name || '');
+    setEditBoardColor(status.colorName || 'purple');
+  }, []);
+
+  const handleEditBoardSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editBoardName.trim()) {
+        toast.error('Board name is required');
+        return;
+      }
+      if (!editBoardData?._id) {
+        toast.error('Invalid board data');
+        return;
+      }
+
+      setSavingBoard(true);
+      try {
+        const success = await updateTaskStatusBoardAPI(editBoardData._id, {
+          name: editBoardName.trim(),
+          colorName: editBoardColor,
+          colorHex: colorHexMap[editBoardColor] || '',
+        });
+
+        if (success) {
+          setEditBoardData(null);
+          setEditBoardName('');
+          setEditBoardColor('purple');
+          await loadTaskStatuses();
+          if (editBoardCloseButtonRef.current) {
+            editBoardCloseButtonRef.current.click();
+          }
+        }
+      } catch (error) {
+        console.error('[TaskBoard] Error updating board:', error);
+      } finally {
+        setSavingBoard(false);
+      }
+    },
+    [
+      editBoardName,
+      editBoardColor,
+      editBoardData,
+      colorHexMap,
+      updateTaskStatusBoardAPI,
+      loadTaskStatuses,
+    ]
+  );
+
+  // Edit Task Functions
+  const closeModalById = useCallback((modalId: string) => {
+    const modalElement = document.getElementById(modalId);
+    if (modalElement) {
+      const modalInstance = (window as any)?.bootstrap?.Modal?.getInstance?.(modalElement);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+    }
+  }, []);
+
+  const clearEditTaskFieldError = (fieldName: string) => {
+    setEditTaskFieldErrors((prev) => {
+      const newErrors = { ...prev };
+      delete newErrors[fieldName];
+      return newErrors;
+    });
+  };
+
+  const validateTaskField = (fieldName: string, value: any): string => {
+    switch (fieldName) {
+      case 'taskTitle':
+        if (!value || !value.trim()) return 'Task title is required';
+        if (value.trim().length < 3) return 'Task title must be at least 3 characters';
+        break;
+      case 'taskDescription':
+        if (!value || !value.trim()) return 'Task description is required';
+        if (value.trim().length < 10) return 'Task description must be at least 10 characters';
+        break;
+      case 'taskPriority':
+        if (!value || value === 'Select') return 'Please select a priority level';
+        break;
+      case 'taskStatus':
+        if (!value || value === 'Select') return 'Please select a status';
+        break;
+      case 'taskAssignees':
+        if (!Array.isArray(value) || value.length === 0)
+          return 'Please select at least one assignee';
+        break;
+      case 'taskDueDate':
+        if (!value) return 'Due date is required';
+        // Get current project
+        const currentProject = projects.find(
+          (p) => p._id === selectedProject || p.projectId === selectedProject
+        );
+        if (currentProject?.endDate && dayjs(value).isAfter(dayjs(currentProject.endDate))) {
+          return `Due date cannot exceed project end date (${dayjs(currentProject.endDate).format('DD-MM-YYYY')})`;
+        }
+        // Check if due date is in the past
+        if (dayjs(value).isBefore(dayjs(), 'day')) {
+          return 'Due date cannot be in the past';
+        }
+        break;
+    }
+    return '';
+  };
+
+  const validateEditTaskForm = useCallback((): boolean => {
+    const errors: Record<string, string> = {};
+
+    const titleError = validateTaskField('taskTitle', editTaskTitle.trim());
+    if (titleError) errors.taskTitle = titleError;
+
+    const descriptionError = validateTaskField('taskDescription', editTaskDescription.trim());
+    if (descriptionError) errors.taskDescription = descriptionError;
+
+    const priorityError = validateTaskField('taskPriority', editTaskPriority);
+    if (priorityError) errors.taskPriority = priorityError;
+
+    const statusError = validateTaskField('taskStatus', editTaskStatus);
+    if (statusError) errors.taskStatus = statusError;
+
+    const assigneeError = validateTaskField('taskAssignees', editTaskAssignees);
+    if (assigneeError) errors.taskAssignees = assigneeError;
+
+    const dueDateError = validateTaskField('taskDueDate', editTaskDueDate);
+    if (dueDateError) errors.taskDueDate = dueDateError;
+
+    setEditTaskFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setTimeout(() => {
+        const firstErrorField = Object.keys(errors)[0];
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector(`#${firstErrorField}`) ||
+          document.querySelector(`.field-${firstErrorField}`);
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (errorElement as HTMLElement).focus?.();
+        }
+      }, 100);
+
+      return false;
+    }
+
+    return true;
+  }, [
+    editTaskTitle,
+    editTaskDescription,
+    editTaskPriority,
+    editTaskStatus,
+    editTaskDueDate,
+    editTaskAssignees,
+    projects,
+    selectedProject,
+  ]);
+
+  const findMatchingStatus = useCallback((taskStatus: string, statuses: any[]) => {
+    if (!taskStatus || !statuses || statuses.length === 0) {
+      return '';
+    }
+
+    const normalizedTaskStatus = taskStatus.toLowerCase().replace(/\s+/g, '');
+
+    const exactMatch = statuses.find((s) => s.key.toLowerCase() === normalizedTaskStatus);
+    if (exactMatch) return exactMatch.key;
+
+    const nameMatch = statuses.find(
+      (s) => s.name.toLowerCase().replace(/\s+/g, '') === normalizedTaskStatus
+    );
+    if (nameMatch) return nameMatch.key;
+
+    const partialMatch = statuses.find((s) => {
+      const key = s.key.toLowerCase();
+      const name = s.name.toLowerCase();
+      return (
+        key.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(key) ||
+        name.includes(normalizedTaskStatus) ||
+        normalizedTaskStatus.includes(name)
+      );
+    });
+    if (partialMatch) return partialMatch.key;
+
+    return '';
+  }, []);
+
+  const handleOpenEditTask = useCallback(
+    (task: any) => {
+      setEditingTask(task);
+      setEditTaskTitle(task.title || '');
+      setEditTaskDescription(task.description || '');
+      setEditTaskPriority(task.priority || 'Medium');
+      setEditTaskDueDate(task.dueDate ? dayjs(task.dueDate) : null);
+      const matchedStatus = findMatchingStatus(task.status, taskStatuses);
+      setEditTaskStatus(matchedStatus);
+      setEditTaskTags(Array.isArray(task.tags) ? task.tags : []);
+      setEditTaskAssignees(
+        Array.isArray(task.assignee) ? task.assignee.map((a: any) => a.toString()) : []
+      );
+      setEditTaskModalError(null);
+      setEditTaskFieldErrors({});
+    },
+    [findMatchingStatus, taskStatuses]
+  );
+
+  const closeEditTaskModal = useCallback(() => {
+    setEditingTask(null);
+    setEditTaskTitle('');
+    setEditTaskDescription('');
+    setEditTaskPriority('Medium');
+    setEditTaskDueDate(null);
+    setEditTaskStatus('');
+    setEditTaskTags([]);
+    setEditTaskAssignees([]);
+    setEditTaskModalError(null);
+    setEditTaskFieldErrors({});
+    closeModalById('edit_task');
+  }, [closeModalById]);
+
+  const handleSaveEditTask = useCallback(async () => {
+    if (!editingTask?._id) return;
+
+    if (!validateEditTaskForm()) {
+      return;
+    }
+
+    const validTags = editTaskTags.filter((tag) => tag && tag.trim() !== '');
+
+    setIsSavingEditTask(true);
+    setEditTaskModalError(null);
+    setEditTaskFieldErrors({});
+
+    try {
+      const updateData: Partial<Task> = {
+        title: editTaskTitle,
+        description: editTaskDescription,
+        priority: editTaskPriority as 'Low' | 'Medium' | 'High' | 'Urgent',
+        status: editTaskStatus as 'Pending' | 'In Progress' | 'Completed' | 'Cancelled',
+        tags: validTags,
+        assignee: editTaskAssignees.join(','),
+        dueDate: editTaskDueDate ? editTaskDueDate.format('YYYY-MM-DD') : undefined,
+      };
+
+      const success = await updateTaskAPI(editingTask._id, updateData);
+
+      if (success) {
+        toast.success('Task updated successfully');
+        closeEditTaskModal();
+        // Reload tasks to reflect the change
+        if (selectedProject !== 'Select') {
+          loadprojecttasks(selectedProject);
+        }
+      } else {
+        setEditTaskModalError('Failed to update task');
+      }
+    } catch (error) {
+      console.error('[TaskBoard] Error updating task:', error);
+      setEditTaskModalError('An error occurred while updating the task');
+    } finally {
+      setIsSavingEditTask(false);
+    }
+  }, [
+    editingTask,
+    editTaskTitle,
+    editTaskDescription,
+    editTaskPriority,
+    editTaskStatus,
+    editTaskTags,
+    editTaskAssignees,
+    editTaskDueDate,
+    updateTaskAPI,
+    validateEditTaskForm,
+    closeEditTaskModal,
+    selectedProject,
+    loadprojecttasks,
+  ]);
+
+  // Dynamically create container refs based on taskStatuses count
+  const containerRefs = useMemo(
+    () => Array.from({ length: taskStatuses.length }, () => React.createRef<HTMLDivElement>()),
+    [taskStatuses.length]
+  );
+
+  useEffect(() => {
+    // Skip if no taskStatuses or containerRefs
+    if (taskStatuses.length === 0 || containerRefs.length === 0) return;
+
+    // Get all non-null container elements from dynamic refs
+    const containers = containerRefs
+      .map((ref) => ref.current)
+      .filter((container): container is HTMLDivElement => container !== null);
+
+    // Skip if no containers are ready
+    if (containers.length === 0) return;
+
+    const drake: Drake = dragula(containers);
+
+    drake.on('drop', (el, target, source) => {
+      if (target && source && target !== source) {
+        // Get the task ID from the element
+        const taskId = el.getAttribute('data-task-id');
+        const taskTitle = el.getAttribute('data-task-title');
+
+        if (taskId && target) {
+          // Determine new status based on target container - dynamically from taskStatuses
+          let newStatus = '';
+          let sourceStatus = '';
+
+          // Find target container index
+          const targetIndex = containerRefs.findIndex((ref) => ref.current === target);
+          if (targetIndex !== -1 && taskStatuses[targetIndex]) {
+            newStatus = taskStatuses[targetIndex].name;
+          }
+
+          // Find source container index
+          const sourceIndex = containerRefs.findIndex((ref) => ref.current === source);
+          if (sourceIndex !== -1 && taskStatuses[sourceIndex]) {
+            sourceStatus = taskStatuses[sourceIndex].name;
+          }
+
+          if (newStatus) {
+            // Cancel the drop temporarily
+            drake.cancel(true);
+
+            // Compute progress: use fixed mapping when available; otherwise preserve from source status
+            const progressByStatus: Record<string, number> = {
+              'To Do': 0,
+              Pending: 20,
+              Inprogress: 50,
+              Completed: 100,
+            };
+            let proposedProgress: number | undefined = progressByStatus[newStatus];
+            if (typeof proposedProgress === 'undefined') {
+              proposedProgress = progressByStatus[sourceStatus] ?? 0;
+            }
+
+            // Show confirmation modal
+            setPendingStatusChange({
+              taskId,
+              newStatus,
+              taskTitle: taskTitle || 'this task',
+              progress: proposedProgress,
+            });
+            setShowStatusModal(true);
+          }
+        }
+      }
+    });
+
+    return () => {
+      drake.destroy();
+    };
+  }, [taskStatuses]);
+
+  // Load projects on mount
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  // Sync statuses from REST API hook
+  useEffect(() => {
+    if (statusesFromHook && statusesFromHook.length > 0) {
+      setTaskStatuses(statusesFromHook);
+    } else if (statusesFromHook && statusesFromHook.length === 0) {
+      // Use defaults if no statuses from API
+      setTaskStatuses(defaultTaskStatuses);
+    }
+  }, [statusesFromHook, defaultTaskStatuses]);
+
+  // Load task statuses on mount
+  useEffect(() => {
+    loadTaskStatuses();
+  }, [loadTaskStatuses]);
+
+  return (
+    <>
+      {/* Page Wrapper */}
+      <div className="page-wrapper">
+        <div className="content">
+          {/* Breadcrumb */}
+          <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
+            <div className="my-auto mb-2">
+              <h2 className="mb-1">Task Board</h2>
+              <nav>
+                <ol className="breadcrumb mb-0">
+                  <li className="breadcrumb-item">
+                    <Link to="index.html">
+                      <i className="ti ti-smart-home" />
+                    </Link>
+                  </li>
+                  <li className="breadcrumb-item">Projects</li>
+                  <li className="breadcrumb-item active" aria-current="page">
+                    Task Board
+                  </li>
+                </ol>
+              </nav>
+            </div>
+            <div className="d-flex my-xl-auto right-content align-items-center flex-wrap ">
+              <div className="dropdown me-2">
+                <button
+                  className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                  onClick={() => console.log('Export clicked')}
+                >
+                  <i className="ti ti-file-export me-2" /> Export
+                </button>
+                <ul className="dropdown-menu dropdown-menu-end p-3">
+                  <li>
+                    <a
+                      href="#"
+                      className="dropdown-item rounded-1"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        console.log('Export as PDF clicked');
+                      }}
+                    >
+                      <i className="ti ti-file-type-pdf me-1" />
+                      Export as PDF
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="#"
+                      className="dropdown-item rounded-1"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        console.log('Export as Excel clicked');
+                      }}
+                    >
+                      <i className="ti ti-file-type-xls me-1" />
+                      Export as Excel{' '}
+                    </a>
+                  </li>
+                </ul>
+              </div>
+              <Link
+                to="#"
+                className="btn btn-primary d-inline-flex align-items-center"
+                data-bs-toggle="modal"
+                data-inert={true}
+                data-bs-target="#add_board"
+              >
+                <i className="ti ti-circle-plus me-1" />
+                Add Board
+              </Link>
+              <div className="head-icons ms-2 mb-0">
+                <CollapseHeader />
+              </div>
+            </div>
+          </div>
+          {/* Project Selection */}
+          <div className="card mb-3">
+            <div className="card-body">
+              <div className="row align-items-end">
+                <div className="col-md-6">
+                  <label className="form-label d-block mb-2">Select Project</label>
+                  {loading ? (
+                    <div className="text-center py-2">
+                      <div className="spinner-border spinner-border-sm text-primary" role="status">
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <span className="ms-2">Loading projects...</span>
                     </div>
-                    {/* Project Selection */}
-                    <div className="card mb-3">
-                        <div className="card-body">
-                            <div className="row align-items-end">
-                                <div className="col-md-6">
-                                    <label className="form-label d-block mb-2">Select Project</label>
-                                    {loading ? (
-                                        <div className="text-center py-2">
-                                            <div className="spinner-border spinner-border-sm text-primary" role="status">
-                                                <span className="visually-hidden">Loading...</span>
-                                            </div>
-                                            <span className="ms-2">Loading projects...</span>
-                                        </div>
-                                    ) : (
-                                        <CommonSelect
-                                            className="select"
-                                            options={projectChoose}
-                                            defaultValue={projectChoose[0]}
-                                            onChange={(selected: any) => {
-                                                const value = selected?.value || "Select";
-                                                setSelectedProject(value);
-                                                console.log("Selected project:", value);
-                                                if (value !== "Select") {
-                                                    loadprojecttasks(value);
-                                                } else {
-                                                    setTasks([]);
-                                                    setTasksLoading(false);
-                                                }
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                                <div className="col-md-6">
-                                    <div className="alert alert-info mb-0">
-                                        <strong>Selected Project:</strong> {
-                                            selectedProject !== "Select"
-                                                ? (() => {
-                                                    const proj = projects.find(p => p.projectId === selectedProject || p._id === selectedProject);
-                                                    if (!proj) return selectedProject;
-                                                    const id = proj.projectId || proj._id;
-                                                    return `${proj.name} (${id})`;
-                                                })()
-                                                : "No project selected"
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="card">
-                        <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
-                            <h4>{
-                                selectedProject !== "Select"
-                                    ? (() => {
-                                        const proj = projects.find(p => p.projectId === selectedProject || p._id === selectedProject);
-                                        if (!proj) return "Select a Project to View Tasks";
-                                        const id = proj.projectId || proj._id;
-                                        return `${proj.name} (${id})`;
-                                    })()
-                                    : "Select a Project to View Tasks"
-                            }</h4>
-                            <div className="d-flex align-items-center flex-wrap row-gap-3">
-                                {/* <div className="avatar-list-stacked avatar-group-sm me-3">
+                  ) : (
+                    <CommonSelect
+                      className="select"
+                      options={projectChoose}
+                      defaultValue={projectChoose[0]}
+                      onChange={(selected: any) => {
+                        const value = selected?.value || 'Select';
+                        setSelectedProject(value);
+                        console.log('Selected project:', value);
+                        if (value !== 'Select') {
+                          loadprojecttasks(value);
+                        } else {
+                          setTasks([]);
+                          setLoading(false);
+                        }
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="col-md-6">
+                  <div className="alert alert-info mb-0">
+                    <strong>Selected Project:</strong>{' '}
+                    {selectedProject !== 'Select'
+                      ? (() => {
+                          const proj = projects.find(
+                            (p) => p.projectId === selectedProject || p._id === selectedProject
+                          );
+                          if (!proj) return selectedProject;
+                          const id = proj.projectId || proj._id;
+                          return `${proj.name} (${id})`;
+                        })()
+                      : 'No project selected'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
+              <h4>
+                {selectedProject !== 'Select'
+                  ? (() => {
+                      const proj = projects.find(
+                        (p) => p.projectId === selectedProject || p._id === selectedProject
+                      );
+                      if (!proj) return 'Select a Project to View Tasks';
+                      const id = proj.projectId || proj._id;
+                      return `${proj.name} (${id})`;
+                    })()
+                  : 'Select a Project to View Tasks'}
+              </h4>
+              <div className="d-flex align-items-center flex-wrap row-gap-3">
+                {/* <div className="avatar-list-stacked avatar-group-sm me-3">
                                     <span className="avatar avatar-rounded">
                                         <ImageWithBasePath
                                             className="border border-white"
@@ -895,18 +934,18 @@ const TaskBoard = () => {
                                     </span>
                                     <span className="avatar avatar-rounded bg-primary fs-12">1+</span>
                                 </div> */}
-                                <div className="d-flex align-items-center me-3">
-                                    <p className="mb-0 me-3 pe-3 border-end fs-14">
-                                        Total Task : <span className="text-dark"> {totalTasks} </span>
-                                    </p>
-                                    <p className="mb-0 me-3 pe-3 border-end fs-14">
-                                        Pending : <span className="text-dark"> {totalpendingCount} </span>
-                                    </p>
-                                    <p className="mb-0 fs-14">
-                                        Completed : <span className="text-dark"> {totalcompletedCount} </span>
-                                    </p>
-                                </div>
-                                {/* <div className="input-icon-start position-relative">
+                <div className="d-flex align-items-center me-3">
+                  <p className="mb-0 me-3 pe-3 border-end fs-14">
+                    Total Task : <span className="text-dark"> {totalTasks} </span>
+                  </p>
+                  <p className="mb-0 me-3 pe-3 border-end fs-14">
+                    Pending : <span className="text-dark"> {totalpendingCount} </span>
+                  </p>
+                  <p className="mb-0 fs-14">
+                    Completed : <span className="text-dark"> {totalcompletedCount} </span>
+                  </p>
+                </div>
+                {/* <div className="input-icon-start position-relative">
                                     <span className="input-icon-addon">
                                         <i className="ti ti-search" />
                                     </span>
@@ -916,1088 +955,1143 @@ const TaskBoard = () => {
                                         placeholder="Search Project"
                                     />
                                 </div> */}
-                            </div>
-                        </div>
-                        <div className="card-body">
-                            <div className="row">
-                                <div className="col-lg-4">
-                                    <div className="d-flex align-items-center flex-wrap row-gap-3 mb-3">
-                                        <h6 className="me-2">Priority</h6>
-                                        <ul
-                                            className="nav nav-pills border d-inline-flex p-1 rounded bg-light todo-tabs"
-                                            id="pills-tab"
-                                            role="tablist"
-                                        >
-                                            <li className="nav-item" role="presentation">
-                                                <button
-                                                    className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto active"
-                                                    data-bs-toggle="pill"
-                                                    data-bs-target="#pills-home"
-                                                    type="button"
-                                                    role="tab"
-                                                    aria-selected="true"
-                                                >
-                                                    All
-                                                </button>
-                                            </li>
-                                            <li className="nav-item" role="presentation">
-                                                <button
-                                                    className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
-                                                    data-bs-toggle="pill"
-                                                    data-bs-target="#pills-contact"
-                                                    type="button"
-                                                    role="tab"
-                                                    aria-selected="false"
-                                                >
-                                                    High
-                                                </button>
-                                            </li>
-                                            <li className="nav-item" role="presentation">
-                                                <button
-                                                    className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
-                                                    data-bs-toggle="pill"
-                                                    data-bs-target="#pills-medium"
-                                                    type="button"
-                                                    role="tab"
-                                                    aria-selected="false"
-                                                >
-                                                    Medium
-                                                </button>
-                                            </li>
-                                            <li className="nav-item" role="presentation">
-                                                <button
-                                                    className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
-                                                    data-bs-toggle="pill"
-                                                    data-bs-target="#pills-low"
-                                                    type="button"
-                                                    role="tab"
-                                                    aria-selected="false"
-                                                >
-                                                    Low
-                                                </button>
-                                            </li>
-                                        </ul>
-                                    </div>
+              </div>
+            </div>
+            <div className="card-body">
+              <div className="row">
+                <div className="col-lg-4">
+                  <div className="d-flex align-items-center flex-wrap row-gap-3 mb-3">
+                    <h6 className="me-2">Priority</h6>
+                    <ul
+                      className="nav nav-pills border d-inline-flex p-1 rounded bg-light todo-tabs"
+                      id="pills-tab"
+                      role="tablist"
+                    >
+                      <li className="nav-item" role="presentation">
+                        <button
+                          className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto active"
+                          data-bs-toggle="pill"
+                          data-bs-target="#pills-home"
+                          type="button"
+                          role="tab"
+                          aria-selected="true"
+                        >
+                          All
+                        </button>
+                      </li>
+                      <li className="nav-item" role="presentation">
+                        <button
+                          className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
+                          data-bs-toggle="pill"
+                          data-bs-target="#pills-contact"
+                          type="button"
+                          role="tab"
+                          aria-selected="false"
+                        >
+                          High
+                        </button>
+                      </li>
+                      <li className="nav-item" role="presentation">
+                        <button
+                          className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
+                          data-bs-toggle="pill"
+                          data-bs-target="#pills-medium"
+                          type="button"
+                          role="tab"
+                          aria-selected="false"
+                        >
+                          Medium
+                        </button>
+                      </li>
+                      <li className="nav-item" role="presentation">
+                        <button
+                          className="nav-link btn btn-sm btn-icon py-3 d-flex align-items-center justify-content-center w-auto"
+                          data-bs-toggle="pill"
+                          data-bs-target="#pills-low"
+                          type="button"
+                          role="tab"
+                          aria-selected="false"
+                        >
+                          Low
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="col-lg-8">
+                  <div className="d-flex align-items-center justify-content-lg-end flex-wrap row-gap-3 mb-3">
+                    <div className="input-icon w-120 position-relative me-2">
+                      <span className="input-icon-addon">
+                        <i className="ti ti-calendar" />
+                      </span>
+                      <DatePicker
+                        className="form-control datetimepicker"
+                        format={{
+                          format: 'DD-MM-YYYY',
+                          type: 'mask',
+                        }}
+                        getPopupContainer={getModalContainer}
+                        placeholder="From Date"
+                        value={dueDateFilterFrom}
+                        onChange={(date) => setDueDateFilterFrom(date)}
+                      />
+                    </div>
+                    <div className="input-icon w-120 position-relative me-2">
+                      <span className="input-icon-addon">
+                        <i className="ti ti-calendar" />
+                      </span>
+                      <DatePicker
+                        className="form-control datetimepicker"
+                        format={{
+                          format: 'DD-MM-YYYY',
+                          type: 'mask',
+                        }}
+                        getPopupContainer={getModalContainer}
+                        placeholder="To Date"
+                        value={dueDateFilterTo}
+                        onChange={(date) => setDueDateFilterTo(date)}
+                      />
+                    </div>
+                    <div className="dropdown me-2">
+                      <Link
+                        to="#"
+                        className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
+                        data-bs-toggle="dropdown"
+                      >
+                        Priority: {filterPriority}
+                      </Link>
+                      <ul className="dropdown-menu dropdown-menu-end p-3">
+                        <li>
+                          <Link
+                            to="#"
+                            className="dropdown-item rounded-1"
+                            onClick={() => setFilterPriority('All')}
+                          >
+                            All
+                          </Link>
+                        </li>
+                        <li>
+                          <Link
+                            to="#"
+                            className="dropdown-item rounded-1"
+                            onClick={() => setFilterPriority('High')}
+                          >
+                            High
+                          </Link>
+                        </li>
+                        <li>
+                          <Link
+                            to="#"
+                            className="dropdown-item rounded-1"
+                            onClick={() => setFilterPriority('Medium')}
+                          >
+                            Medium
+                          </Link>
+                        </li>
+                        <li>
+                          <Link
+                            to="#"
+                            className="dropdown-item rounded-1"
+                            onClick={() => setFilterPriority('Low')}
+                          >
+                            Low
+                          </Link>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="d-flex align-items-center border rounded p-2">
+                      <span className="d-inline-flex me-2">Sort By : </span>
+                      <div className="dropdown">
+                        <Link
+                          to="#"
+                          className="dropdown-toggle btn btn-white d-inline-flex align-items-center border-0 bg-transparent p-0 text-dark"
+                          data-bs-toggle="dropdown"
+                        >
+                          {sortBy === 'dueDate' ? 'Due Date' : 'Created Date'}
+                        </Link>
+                        <ul className="dropdown-menu dropdown-menu-end p-3">
+                          <li>
+                            <Link
+                              to="#"
+                              className="dropdown-item rounded-1"
+                              onClick={() => setSortBy('createdDate')}
+                            >
+                              Created Date
+                            </Link>
+                          </li>
+                          <li>
+                            <Link
+                              to="#"
+                              className="dropdown-item rounded-1"
+                              onClick={() => setSortBy('dueDate')}
+                            >
+                              Due Date
+                            </Link>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="tab-content" id="pills-tabContent">
+                <div className="tab-pane fade show active" id="pills-home" role="tabpanel">
+                  <div className="d-flex align-items-start overflow-auto project-status pb-4">
+                    {/* Dynamic task status columns */}
+                    {taskStatuses.length === 0 ? (
+                      <div className="text-center p-4 w-100">
+                        <p className="text-muted">Loading task statuses...</p>
+                      </div>
+                    ) : (
+                      taskStatuses.map((status, index) => {
+                        const statusKey = status.key?.toLowerCase() || '';
+                        const count = getStatusCount(statusKey);
+                        const colorClasses = getColorClass(status.colorName);
+                        const containerRef = containerRefs[index];
+
+                        return (
+                          <div
+                            key={status._id || status.key}
+                            className="p-3 rounded bg-transparent-secondary w-100 me-3"
+                          >
+                            <div className="bg-white p-2 rounded mb-2">
+                              <div className="d-flex align-items-center justify-content-between">
+                                <div className="d-flex align-items-center">
+                                  <span
+                                    className={`${colorClasses.soft} p-1 d-flex rounded-circle me-2`}
+                                  >
+                                    <span
+                                      className={`${colorClasses.bg} rounded-circle d-block p-1`}
+                                    />
+                                  </span>
+                                  <h5 className="me-2">{status.name}</h5>
+                                  <span className="badge bg-light rounded-pill">{count}</span>
                                 </div>
-                                <div className="col-lg-8">
-                                    <div className="d-flex align-items-center justify-content-lg-end flex-wrap row-gap-3 mb-3">
-                                        <div className="input-icon w-120 position-relative me-2">
-                                            <span className="input-icon-addon">
-                                                <i className="ti ti-calendar" />
-                                            </span>
-                                            <DatePicker
-                                                className="form-control datetimepicker"
-                                                format={{
-                                                    format: "DD-MM-YYYY",
-                                                    type: "mask",
-                                                }}
-                                                getPopupContainer={getModalContainer}
-                                                placeholder="From Date"
-                                                value={dueDateFilterFrom}
-                                                onChange={(date) => setDueDateFilterFrom(date)}
-                                            />
-                                        </div>
-                                        <div className="input-icon w-120 position-relative me-2">
-                                            <span className="input-icon-addon">
-                                                <i className="ti ti-calendar" />
-                                            </span>
-                                            <DatePicker
-                                                className="form-control datetimepicker"
-                                                format={{
-                                                    format: "DD-MM-YYYY",
-                                                    type: "mask",
-                                                }}
-                                                getPopupContainer={getModalContainer}
-                                                placeholder="To Date"
-                                                value={dueDateFilterTo}
-                                                onChange={(date) => setDueDateFilterTo(date)}
-                                            />
-                                        </div>
-                                        <div className="dropdown me-2">
-                                            <Link
-                                                to="#"
-                                                className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
-                                                data-bs-toggle="dropdown"
+                                <div className="dropdown">
+                                  <Link
+                                    to="#"
+                                    className="d-inline-flex align-items-center"
+                                    data-bs-toggle="dropdown"
+                                  >
+                                    <i className="ti ti-dots-vertical" />
+                                  </Link>
+                                  <ul className="dropdown-menu dropdown-menu-end p-3">
+                                    <li>
+                                      <Link
+                                        to="#"
+                                        className="dropdown-item rounded-1"
+                                        data-bs-toggle="modal"
+                                        data-inert={true}
+                                        data-bs-target="#edit_board"
+                                        onClick={() => handleEditBoardClick(status)}
+                                      >
+                                        <i className="ti ti-edit me-2" />
+                                        Edit
+                                      </Link>
+                                    </li>
+                                    <li>
+                                      <Link
+                                        to="#"
+                                        className="dropdown-item rounded-1"
+                                        data-bs-toggle="modal"
+                                        data-inert={true}
+                                        data-bs-target="#delete_modal"
+                                      >
+                                        <i className="ti ti-trash me-2" />
+                                        Delete
+                                      </Link>
+                                    </li>
+                                  </ul>
+                                </div>
+                              </div>
+                            </div>
+                            <div
+                              className="kanban-drag-wrap"
+                              ref={containerRef}
+                              style={{ maxHeight: '400px', overflowY: 'auto' }}
+                            >
+                              {sortedTasks
+                                .filter((t) => {
+                                  const taskStatus = normalizeKey(t.status);
+                                  const targetKey = normalizeKey(statusKey);
+                                  return taskStatus === targetKey;
+                                })
+                                .map((t, idx) => (
+                                  <div
+                                    key={(t as any)._id || idx}
+                                    data-task-id={(t as any)._id}
+                                    data-task-title={(t as any).title}
+                                  >
+                                    <div className="card kanban-card mb-2">
+                                      <div className="card-body">
+                                        <div className="d-flex align-items-center justify-content-between mb-3">
+                                          <div className="d-flex align-items-center">
+                                            <span
+                                              className={`badge ${(t as any).priority === 'High' ? 'bg-danger' : (t as any).priority === 'Low' ? 'bg-success' : 'bg-warning'} badge-xs d-flex align-items-center justify-content-center`}
                                             >
-                                                Priority: {filterPriority}
+                                              <i className="fas fa-circle fs-6 me-1" />
+                                              {(t as any).priority || 'Medium'}
+                                            </span>
+                                          </div>
+                                          <div className="dropdown">
+                                            <Link
+                                              to="#"
+                                              className="d-inline-flex align-items-center"
+                                              data-bs-toggle="dropdown"
+                                            >
+                                              <i className="ti ti-dots-vertical" />
                                             </Link>
                                             <ul className="dropdown-menu dropdown-menu-end p-3">
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                        onClick={() => setFilterPriority("All")}
-                                                    >
-                                                        All
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                        onClick={() => setFilterPriority("High")}
-                                                    >
-                                                        High
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                        onClick={() => setFilterPriority("Medium")}
-                                                    >
-                                                        Medium
-                                                    </Link>
-                                                </li>
-                                                <li>
-                                                    <Link
-                                                        to="#"
-                                                        className="dropdown-item rounded-1"
-                                                        onClick={() => setFilterPriority("Low")}
-                                                    >
-                                                        Low
-                                                    </Link>
-                                                </li>
-                                            </ul>
-                                        </div>
-                                        <div className="d-flex align-items-center border rounded p-2">
-                                            <span className="d-inline-flex me-2">Sort By : </span>
-                                            <div className="dropdown">
+                                              <li>
                                                 <Link
-                                                    to="#"
-                                                    className="dropdown-toggle btn btn-white d-inline-flex align-items-center border-0 bg-transparent p-0 text-dark"
-                                                    data-bs-toggle="dropdown"
+                                                  to="#"
+                                                  className="dropdown-item rounded-1"
+                                                  data-bs-toggle="modal"
+                                                  data-inert={true}
+                                                  data-bs-target="#edit_task"
+                                                  onClick={() => handleOpenEditTask(t)}
                                                 >
-                                                    {sortBy === "dueDate" ? "Due Date" : "Created Date"}
+                                                  <i className="ti ti-edit me-2" />
+                                                  Edit
                                                 </Link>
-                                                <ul className="dropdown-menu dropdown-menu-end p-3">
-                                                    <li>
-                                                        <Link
-                                                            to="#"
-                                                            className="dropdown-item rounded-1"
-                                                            onClick={() => setSortBy("createdDate")}
-                                                        >
-                                                            Created Date
-                                                        </Link>
-                                                    </li>
-                                                    <li>
-                                                        <Link
-                                                            to="#"
-                                                            className="dropdown-item rounded-1"
-                                                            onClick={() => setSortBy("dueDate")}
-                                                        >
-                                                            Due Date
-                                                        </Link>
-                                                    </li>
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="tab-content" id="pills-tabContent">
-                                <div
-                                    className="tab-pane fade show active"
-                                    id="pills-home"
-                                    role="tabpanel"
-                                >
-                                    <div className="d-flex align-items-start overflow-auto project-status pb-4">
-                                        {/* Dynamic task status columns */}
-                                        {taskStatuses.length === 0 ? (
-                                            <div className="text-center p-4 w-100">
-                                                <p className="text-muted">Loading task statuses...</p>
-                                            </div>
-                                        ) : (
-                                            taskStatuses.map((status, index) => {
-                                                const statusKey = status.key?.toLowerCase() || '';
-                                            const count = getStatusCount(statusKey);
-                                            const colorClasses = getColorClass(status.colorName);
-                                            const containerRef = containerRefs[index];
-
-                                            return (
-                                                <div key={status._id || status.key} className="p-3 rounded bg-transparent-secondary w-100 me-3">
-                                                    <div className="bg-white p-2 rounded mb-2">
-                                                        <div className="d-flex align-items-center justify-content-between">
-                                                            <div className="d-flex align-items-center">
-                                                                <span className={`${colorClasses.soft} p-1 d-flex rounded-circle me-2`}>
-                                                                    <span className={`${colorClasses.bg} rounded-circle d-block p-1`} />
-                                                                </span>
-                                                                <h5 className="me-2">{status.name}</h5>
-                                                                <span className="badge bg-light rounded-pill">{count}</span>
-                                                            </div>
-                                                            <div className="dropdown">
-                                                                <Link
-                                                                    to="#"
-                                                                    className="d-inline-flex align-items-center"
-                                                                    data-bs-toggle="dropdown"
-                                                                >
-                                                                    <i className="ti ti-dots-vertical" />
-                                                                </Link>
-                                                                <ul className="dropdown-menu dropdown-menu-end p-3">
-                                                                    <li>
-                                                                        <Link
-                                                                            to="#"
-                                                                            className="dropdown-item rounded-1"
-                                                                            data-bs-toggle="modal" data-inert={true}
-                                                                            data-bs-target="#edit_board"
-                                                                            onClick={() => handleEditBoardClick(status)}
-                                                                        >
-                                                                            <i className="ti ti-edit me-2" />
-                                                                            Edit
-                                                                        </Link>
-                                                                    </li>
-                                                                    <li>
-                                                                        <Link
-                                                                            to="#"
-                                                                            className="dropdown-item rounded-1"
-                                                                            data-bs-toggle="modal" data-inert={true}
-                                                                            data-bs-target="#delete_modal"
-                                                                        >
-                                                                            <i className="ti ti-trash me-2" />
-                                                                            Delete
-                                                                        </Link>
-                                                                    </li>
-                                                                </ul>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="kanban-drag-wrap" ref={containerRef} style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                                        {sortedTasks
-                                                            .filter(t => {
-                                                                const taskStatus = normalizeKey(t.status);
-                                                                const targetKey = normalizeKey(statusKey);
-                                                                return taskStatus === targetKey;
-                                                            })
-                                                            .map((t, idx) => (
-                                                                <div key={(t as any)._id || idx} data-task-id={(t as any)._id} data-task-title={(t as any).title}>
-                                                                    <div className="card kanban-card mb-2">
-                                                                        <div className="card-body">
-                                                                            <div className="d-flex align-items-center justify-content-between mb-3">
-                                                                                <div className="d-flex align-items-center">
-                                                                                    <span className={`badge ${((t as any).priority === 'High') ? 'bg-danger' : ((t as any).priority === 'Low') ? 'bg-success' : 'bg-warning'} badge-xs d-flex align-items-center justify-content-center`}>
-                                                                                        <i className="fas fa-circle fs-6 me-1" />
-                                                                                        {(t as any).priority || 'Medium'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <div className="dropdown">
-                                                                                    <Link
-                                                                                        to="#"
-                                                                                        className="d-inline-flex align-items-center"
-                                                                                        data-bs-toggle="dropdown"
-                                                                                    >
-                                                                                        <i className="ti ti-dots-vertical" />
-                                                                                    </Link>
-                                                                                    <ul className="dropdown-menu dropdown-menu-end p-3">
-                                                                                        <li>
-                                                                                            <Link
-                                                                                                to="#"
-                                                                                                className="dropdown-item rounded-1"
-                                                                                                data-bs-toggle="modal" data-inert={true}
-                                                                                                data-bs-target="#edit_task"
-                                                                                                onClick={() => handleOpenEditTask(t)}
-                                                                                            >
-                                                                                                <i className="ti ti-edit me-2" />
-                                                                                                Edit
-                                                                                            </Link>
-                                                                                        </li>
-                                                                                        <li>
-                                                                                            <Link
-                                                                                                to="#"
-                                                                                                className="dropdown-item rounded-1"
-                                                                                                data-bs-toggle="modal" data-inert={true}
-                                                                                                data-bs-target="#delete_modal"
-                                                                                            >
-                                                                                                <i className="ti ti-trash me-2" />
-                                                                                                Delete
-                                                                                            </Link>
-                                                                                        </li>
-                                                                                    </ul>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="mb-2">
-                                                                                <h6 className="d-flex align-items-center">
-                                                                                    {(t as any).title || 'Untitled Task'}
-                                                                                </h6>
-                                                                            </div>
-                                                                            <div className="d-flex align-items-center mb-2">
-                                                                                <div
-                                                                                    className="progress progress-sm flex-fill"
-                                                                                    role="progressbar"
-                                                                                    aria-label="Basic example"
-                                                                                    aria-valuenow={status.key === 'completed' ? 100 : status.key === 'inprogress' ? 50 : status.key === 'pending' ? 20 : 0}
-                                                                                    aria-valuemin={0}
-                                                                                    aria-valuemax={100}
-                                                                                >
-                                                                                    <div
-                                                                                        className={`progress-bar ${status.key === 'completed' ? 'bg-success' : status.key === 'inprogress' ? 'bg-warning' : 'bg-danger'}`}
-                                                                                        style={{ width: `${status.key === 'completed' ? 100 : status.key === 'inprogress' ? 50 : status.key === 'pending' ? 20 : 0}%` }}
-                                                                                    />
-                                                                                </div>
-                                                                                <span className="d-block ms-2 text-gray-9 fw-medium">
-                                                                                    {status.key === 'completed' ? '100' : status.key === 'inprogress' ? '50' : status.key === 'pending' ? '20' : '0'}%
-                                                                                </span>
-                                                                            </div>
-                                                                            <p className="fw-medium mb-0">
-                                                                                Due on :{" "}
-                                                                                <span className="text-gray-9">
-                                                                                    {(t as any).dueDate ? new Date((t as any).dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '-' }
-                                                                                </span>
-                                                                            </p>
-                                                                            <div className="d-flex align-items-center justify-content-between border-top pt-2 mt-2">
-                                                                                <div className="me-3">
-                                                                                    <span className="badge bg-light text-dark">
-                                                                                        {Array.isArray((t as any).assignee) ? (t as any).assignee.length : 0} Assignees
-                                                                                    </span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                    </div>
-                                                    <div className="pt-2">
-                                                        <Link
-                                                            to="#"
-                                                            className="btn btn-white border border-dashed d-flex align-items-center justify-content-center"
-                                                            data-bs-toggle="modal" data-inert={true}
-                                                            data-bs-target="#add_task"
-                                                        >
-                                                            <i className="ti ti-plus me-2" /> New Task
-                                                        </Link>
-                                                    </div>
-                                                </div>
-                                            );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <Footer />
-            </div>
-            {/* /Page Wrapper */}
-
-            {/* Add Task */}
-            <div className="modal fade" id="add_task">
-                <div className="modal-dialog modal-dialog-centered modal-lg">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h4 className="modal-title">Add New Task</h4>
-                            <button
-                                type="button"
-                                className="btn-close custom-btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        <form>
-                            <div className="modal-body">
-                                <div className="row">
-                                    <div className="col-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Title</label>
-                                            <input type="text" className="form-control" />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Due Date</label>
-                                            <div className="input-icon-end position-relative">
-                                                <DatePicker
-                                                    className="form-control datetimepicker"
-                                                    format={{
-                                                        format: "DD-MM-YYYY",
-                                                        type: "mask",
-                                                    }}
-                                                    getPopupContainer={getModalContainer}
-                                                    placeholder="DD-MM-YYYY"
-                                                />
-                                                <span className="input-icon-addon">
-                                                    <i className="ti ti-calendar text-gray-7" />
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Project</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={projectChoose}
-                                                defaultValue={projectChoose[1]}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <div className="mb-3">
-                                            <label className="form-label me-2">Team Members</label>
-                                            <CommonTagsInput
-                                                value={tags}
-                                                onChange={setTags}
-                                                placeholder="Add new"
-                                                className="custom-input-class" // Optional custom class
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Tag</label>
-                                            <CommonTagsInput
-                                                value={tags1}
-                                                onChange={setTags1}
-                                                placeholder="Add new"
-                                                className="custom-input-class" // Optional custom class
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-6">
-                                        <div className="mb-3">
-                                            <label className="form-label">Status</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={statusChoose}
-                                                defaultValue={statusChoose[1]}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Priority</label>
-                                            <CommonSelect
-                                                className='select'
-                                                options={priorityChoose}
-                                                defaultValue={priorityChoose[1]}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <label className="form-label">Who Can See this Task?</label>
-                                        <div className="d-flex align-items-center mb-3">
-                                            <div className="form-check me-3">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault1"
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault1"
+                                              </li>
+                                              <li>
+                                                <Link
+                                                  to="#"
+                                                  className="dropdown-item rounded-1"
+                                                  data-bs-toggle="modal"
+                                                  data-inert={true}
+                                                  data-bs-target="#delete_modal"
                                                 >
-                                                    Public
-                                                </label>
-                                            </div>
-                                            <div className="form-check me-3">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault2"
-                                                    defaultChecked
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault2"
-                                                >
-                                                    Private
-                                                </label>
-                                            </div>
-                                            <div className="form-check ">
-                                                <input
-                                                    className="form-check-input"
-                                                    type="radio"
-                                                    name="flexRadioDefault"
-                                                    id="flexRadioDefault3"
-                                                    defaultChecked
-                                                />
-                                                <label
-                                                    className="form-check-label text-dark"
-                                                    htmlFor="flexRadioDefault3"
-                                                >
-                                                    Admin Only
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-lg-12">
-                                        <div className="mb-3">
-                                            <label className="form-label">Descriptions</label>
-                                            <CommonTextEditor />
-                                        </div>
-                                    </div>
-                                    <div className="col-md-12">
-                                        <label className="form-label">Upload Attachment</label>
-                                        <div className="bg-light rounded p-2">
-                                            <div className="profile-uploader border-bottom mb-2 pb-2">
-                                                <div className="drag-upload-btn btn btn-sm btn-white border px-3">
-                                                    Select File
-                                                    <input
-                                                        type="file"
-                                                        className="form-control image-sign"
-                                                        multiple
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
-                                                <div className="d-flex align-items-center">
-                                                    <h6 className="fs-12 fw-medium me-1">Logo.zip</h6>
-                                                    <span className="badge badge-soft-info">21MB </span>
-                                                </div>
-                                                <Link to="#" className="btn btn-sm btn-icon">
-                                                    <i className="ti ti-trash" />
+                                                  <i className="ti ti-trash me-2" />
+                                                  Delete
                                                 </Link>
-                                            </div>
-                                            <div className="d-flex align-items-center justify-content-between">
-                                                <div className="d-flex align-items-center">
-                                                    <h6 className="fs-12 fw-medium me-1">Files.zip</h6>
-                                                    <span className="badge badge-soft-info">25MB </span>
-                                                </div>
-                                                <Link to="#" className="btn btn-sm btn-icon">
-                                                    <i className="ti ti-trash" />
-                                                </Link>
-                                            </div>
+                                              </li>
+                                            </ul>
+                                          </div>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button
-                                    type="button"
-                                    className="btn btn-light me-2"
-                                    data-bs-dismiss="modal"
-                                >
-                                    Cancel
-                                </button>
-                                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
-                                    Add New Task
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            {/* /Add Task */}
-            {/* Edit Task */}
-            <div className="modal fade" id="edit_task">
-                <div className="modal-dialog modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h4 className="modal-title">Edit Task</h4>
-                            <button
-                                ref={editTaskCloseButtonRef}
-                                type="button"
-                                className="btn-close custom-btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"
-                                onClick={closeEditTaskModal}
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        <div className="modal-body">
-                            {editTaskModalError && (
-                                <div className="alert alert-danger alert-dismissible fade show" role="alert">
-                                    {editTaskModalError}
-                                </div>
-                            )}
-                            <div className="row">
-                                <div className="col-12">
-                                    <div className="mb-3">
-                                        <label className="form-label">Task Title <span className="text-danger">*</span></label>
-                                        <input
-                                            type="text"
-                                            name="taskTitle"
-                                            className={`form-control ${editTaskFieldErrors.taskTitle ? 'is-invalid' : ''}`}
-                                            value={editTaskTitle}
-                                            onChange={(e) => {
-                                                setEditTaskTitle(e.target.value);
-                                                clearEditTaskFieldError("taskTitle");
-                                            }}
-                                            placeholder="Enter task title"
-                                        />
-                                        {editTaskFieldErrors.taskTitle && (
-                                            <div className="invalid-feedback">{editTaskFieldErrors.taskTitle}</div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="col-12">
-                                    <div className="mb-3">
-                                        <label className="form-label">Tag</label>
-                                        <CommonTagsInput
-                                            value={editTaskTags}
-                                            onChange={(tags: string[]) => setEditTaskTags(tags)}
-                                            className="form-control"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="col-6">
-                                    <div className="mb-3">
-                                        <label className="form-label">Priority <span className="text-danger">*</span></label>
-                                        <CommonSelect
-                                            className={`select ${editTaskFieldErrors.taskPriority ? 'is-invalid' : ''}`}
-                                            options={priorityChoose}
-                                            value={priorityChoose.find(opt => opt.value === editTaskPriority)}
-                                            onChange={(option: any) => {
-                                                setEditTaskPriority(option?.value || "Medium");
-                                                clearEditTaskFieldError("taskPriority");
-                                            }}
-                                        />
-                                        {editTaskFieldErrors.taskPriority && (
-                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskPriority}</div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="col-6">
-                                    <div className="mb-3">
-                                        <label className="form-label">Status <span className="text-danger">*</span></label>
-                                        <CommonSelect
-                                            className={`select ${editTaskFieldErrors.taskStatus ? 'is-invalid' : ''}`}
-                                            options={taskStatuses.map(status => ({
-                                                value: status.key,
-                                                label: status.name
-                                            }))}
-                                            value={taskStatuses.find(status => status.key === editTaskStatus) 
-                                                ? { value: editTaskStatus, label: taskStatuses.find(status => status.key === editTaskStatus)?.name }
-                                                : { value: "", label: "" }}
-                                            onChange={(option: any) => {
-                                                setEditTaskStatus(option?.value || "");
-                                                clearEditTaskFieldError("taskStatus");
-                                            }}
-                                        />
-                                        {editTaskFieldErrors.taskStatus && (
-                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskStatus}</div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="col-12">
-                                    <div className="mb-3">
-                                        <label className="form-label">Description <span className="text-danger">*</span></label>
-                                        <textarea
-                                            name="taskDescription"
-                                            className={`form-control ${editTaskFieldErrors.taskDescription ? 'is-invalid' : ''}`}
-                                            rows={4}
-                                            value={editTaskDescription}
-                                            onChange={(e) => {
-                                                setEditTaskDescription(e.target.value);
-                                                clearEditTaskFieldError("taskDescription");
-                                            }}
-                                            placeholder="Enter task description"
-                                        />
-                                        {editTaskFieldErrors.taskDescription && (
-                                            <div className="invalid-feedback">{editTaskFieldErrors.taskDescription}</div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="col-12">
-                                    <div className="mb-3">
-                                        <label className="form-label">Due Date <span className="text-danger">*</span></label>
-                                        <div className="input-icon-end position-relative">
-                                            <DatePicker
-                                                className="form-control datetimepicker"
-                                                format={{
-                                                    format: "DD-MM-YYYY",
-                                                    type: "mask",
-                                                }}
-                                                getPopupContainer={() => document.getElementById("edit_task") || document.body}
-                                                placeholder="DD-MM-YYYY"
-                                                value={editTaskDueDate}
-                                                onChange={(value) => {
-                                                    setEditTaskDueDate(value);
-                                                    clearEditTaskFieldError("taskDueDate");
-                                                }}
+                                        <div className="mb-2">
+                                          <h6 className="d-flex align-items-center">
+                                            {(t as any).title || 'Untitled Task'}
+                                          </h6>
+                                        </div>
+                                        <div className="d-flex align-items-center mb-2">
+                                          <div
+                                            className="progress progress-sm flex-fill"
+                                            role="progressbar"
+                                            aria-label="Basic example"
+                                            aria-valuenow={
+                                              status.key === 'completed'
+                                                ? 100
+                                                : status.key === 'inprogress'
+                                                  ? 50
+                                                  : status.key === 'pending'
+                                                    ? 20
+                                                    : 0
+                                            }
+                                            aria-valuemin={0}
+                                            aria-valuemax={100}
+                                          >
+                                            <div
+                                              className={`progress-bar ${status.key === 'completed' ? 'bg-success' : status.key === 'inprogress' ? 'bg-warning' : 'bg-danger'}`}
+                                              style={{
+                                                width: `${status.key === 'completed' ? 100 : status.key === 'inprogress' ? 50 : status.key === 'pending' ? 20 : 0}%`,
+                                              }}
                                             />
-                                            <span className="input-icon-addon">
-                                                <i className="ti ti-calendar text-gray-7" />
+                                          </div>
+                                          <span className="d-block ms-2 text-gray-9 fw-medium">
+                                            {status.key === 'completed'
+                                              ? '100'
+                                              : status.key === 'inprogress'
+                                                ? '50'
+                                                : status.key === 'pending'
+                                                  ? '20'
+                                                  : '0'}
+                                            %
+                                          </span>
+                                        </div>
+                                        <p className="fw-medium mb-0">
+                                          Due on :{' '}
+                                          <span className="text-gray-9">
+                                            {(t as any).dueDate
+                                              ? new Date((t as any).dueDate).toLocaleDateString(
+                                                  'en-GB',
+                                                  {
+                                                    day: 'numeric',
+                                                    month: 'short',
+                                                    year: 'numeric',
+                                                  }
+                                                )
+                                              : '-'}
+                                          </span>
+                                        </p>
+                                        <div className="d-flex align-items-center justify-content-between border-top pt-2 mt-2">
+                                          <div className="me-3">
+                                            <span className="badge bg-light text-dark">
+                                              {Array.isArray((t as any).assignee)
+                                                ? (t as any).assignee.length
+                                                : 0}{' '}
+                                              Assignees
                                             </span>
+                                          </div>
                                         </div>
-                                        {editTaskFieldErrors.taskDueDate && (
-                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskDueDate}</div>
-                                        )}
+                                      </div>
                                     </div>
-                                </div>
-                                <div className="col-12">
-                                    <div className="mb-0">
-                                        <label className="form-label">Add Assignee <span className="text-danger">*</span></label>
-                                        <Select
-                                            isMulti
-                                            className={`basic-multi-select ${editTaskFieldErrors.taskAssignees ? 'is-invalid' : ''}`}
-                                            classNamePrefix="select"
-                                            options={assigneeChoose.filter(opt => opt.value !== "Select")}
-                                            value={assigneeChoose.filter(opt => editTaskAssignees.includes(opt.value))}
-                                            onChange={(opts) => {
-                                                setEditTaskAssignees((opts || []).map((opt) => opt.value));
-                                                clearEditTaskFieldError("taskAssignees");
-                                            }}
-                                            placeholder="Select assignees"
-                                        />
-                                        {editTaskFieldErrors.taskAssignees && (
-                                            <div className="invalid-feedback d-block">{editTaskFieldErrors.taskAssignees}</div>
-                                        )}
-                                    </div>
-                                </div>
+                                  </div>
+                                ))}
                             </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button
-                                type="button"
-                                className="btn btn-light me-2"
-                                data-bs-dismiss="modal"
-                                onClick={closeEditTaskModal}
-                                disabled={isSavingEditTask}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                type="button" 
-                                className="btn btn-primary"
-                                onClick={handleSaveEditTask}
-                                disabled={isSavingEditTask}
-                            >
-                                {isSavingEditTask ? "Saving..." : "Save Changes"}
-                            </button>
-                        </div>
-                    </div>
+                            <div className="pt-2">
+                              <Link
+                                to="#"
+                                className="btn btn-white border border-dashed d-flex align-items-center justify-content-center"
+                                data-bs-toggle="modal"
+                                data-inert={true}
+                                data-bs-target="#add_task"
+                              >
+                                <i className="ti ti-plus me-2" /> New Task
+                              </Link>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
+              </div>
             </div>
-            {/* /Edit Task */}
-            {/* Todo Details */}
-            <div className="modal fade" id="view_todo">
-                <div className="modal-dialog modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header bg-dark">
-                            <h4 className="modal-title text-white">
-                                Respond to any pending messages
-                            </h4>
-                            <span className="badge badge-danger d-inline-flex align-items-center">
-                                <i className="ti ti-square me-1" />
-                                Urgent
-                            </span>
-                            <span>
-                                <i className="ti ti-star-filled text-warning" />
-                            </span>
-                            <Link to="#">
-                                <i className="ti ti-trash text-white" />
-                            </Link>
-                            <button
-                                type="button"
-                                className="btn-close custom-btn-close bg-transparent fs-16 text-white position-static"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        <div className="modal-body">
-                            <h5 className="mb-2">Task Details</h5>
-                            <div className="border rounded mb-3 p-2">
-                                <div className="row row-gap-3">
-                                    <div className="col-md-4">
-                                        <div className="text-center">
-                                            <span className="d-block mb-1">Created On</span>
-                                            <p className="text-dark">22 July 2025</p>
-                                        </div>
-                                    </div>
-                                    <div className="col-md-4">
-                                        <div className="text-center">
-                                            <span className="d-block mb-1">Due Date</span>
-                                            <p className="text-dark">22 July 2025</p>
-                                        </div>
-                                    </div>
-                                    <div className="col-md-4">
-                                        <div className="text-center">
-                                            <span className="d-block mb-1">Status</span>
-                                            <span className="badge badge-soft-success d-inline-flex align-items-center">
-                                                <i className="fas fa-circle fs-6 me-1" />
-                                                Completed
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="mb-3">
-                                <h5 className="mb-2">Description</h5>
-                                <p>
-                                    Hiking is a long, vigorous walk, usually on trails or footpaths in
-                                    the countryside. Walking for pleasure developed in Europe during
-                                    the eighteenth century. Religious pilgrimages have existed much
-                                    longer but they involve walking long distances for a spiritual
-                                    purpose associated with specific religions and also we achieve
-                                    inner peace while we hike at a local park.
-                                </p>
-                            </div>
-                            <div className="mb-3">
-                                <h5 className="mb-2">Tags</h5>
-                                <div className="d-flex align-items-center">
-                                    <span className="badge badge-danger me-2">Internal</span>
-                                    <span className="badge badge-success me-2">Projects</span>
-                                    <span className="badge badge-secondary">Reminder</span>
-                                </div>
-                            </div>
-                            <div>
-                                <h5 className="mb-2">Assignee</h5>
-                                <div className="avatar-list-stacked avatar-group-sm">
-                                    <span className="avatar avatar-rounded">
-                                        <ImageWithBasePath
-                                            className="border border-white"
-                                            src="assets/img/profiles/avatar-23.jpg"
-                                            alt="img"
-                                        />
-                                    </span>
-                                    <span className="avatar avatar-rounded">
-                                        <ImageWithBasePath
-                                            className="border border-white"
-                                            src="assets/img/profiles/avatar-24.jpg"
-                                            alt="img"
-                                        />
-                                    </span>
-                                    <span className="avatar avatar-rounded">
-                                        <ImageWithBasePath
-                                            className="border border-white"
-                                            src="assets/img/profiles/avatar-25.jpg"
-                                            alt="img"
-                                        />
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+          </div>
+        </div>
+        <Footer />
+      </div>
+      {/* /Page Wrapper */}
+
+      {/* Add Task */}
+      <div className="modal fade" id="add_task">
+        <div className="modal-dialog modal-dialog-centered modal-lg">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Add New Task</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
             </div>
-            {/* /Todo Details */}
-
-            {/* Add Board */}
-            <div className="modal fade" id="add_board" ref={addBoardModalRef}>
-                <div className="modal-dialog modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h4 className="modal-title">Add New Board</h4>
-                            <button
-                                ref={addBoardCloseButtonRef}
-                                type="button"
-                                className="btn-close custom-btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleAddBoardSubmit}>
-                            <div className="modal-body">
-                                <div className="mb-3">
-                                    <label className="form-label">Board Name</label>
-                                    <input
-                                        type="text"
-                                        className="form-control"
-                                        value={newBoardName}
-                                        onChange={(e) => setNewBoardName(e.target.value)}
-                                    />
-                                </div>
-                                <label className="form-label">Board Color</label>
-                                <div className="d-flex align-items-center flex-wrap row-gap-3">
-                                    <div className="theme-colors mb-4">
-                                        <ul className="d-flex align-items-center">
-                                            {[
-                                                { key: "purple", className: "bg-purple" },
-                                                { key: "pink", className: "bg-pink" },
-                                                { key: "blue", className: "bg-info" },
-                                                { key: "yellow", className: "bg-warning" },
-                                                { key: "green", className: "bg-success" },
-                                                { key: "orange", className: "bg-orange" },
-                                                { key: "red", className: "bg-danger" },
-                                            ].map((c) => {
-                                                const selected = newBoardColor === c.key;
-                                                return (
-                                                    <li key={c.key} className="text-center">
-                                                        <button
-                                                            type="button"
-                                                            className="themecolorset border-0 bg-transparent p-0"
-                                                            onClick={() => setNewBoardColor(c.key)}
-                                                            title={c.key}
-                                                            aria-pressed={selected}
-                                                        >
-                                                            <span
-                                                                className={`primecolor ${c.className} d-inline-flex align-items-center justify-content-center`}
-                                                                style={{
-                                                                    width: '36px',
-                                                                    height: '36px',
-                                                                    borderRadius: '8px',
-                                                                    border: selected ? '2px solid #111' : '1px solid #e0e0e0',
-                                                                    boxShadow: selected ? '0 0 0 2px rgba(0,0,0,0.08)' : 'none',
-                                                                }}
-                                                            >
-                                                                {selected && (
-                                                                    <i className="ti ti-check text-white fs-14" />
-                                                                )}
-                                                            </span>
-                                                        </button>
-                                                        <small className="d-block mt-1 text-muted text-capitalize" style={{ fontSize: '11px' }}>
-                                                            {c.key}
-                                                        </small>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button
-                                    type="button"
-                                    className="btn btn-light me-2"
-                                    data-bs-dismiss="modal"
-                                >
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={savingBoard}>
-                                    {savingBoard ? "Saving..." : "Add New Board"}
-                                </button>
-                            </div>
-                        </form>
+            <form>
+              <div className="modal-body">
+                <div className="row">
+                  <div className="col-12">
+                    <div className="mb-3">
+                      <label className="form-label">Title</label>
+                      <input type="text" className="form-control" />
                     </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Due Date</label>
+                      <div className="input-icon-end position-relative">
+                        <DatePicker
+                          className="form-control datetimepicker"
+                          format={{
+                            format: 'DD-MM-YYYY',
+                            type: 'mask',
+                          }}
+                          getPopupContainer={getModalContainer}
+                          placeholder="DD-MM-YYYY"
+                        />
+                        <span className="input-icon-addon">
+                          <i className="ti ti-calendar text-gray-7" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Project</label>
+                      <CommonSelect
+                        className="select"
+                        options={projectChoose}
+                        defaultValue={projectChoose[1]}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label me-2">Team Members</label>
+                      <CommonTagsInput
+                        value={tags}
+                        onChange={setTags}
+                        placeholder="Add new"
+                        className="custom-input-class" // Optional custom class
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Tag</label>
+                      <CommonTagsInput
+                        value={tags1}
+                        onChange={setTags1}
+                        placeholder="Add new"
+                        className="custom-input-class" // Optional custom class
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Status</label>
+                      <CommonSelect
+                        className="select"
+                        options={statusChoose}
+                        defaultValue={statusChoose[1]}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">Priority</label>
+                      <CommonSelect
+                        className="select"
+                        options={priorityChoose}
+                        defaultValue={priorityChoose[1]}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <label className="form-label">Who Can See this Task?</label>
+                    <div className="d-flex align-items-center mb-3">
+                      <div className="form-check me-3">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          name="flexRadioDefault"
+                          id="flexRadioDefault1"
+                        />
+                        <label className="form-check-label text-dark" htmlFor="flexRadioDefault1">
+                          Public
+                        </label>
+                      </div>
+                      <div className="form-check me-3">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          name="flexRadioDefault"
+                          id="flexRadioDefault2"
+                          defaultChecked
+                        />
+                        <label className="form-check-label text-dark" htmlFor="flexRadioDefault2">
+                          Private
+                        </label>
+                      </div>
+                      <div className="form-check ">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          name="flexRadioDefault"
+                          id="flexRadioDefault3"
+                          defaultChecked
+                        />
+                        <label className="form-check-label text-dark" htmlFor="flexRadioDefault3">
+                          Admin Only
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-lg-12">
+                    <div className="mb-3">
+                      <label className="form-label">Descriptions</label>
+                      <CommonTextEditor />
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <label className="form-label">Upload Attachment</label>
+                    <div className="bg-light rounded p-2">
+                      <div className="profile-uploader border-bottom mb-2 pb-2">
+                        <div className="drag-upload-btn btn btn-sm btn-white border px-3">
+                          Select File
+                          <input type="file" className="form-control image-sign" multiple />
+                        </div>
+                      </div>
+                      <div className="d-flex align-items-center justify-content-between border-bottom mb-2 pb-2">
+                        <div className="d-flex align-items-center">
+                          <h6 className="fs-12 fw-medium me-1">Logo.zip</h6>
+                          <span className="badge badge-soft-info">21MB </span>
+                        </div>
+                        <Link to="#" className="btn btn-sm btn-icon">
+                          <i className="ti ti-trash" />
+                        </Link>
+                      </div>
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div className="d-flex align-items-center">
+                          <h6 className="fs-12 fw-medium me-1">Files.zip</h6>
+                          <span className="badge badge-soft-info">25MB </span>
+                        </div>
+                        <Link to="#" className="btn btn-sm btn-icon">
+                          <i className="ti ti-trash" />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-light me-2" data-bs-dismiss="modal">
+                  Cancel
+                </button>
+                <button type="button" data-bs-dismiss="modal" className="btn btn-primary">
+                  Add New Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {/* /Add Task */}
+      {/* Edit Task */}
+      <div className="modal fade" id="edit_task">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Edit Task</h4>
+              <button
+                ref={editTaskCloseButtonRef}
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+                onClick={closeEditTaskModal}
+              >
+                <i className="ti ti-x" />
+              </button>
             </div>
-            {/* /Add Board */}
-
-            {/* Edit Board */}
-            <div className="modal fade" id="edit_board" ref={editBoardModalRef}>
-                <div className="modal-dialog modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h4 className="modal-title">Edit Board</h4>
-                            <button
-                                ref={editBoardCloseButtonRef}
-                                type="button"
-                                className="btn-close custom-btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"
-                            >
-                                <i className="ti ti-x" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleEditBoardSubmit}>
-                            <div className="modal-body">
-                                <div className="mb-3">
-                                    <label className="form-label">Board Name</label>
-                                    <input
-                                        type="text"
-                                        className="form-control"
-                                        value={editBoardName}
-                                        onChange={(e) => setEditBoardName(e.target.value)}
-                                    />
-                                </div>
-                                <label className="form-label">Board Color</label>
-                                <div className="d-flex align-items-center flex-wrap row-gap-3">
-                                    <div className="theme-colors mb-4">
-                                        <ul className="d-flex align-items-center">
-                                            {[
-                                                { key: "purple", className: "bg-purple" },
-                                                { key: "pink", className: "bg-pink" },
-                                                { key: "blue", className: "bg-info" },
-                                                { key: "yellow", className: "bg-warning" },
-                                                { key: "green", className: "bg-success" },
-                                                { key: "orange", className: "bg-orange" },
-                                                { key: "red", className: "bg-danger" },
-                                            ].map((c) => {
-                                                const selected = editBoardColor === c.key;
-                                                return (
-                                                    <li key={c.key} className="text-center">
-                                                        <button
-                                                            type="button"
-                                                            className="themecolorset border-0 bg-transparent p-0"
-                                                            onClick={() => setEditBoardColor(c.key)}
-                                                            title={c.key}
-                                                            aria-pressed={selected}
-                                                        >
-                                                            <span
-                                                                className={`primecolor ${c.className} d-inline-flex align-items-center justify-content-center`}
-                                                                style={{
-                                                                    width: '36px',
-                                                                    height: '36px',
-                                                                    borderRadius: '8px',
-                                                                    border: selected ? '2px solid #111' : '1px solid #e0e0e0',
-                                                                    boxShadow: selected ? '0 0 0 2px rgba(0,0,0,0.08)' : 'none',
-                                                                }}
-                                                            >
-                                                                {selected && (
-                                                                    <i className="ti ti-check text-white fs-14" />
-                                                                )}
-                                                            </span>
-                                                        </button>
-                                                        <small className="d-block mt-1 text-muted text-capitalize" style={{ fontSize: '11px' }}>
-                                                            {c.key}
-                                                        </small>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button
-                                    type="button"
-                                    className="btn btn-light me-2"
-                                    data-bs-dismiss="modal"
-                                >
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={savingBoard}>
-                                    {savingBoard ? "Saving..." : "Update Board"}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+            <div className="modal-body">
+              {editTaskModalError && (
+                <div className="alert alert-danger alert-dismissible fade show" role="alert">
+                  {editTaskModalError}
                 </div>
+              )}
+              <div className="row">
+                <div className="col-12">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Task Title <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="taskTitle"
+                      className={`form-control ${editTaskFieldErrors.taskTitle ? 'is-invalid' : ''}`}
+                      value={editTaskTitle}
+                      onChange={(e) => {
+                        setEditTaskTitle(e.target.value);
+                        clearEditTaskFieldError('taskTitle');
+                      }}
+                      placeholder="Enter task title"
+                    />
+                    {editTaskFieldErrors.taskTitle && (
+                      <div className="invalid-feedback">{editTaskFieldErrors.taskTitle}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-12">
+                  <div className="mb-3">
+                    <label className="form-label">Tag</label>
+                    <CommonTagsInput
+                      value={editTaskTags}
+                      onChange={(tags: string[]) => setEditTaskTags(tags)}
+                      className="form-control"
+                    />
+                  </div>
+                </div>
+                <div className="col-6">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Priority <span className="text-danger">*</span>
+                    </label>
+                    <CommonSelect
+                      className={`select ${editTaskFieldErrors.taskPriority ? 'is-invalid' : ''}`}
+                      options={priorityChoose}
+                      value={priorityChoose.find((opt) => opt.value === editTaskPriority)}
+                      onChange={(option: any) => {
+                        setEditTaskPriority(option?.value || 'Medium');
+                        clearEditTaskFieldError('taskPriority');
+                      }}
+                    />
+                    {editTaskFieldErrors.taskPriority && (
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskPriority}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-6">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Status <span className="text-danger">*</span>
+                    </label>
+                    <CommonSelect
+                      className={`select ${editTaskFieldErrors.taskStatus ? 'is-invalid' : ''}`}
+                      options={taskStatuses.map((status) => ({
+                        value: status.key,
+                        label: status.name,
+                      }))}
+                      value={
+                        taskStatuses.find((status) => status.key === editTaskStatus)
+                          ? {
+                              value: editTaskStatus,
+                              label: taskStatuses.find((status) => status.key === editTaskStatus)
+                                ?.name,
+                            }
+                          : { value: '', label: '' }
+                      }
+                      onChange={(option: any) => {
+                        setEditTaskStatus(option?.value || '');
+                        clearEditTaskFieldError('taskStatus');
+                      }}
+                    />
+                    {editTaskFieldErrors.taskStatus && (
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskStatus}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-12">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Description <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      name="taskDescription"
+                      className={`form-control ${editTaskFieldErrors.taskDescription ? 'is-invalid' : ''}`}
+                      rows={4}
+                      value={editTaskDescription}
+                      onChange={(e) => {
+                        setEditTaskDescription(e.target.value);
+                        clearEditTaskFieldError('taskDescription');
+                      }}
+                      placeholder="Enter task description"
+                    />
+                    {editTaskFieldErrors.taskDescription && (
+                      <div className="invalid-feedback">{editTaskFieldErrors.taskDescription}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-12">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Due Date <span className="text-danger">*</span>
+                    </label>
+                    <div className="input-icon-end position-relative">
+                      <DatePicker
+                        className="form-control datetimepicker"
+                        format={{
+                          format: 'DD-MM-YYYY',
+                          type: 'mask',
+                        }}
+                        getPopupContainer={() =>
+                          document.getElementById('edit_task') || document.body
+                        }
+                        placeholder="DD-MM-YYYY"
+                        value={editTaskDueDate}
+                        onChange={(value) => {
+                          setEditTaskDueDate(value);
+                          clearEditTaskFieldError('taskDueDate');
+                        }}
+                      />
+                      <span className="input-icon-addon">
+                        <i className="ti ti-calendar text-gray-7" />
+                      </span>
+                    </div>
+                    {editTaskFieldErrors.taskDueDate && (
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskDueDate}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-12">
+                  <div className="mb-0">
+                    <label className="form-label">
+                      Add Assignee <span className="text-danger">*</span>
+                    </label>
+                    <Select
+                      isMulti
+                      className={`basic-multi-select ${editTaskFieldErrors.taskAssignees ? 'is-invalid' : ''}`}
+                      classNamePrefix="select"
+                      options={assigneeChoose.filter((opt) => opt.value !== 'Select')}
+                      value={assigneeChoose.filter((opt) => editTaskAssignees.includes(opt.value))}
+                      onChange={(opts) => {
+                        setEditTaskAssignees((opts || []).map((opt) => opt.value));
+                        clearEditTaskFieldError('taskAssignees');
+                      }}
+                      placeholder="Select assignees"
+                    />
+                    {editTaskFieldErrors.taskAssignees && (
+                      <div className="invalid-feedback d-block">
+                        {editTaskFieldErrors.taskAssignees}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            {/* /Edit Board */}
-
-            {/* Status Change Confirmation Modal */}
-            {showStatusModal && (
-                <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <div className="modal-dialog modal-dialog-centered">
-                        <div className="modal-content">
-                            <div className="modal-header">
-                                <h4 className="modal-title">Confirm Status Change</h4>
-                                <button
-                                    type="button"
-                                    className="btn-close custom-btn-close"
-                                    onClick={handleCancelStatusChange}
-                                    aria-label="Close"
-                                >
-                                    <i className="ti ti-x" />
-                                </button>
-                            </div>
-                            <div className="modal-body">
-                                <p>Are you sure you want to change the status of <strong>{pendingStatusChange?.taskTitle}</strong> to <strong>{pendingStatusChange?.newStatus}</strong>?</p>
-                            </div>
-                            <div className="modal-footer">
-                                <button
-                                    type="button"
-                                    className="btn btn-light me-2"
-                                    onClick={handleCancelStatusChange}
-                                >
-                                    Cancel
-                                </button>
-                                <button 
-                                    type="button" 
-                                    className="btn btn-primary"
-                                    onClick={handleConfirmStatusChange}
-                                >
-                                    Confirm Change
-                                </button>
-                            </div>
-                        </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-light me-2"
+                data-bs-dismiss="modal"
+                onClick={closeEditTaskModal}
+                disabled={isSavingEditTask}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveEditTask}
+                disabled={isSavingEditTask}
+              >
+                {isSavingEditTask ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* /Edit Task */}
+      {/* Todo Details */}
+      <div className="modal fade" id="view_todo">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header bg-dark">
+              <h4 className="modal-title text-white">Respond to any pending messages</h4>
+              <span className="badge badge-danger d-inline-flex align-items-center">
+                <i className="ti ti-square me-1" />
+                Urgent
+              </span>
+              <span>
+                <i className="ti ti-star-filled text-warning" />
+              </span>
+              <Link to="#">
+                <i className="ti ti-trash text-white" />
+              </Link>
+              <button
+                type="button"
+                className="btn-close custom-btn-close bg-transparent fs-16 text-white position-static"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <h5 className="mb-2">Task Details</h5>
+              <div className="border rounded mb-3 p-2">
+                <div className="row row-gap-3">
+                  <div className="col-md-4">
+                    <div className="text-center">
+                      <span className="d-block mb-1">Created On</span>
+                      <p className="text-dark">22 July 2025</p>
                     </div>
+                  </div>
+                  <div className="col-md-4">
+                    <div className="text-center">
+                      <span className="d-block mb-1">Due Date</span>
+                      <p className="text-dark">22 July 2025</p>
+                    </div>
+                  </div>
+                  <div className="col-md-4">
+                    <div className="text-center">
+                      <span className="d-block mb-1">Status</span>
+                      <span className="badge badge-soft-success d-inline-flex align-items-center">
+                        <i className="fas fa-circle fs-6 me-1" />
+                        Completed
+                      </span>
+                    </div>
+                  </div>
                 </div>
-            )}
-            {/* /Status Change Confirmation Modal */}
-        </>
+              </div>
+              <div className="mb-3">
+                <h5 className="mb-2">Description</h5>
+                <p>
+                  Hiking is a long, vigorous walk, usually on trails or footpaths in the
+                  countryside. Walking for pleasure developed in Europe during the eighteenth
+                  century. Religious pilgrimages have existed much longer but they involve walking
+                  long distances for a spiritual purpose associated with specific religions and also
+                  we achieve inner peace while we hike at a local park.
+                </p>
+              </div>
+              <div className="mb-3">
+                <h5 className="mb-2">Tags</h5>
+                <div className="d-flex align-items-center">
+                  <span className="badge badge-danger me-2">Internal</span>
+                  <span className="badge badge-success me-2">Projects</span>
+                  <span className="badge badge-secondary">Reminder</span>
+                </div>
+              </div>
+              <div>
+                <h5 className="mb-2">Assignee</h5>
+                <div className="avatar-list-stacked avatar-group-sm">
+                  <span className="avatar avatar-rounded">
+                    <ImageWithBasePath
+                      className="border border-white"
+                      src="assets/img/profiles/avatar-23.jpg"
+                      alt="img"
+                    />
+                  </span>
+                  <span className="avatar avatar-rounded">
+                    <ImageWithBasePath
+                      className="border border-white"
+                      src="assets/img/profiles/avatar-24.jpg"
+                      alt="img"
+                    />
+                  </span>
+                  <span className="avatar avatar-rounded">
+                    <ImageWithBasePath
+                      className="border border-white"
+                      src="assets/img/profiles/avatar-25.jpg"
+                      alt="img"
+                    />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* /Todo Details */}
 
-    )
-}
+      {/* Add Board */}
+      <div className="modal fade" id="add_board" ref={addBoardModalRef}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Add New Board</h4>
+              <button
+                ref={addBoardCloseButtonRef}
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <form onSubmit={handleAddBoardSubmit}>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Board Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={newBoardName}
+                    onChange={(e) => setNewBoardName(e.target.value)}
+                  />
+                </div>
+                <label className="form-label">Board Color</label>
+                <div className="d-flex align-items-center flex-wrap row-gap-3">
+                  <div className="theme-colors mb-4">
+                    <ul className="d-flex align-items-center">
+                      {[
+                        { key: 'purple', className: 'bg-purple' },
+                        { key: 'pink', className: 'bg-pink' },
+                        { key: 'blue', className: 'bg-info' },
+                        { key: 'yellow', className: 'bg-warning' },
+                        { key: 'green', className: 'bg-success' },
+                        { key: 'orange', className: 'bg-orange' },
+                        { key: 'red', className: 'bg-danger' },
+                      ].map((c) => {
+                        const selected = newBoardColor === c.key;
+                        return (
+                          <li key={c.key} className="text-center">
+                            <button
+                              type="button"
+                              className="themecolorset border-0 bg-transparent p-0"
+                              onClick={() => setNewBoardColor(c.key)}
+                              title={c.key}
+                              aria-pressed={selected}
+                            >
+                              <span
+                                className={`primecolor ${c.className} d-inline-flex align-items-center justify-content-center`}
+                                style={{
+                                  width: '36px',
+                                  height: '36px',
+                                  borderRadius: '8px',
+                                  border: selected ? '2px solid #111' : '1px solid #e0e0e0',
+                                  boxShadow: selected ? '0 0 0 2px rgba(0,0,0,0.08)' : 'none',
+                                }}
+                              >
+                                {selected && <i className="ti ti-check text-white fs-14" />}
+                              </span>
+                            </button>
+                            <small
+                              className="d-block mt-1 text-muted text-capitalize"
+                              style={{ fontSize: '11px' }}
+                            >
+                              {c.key}
+                            </small>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-light me-2" data-bs-dismiss="modal">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={savingBoard}>
+                  {savingBoard ? 'Saving...' : 'Add New Board'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {/* /Add Board */}
 
-export default TaskBoard
+      {/* Edit Board */}
+      <div className="modal fade" id="edit_board" ref={editBoardModalRef}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Edit Board</h4>
+              <button
+                ref={editBoardCloseButtonRef}
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <form onSubmit={handleEditBoardSubmit}>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Board Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editBoardName}
+                    onChange={(e) => setEditBoardName(e.target.value)}
+                  />
+                </div>
+                <label className="form-label">Board Color</label>
+                <div className="d-flex align-items-center flex-wrap row-gap-3">
+                  <div className="theme-colors mb-4">
+                    <ul className="d-flex align-items-center">
+                      {[
+                        { key: 'purple', className: 'bg-purple' },
+                        { key: 'pink', className: 'bg-pink' },
+                        { key: 'blue', className: 'bg-info' },
+                        { key: 'yellow', className: 'bg-warning' },
+                        { key: 'green', className: 'bg-success' },
+                        { key: 'orange', className: 'bg-orange' },
+                        { key: 'red', className: 'bg-danger' },
+                      ].map((c) => {
+                        const selected = editBoardColor === c.key;
+                        return (
+                          <li key={c.key} className="text-center">
+                            <button
+                              type="button"
+                              className="themecolorset border-0 bg-transparent p-0"
+                              onClick={() => setEditBoardColor(c.key)}
+                              title={c.key}
+                              aria-pressed={selected}
+                            >
+                              <span
+                                className={`primecolor ${c.className} d-inline-flex align-items-center justify-content-center`}
+                                style={{
+                                  width: '36px',
+                                  height: '36px',
+                                  borderRadius: '8px',
+                                  border: selected ? '2px solid #111' : '1px solid #e0e0e0',
+                                  boxShadow: selected ? '0 0 0 2px rgba(0,0,0,0.08)' : 'none',
+                                }}
+                              >
+                                {selected && <i className="ti ti-check text-white fs-14" />}
+                              </span>
+                            </button>
+                            <small
+                              className="d-block mt-1 text-muted text-capitalize"
+                              style={{ fontSize: '11px' }}
+                            >
+                              {c.key}
+                            </small>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-light me-2" data-bs-dismiss="modal">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={savingBoard}>
+                  {savingBoard ? 'Saving...' : 'Update Board'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {/* /Edit Board */}
+
+      {/* Status Change Confirmation Modal */}
+      {showStatusModal && (
+        <div
+          className="modal fade show"
+          style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h4 className="modal-title">Confirm Status Change</h4>
+                <button
+                  type="button"
+                  className="btn-close custom-btn-close"
+                  onClick={handleCancelStatusChange}
+                  aria-label="Close"
+                >
+                  <i className="ti ti-x" />
+                </button>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Are you sure you want to change the status of{' '}
+                  <strong>{pendingStatusChange?.taskTitle}</strong> to{' '}
+                  <strong>{pendingStatusChange?.newStatus}</strong>?
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-light me-2"
+                  onClick={handleCancelStatusChange}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleConfirmStatusChange}
+                >
+                  Confirm Change
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* /Status Change Confirmation Modal */}
+    </>
+  );
+};
+
+export default TaskBoard;

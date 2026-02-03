@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { message } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useClientsREST } from '../../../hooks/useClientsREST';
@@ -14,7 +14,6 @@ interface ClientFormData {
   logo: string;
   status: 'Active' | 'Inactive';
   contractValue: number;
-  projects: number;
 }
 
 interface ClientFormErrors {
@@ -41,28 +40,33 @@ const EditClient = () => {
     logo: '',
     status: 'Active',
     contractValue: 0,
-    projects: 0
   });
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<ClientFormErrors>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [logo, setLogo] = useState<string | null>(null);
   const [imageUpload, setImageUpload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clear a specific field error
+  const clearFieldError = (fieldName: string) => {
+    setFieldErrors((prev) => {
+      const newErrors = { ...prev };
+      delete newErrors[fieldName];
+      return newErrors;
+    });
+  };
 
   // Cloudinary image upload function
   const uploadImage = async (file: File) => {
     setLogo(null);
     const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", "amasqis");
+    formData.append('file', file);
+    formData.append('upload_preset', 'amasqis');
 
-    const res = await fetch(
-      "https://api.cloudinary.com/v1_1/dwc3b5zfe/image/upload",
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
+    const res = await fetch('https://api.cloudinary.com/v1_1/dwc3b5zfe/image/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
     const data = await res.json();
     console.log(data);
@@ -70,9 +74,7 @@ const EditClient = () => {
   };
 
   // Handle image upload
-  const handleImageUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
     if (!file) {
@@ -81,60 +83,57 @@ const EditClient = () => {
 
     const maxSize = 4 * 1024 * 1024; // 4MB
     if (file.size > maxSize) {
-      toast.error("File size must be less than 4MB.", {
-        position: "top-right",
+      toast.error('File size must be less than 4MB.', {
+        position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
         closeOnClick: true,
         pauseOnHover: true,
         draggable: true,
       });
-      event.target.value = "";
+      event.target.value = '';
       return;
     }
 
-    if (
-      file &&
-      ["image/jpeg", "image/png", "image/jpg", "image/ico"].includes(file.type)
-    ) {
+    if (file && ['image/jpeg', 'image/png', 'image/jpg', 'image/ico'].includes(file.type)) {
       setImageUpload(true);
       try {
         const uploadedUrl = await uploadImage(file);
         setLogo(uploadedUrl);
-        setFormData(prev => ({ ...prev, logo: uploadedUrl }));
+        setFormData((prev) => ({ ...prev, logo: uploadedUrl }));
         console.log(uploadedUrl);
         setImageUpload(false);
       } catch (error) {
         setImageUpload(false);
-        toast.error("Failed to upload image. Please try again.", {
-          position: "top-right",
+        toast.error('Failed to upload image. Please try again.', {
+          position: 'top-right',
           autoClose: 3000,
           hideProgressBar: true,
           closeOnClick: true,
           pauseOnHover: true,
           draggable: true,
         });
-        event.target.value = "";
+        event.target.value = '';
       }
     } else {
-      toast.error("Please upload image file only.", {
-        position: "top-right",
+      toast.error('Please upload image file only.', {
+        position: 'top-right',
         autoClose: 3000,
         hideProgressBar: true,
         closeOnClick: true,
         pauseOnHover: true,
         draggable: true,
       });
-      event.target.value = "";
+      event.target.value = '';
     }
   };
 
   // Remove uploaded logo
   const removeLogo = () => {
     setLogo(null);
-    setFormData(prev => ({ ...prev, logo: '' }));
+    setFormData((prev) => ({ ...prev, logo: '' }));
     if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      fileInputRef.current.value = '';
     }
   };
 
@@ -142,7 +141,7 @@ const EditClient = () => {
     const handleEditClient = (event: any) => {
       const client = event.detail.client;
       console.log('[EditClient] Received client data:', client);
-      
+
       // Add a small delay to ensure modal is ready
       setTimeout(() => {
         setFormData({
@@ -151,14 +150,13 @@ const EditClient = () => {
           company: client.company || '',
           email: client.email || '',
           phone: client.phone || '',
-          address: client.address || '',
+          address: client.address || client.notes || '',
           logo: client.logo || '',
           status: client.status || 'Active',
-          contractValue: client.contractValue || 0,
-          projects: client.projects || 0
+          contractValue: client.contractValue || client.annualRevenue || 0,
         });
         setLogo(client.logo || null);
-        setErrors({});
+        setFieldErrors({});
         console.log('[EditClient] Form data updated with client data');
       }, 150);
     };
@@ -167,50 +165,114 @@ const EditClient = () => {
     return () => window.removeEventListener('edit-client', handleEditClient);
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  // Validate a single field (used on blur)
+  const validateField = (name: string, value: any): string | undefined => {
+    const v = typeof value === 'string' ? value.trim() : value;
+
+    switch (name) {
+      case 'name':
+        if (!v) return 'Name is required';
+        if (v.length < 2) return 'Name must be at least 2 characters';
+        if (v.length > 100) return 'Name must be at most 100 characters';
+        if (!/^[a-zA-Z0-9\s\-'\.]+$/.test(v))
+          return 'Name contains invalid characters (letters, numbers, hyphens, apostrophes only)';
+        return undefined;
+      case 'company':
+        if (!v) return 'Company name is required';
+        if (v.length < 2) return 'Company name must be at least 2 characters';
+        if (v.length > 200) return 'Company name must be at most 200 characters';
+        return undefined;
+      case 'email':
+        if (!v) return 'Email is required';
+        if (v.length > 254) return 'Email must be at most 254 characters';
+        if (!/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(v))
+          return 'Please enter a valid email address';
+        return undefined;
+      case 'phone':
+        if (!v) return 'Phone is required';
+        if (v.length < 7) return 'Phone must be at least 7 characters';
+        if (v.length > 20) return 'Phone must be at most 20 characters';
+        if (!/^[0-9+\-()\s]+$/.test(v))
+          return 'Phone can only contain digits, +, -, (, ), and spaces';
+        return undefined;
+      case 'address':
+        if (!v) return 'Address is required';
+        if (v.length > 500) return 'Address must be at most 500 characters';
+        return undefined;
+      case 'contractValue':
+        if (Number(value) < 0) return 'Contract value cannot be negative';
+        if (Number(value) > 999999999) return 'Contract value cannot exceed 999,999,999';
+        if (isNaN(Number(value))) return 'Contract value must be a number';
+        return undefined;
+      case 'projects':
+        if (Number(value) < 0) return 'Projects count cannot be negative';
+        if (Number(value) > 10000) return 'Projects count cannot exceed 10,000';
+        if (!Number.isInteger(Number(value))) return 'Projects count must be a whole number';
+        return undefined;
+      case 'status':
+        if (!['Active', 'Inactive'].includes(v)) return 'Status must be Active or Inactive';
+        return undefined;
+      default:
+        return undefined;
+    }
+  };
+
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: name === 'contractValue' || name === 'projects' ? Number(value) || 0 : value
+      [name]: name === 'contractValue' ? Number(value) || 0 : value,
     }));
-    
-    // Clear error when user starts typing
-    if (errors[name as keyof ClientFormErrors]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: undefined
-      }));
+  };
+
+  // On-blur validation for each field
+  const handleFieldBlur = (fieldName: string, value: any) => {
+    const error = validateField(fieldName, value);
+    if (error) {
+      setFieldErrors((prev) => ({ ...prev, [fieldName]: error }));
     }
   };
 
   const validateForm = (): boolean => {
-    const newErrors: ClientFormErrors = {};
+    const newErrors: Record<string, string> = {};
+    const fields: (keyof ClientFormData)[] = [
+      'name',
+      'company',
+      'email',
+      'phone',
+      'address',
+      'contractValue',
+      'status',
+    ];
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name is required';
+    fields.forEach((field) => {
+      if (field === '_id') return;
+      const error = validateField(field, formData[field]);
+      if (error) newErrors[field] = error;
+    });
+
+    setFieldErrors(newErrors);
+
+    // Scroll to first error
+    if (Object.keys(newErrors).length > 0) {
+      const firstErrorField = Object.keys(newErrors)[0];
+      setTimeout(() => {
+        const errorElement =
+          document.querySelector(`[name="${firstErrorField}"]`) ||
+          document.querySelector('.is-invalid');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (errorElement as HTMLElement).focus?.();
+        }
+      }, 100);
     }
 
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    if (!formData.company.trim()) {
-      newErrors.company = 'Company is required';
-    }
-
-    if (formData.contractValue < 0) {
-      newErrors.contractValue = 'Contract value cannot be negative';
-    }
-
-    if (formData.projects < 0) {
-      newErrors.projects = 'Projects count cannot be negative';
-    }
-
-    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
+  const hasErrors = Object.keys(fieldErrors).length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,16 +282,33 @@ const EditClient = () => {
     }
 
     if (!formData._id) {
-      message.error("Client ID is required");
+      message.error('Client ID is required');
       return;
     }
 
     setLoading(true);
     try {
-      console.log('Updating client:', formData);
+      // Trim all text fields before submission
+      const trimmedData = {
+        _id: formData._id,
+        name: formData.name.trim(),
+        company: formData.company.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        address: formData.address.trim(),
+        logo: formData.logo,
+        status: formData.status,
+        contractValue: formData.contractValue,
+      };
+
+      // Console log the API request
+      console.log('=== UPDATE CLIENT API REQUEST ===');
+      console.log(`Endpoint: PUT /api/clients/${trimmedData._id}`);
+      console.log('Request Data:', JSON.stringify(trimmedData, null, 2));
+      console.log('================================');
 
       // Call REST API to update client
-      const success = await updateClient(formData._id, formData);
+      const success = await updateClient(trimmedData._id, trimmedData);
 
       if (success) {
         console.log('Client updated successfully');
@@ -238,11 +317,14 @@ const EditClient = () => {
         setTimeout(() => {
           closeModal();
 
+          // Reload client list after successful update
+          window.dispatchEvent(new CustomEvent('client-updated'));
+
           // Reset errors after modal closes
           setTimeout(() => {
-            setErrors({});
+            setFieldErrors({});
           }, 300);
-        }, 1500);
+        }, 300);
       }
     } catch (error) {
       console.error('Error updating client:', error);
@@ -277,19 +359,18 @@ const EditClient = () => {
       modal.classList.remove('show');
       modal.setAttribute('aria-hidden', 'true');
       modal.removeAttribute('aria-modal');
-      
+
       // Remove backdrop
       const backdrops = document.querySelectorAll('.modal-backdrop');
-      backdrops.forEach(backdrop => backdrop.remove());
-      
+      backdrops.forEach((backdrop) => backdrop.remove());
+
       // Remove modal-open class from body
       document.body.classList.remove('modal-open');
       document.body.style.overflow = '';
       document.body.style.paddingRight = '';
-      
     } catch (error) {
       console.error('Error closing edit client modal:', error);
-      
+
       // Final fallback: just hide the modal
       modal.style.display = 'none';
       modal.classList.remove('show');
@@ -301,253 +382,273 @@ const EditClient = () => {
       <div className="modal fade" id="edit_client">
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
-          <div className="modal-header">
-            <h4 className="modal-title">Edit Client</h4>
-            <button
-              type="button"
-              className="btn-close custom-btn-close"
-              data-bs-dismiss="modal"
-              aria-label="Close"
-            >
-              <i className="ti ti-x" />
-            </button>
-          </div>
-          <form onSubmit={handleSubmit}>
-            <div className="contact-grids-tab">
-              <ul className="nav nav-underline" id="myTab2" role="tablist">
-                <li className="nav-item" role="presentation">
-                  <button
-                    className="nav-link active"
-                    id="info-tab2"
-                    data-bs-toggle="tab"
-                    data-bs-target="#basic-info2"
-                    type="button"
-                    role="tab"
-                    aria-selected="true"
-                  >
-                    Basic Information
-                  </button>
-                </li>
-              </ul>
-            </div>
-            <div className="tab-content" id="myTabContent2">
-              <div
-                className="tab-pane fade show active"
-                id="basic-info2"
-                role="tabpanel"
-                aria-labelledby="info-tab2"
-                tabIndex={0}
+            <div className="modal-header">
+              <h4 className="modal-title">Edit Client</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
               >
-                <div className="modal-body pb-0">
-                  <div className="row">
-                    <div className="col-md-12">
-                      <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                        <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
-                          {logo ? (
-                            <img
-                              src={logo}
-                              alt="Uploaded Logo"
-                              className="rounded-circle"
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
-                              }}
-                            />
-                          ) : imageUpload ? (
-                            <div
-                              className="spinner-border text-primary"
-                              role="status"
-                            >
-                              <span className="visually-hidden">
-                                Uploading...
-                              </span>
-                            </div>
-                          ) : (
-                            <i className="ti ti-photo text-gray-2 fs-16" />
-                          )}
-                        </div>
-                        <div className="profile-upload">
-                          <div className="mb-2">
-                            <h6 className="mb-1">Upload Client Logo</h6>
-                            <p className="fs-12">
-                              Image should be below 4 mb
-                            </p>
-                          </div>
-                          <div className="profile-uploader d-flex align-items-center">
-                            <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-                              {logo ? "Change" : "Upload"}
-                              <input
-                                type="file"
-                                className="form-control image-sign"
-                                accept=".png,.jpeg,.jpg,.ico"
-                                ref={fileInputRef}
-                                onChange={handleImageUpload}
-                              />
-                            </div>
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <div className="contact-grids-tab">
+                <ul className="nav nav-underline" id="myTab2" role="tablist">
+                  <li className="nav-item" role="presentation">
+                    <button
+                      className="nav-link active"
+                      id="info-tab2"
+                      data-bs-toggle="tab"
+                      data-bs-target="#basic-info2"
+                      type="button"
+                      role="tab"
+                      aria-selected="true"
+                    >
+                      Basic Information
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <div className="tab-content" id="myTabContent2">
+                <div
+                  className="tab-pane fade show active"
+                  id="basic-info2"
+                  role="tabpanel"
+                  aria-labelledby="info-tab2"
+                  tabIndex={0}
+                >
+                  <div className="modal-body pb-0">
+                    <div className="row">
+                      <div className="col-md-12">
+                        <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
+                          <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
                             {logo ? (
-                              <button
-                                type="button"
-                                onClick={removeLogo}
-                                className="btn btn-light btn-sm"
-                              >
-                                Remove
-                              </button>
-                            ) : (
-                              <button
-                                type="button" 
-                                className="btn btn-light btn-sm"
-                                onClick={() => {
-                                  if (fileInputRef.current) {
-                                    fileInputRef.current.value = "";
-                                  }
+                              <img
+                                src={logo}
+                                alt="Uploaded Logo"
+                                className="rounded-circle"
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
                                 }}
-                              >
-                                Cancel
-                              </button>
+                              />
+                            ) : imageUpload ? (
+                              <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Uploading...</span>
+                              </div>
+                            ) : (
+                              <i className="ti ti-photo text-gray-2 fs-16" />
                             )}
                           </div>
+                          <div className="profile-upload">
+                            <div className="mb-2">
+                              <h6 className="mb-1">Upload Client Logo</h6>
+                              <p className="fs-12">Image should be below 4 mb</p>
+                            </div>
+                            <div className="profile-uploader d-flex align-items-center">
+                              <div className="drag-upload-btn btn btn-sm btn-primary me-2">
+                                {logo ? 'Change' : 'Upload'}
+                                <input
+                                  type="file"
+                                  className="form-control image-sign"
+                                  accept=".png,.jpeg,.jpg,.ico"
+                                  ref={fileInputRef}
+                                  onChange={handleImageUpload}
+                                />
+                              </div>
+                              {logo ? (
+                                <button
+                                  type="button"
+                                  onClick={removeLogo}
+                                  className="btn btn-light btn-sm"
+                                >
+                                  Remove
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn btn-light btn-sm"
+                                  onClick={() => {
+                                    if (fileInputRef.current) {
+                                      fileInputRef.current.value = '';
+                                    }
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">
-                          Client Name <span className="text-danger"> *</span>
-                        </label>
-                        <input
-                          type="text"
-                          className={`form-control ${errors.name ? 'is-invalid' : ''}`}
-                          name="name"
-                          value={formData.name}
-                          onChange={handleInputChange}
-                          placeholder="Enter client name"
-                        />
-                        {errors.name && <div className="invalid-feedback">{errors.name}</div>}
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Client Name <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.name ? 'is-invalid' : ''}`}
+                            name="name"
+                            value={formData.name}
+                            onChange={handleInputChange}
+                            onFocus={() => clearFieldError('name')}
+                            onBlur={(e) => handleFieldBlur('name', e.target.value)}
+                            placeholder="Enter client name"
+                            maxLength={100}
+                          />
+                          {fieldErrors.name && (
+                            <div className="invalid-feedback d-block">{fieldErrors.name}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">
-                          Company Name <span className="text-danger"> *</span>
-                        </label>
-                        <input
-                          type="text"
-                          className={`form-control ${errors.company ? 'is-invalid' : ''}`}
-                          name="company"
-                          value={formData.company}
-                          onChange={handleInputChange}
-                          placeholder="Enter company name"
-                        />
-                        {errors.company && <div className="invalid-feedback">{errors.company}</div>}
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Company Name <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.company ? 'is-invalid' : ''}`}
+                            name="company"
+                            value={formData.company}
+                            onChange={handleInputChange}
+                            onFocus={() => clearFieldError('company')}
+                            onBlur={(e) => handleFieldBlur('company', e.target.value)}
+                            placeholder="Enter company name"
+                            maxLength={200}
+                          />
+                          {fieldErrors.company && (
+                            <div className="invalid-feedback d-block">{fieldErrors.company}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">
-                          Email <span className="text-danger"> *</span>
-                        </label>
-                        <input
-                          type="email"
-                          className={`form-control ${errors.email ? 'is-invalid' : ''}`}
-                          name="email"
-                          value={formData.email}
-                          onChange={handleInputChange}
-                          placeholder="Enter email address"
-                        />
-                        {errors.email && <div className="invalid-feedback">{errors.email}</div>}
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Email <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="email"
+                            className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
+                            name="email"
+                            value={formData.email}
+                            onChange={handleInputChange}
+                            onFocus={() => clearFieldError('email')}
+                            onBlur={(e) => handleFieldBlur('email', e.target.value)}
+                            placeholder="Enter email address"
+                            maxLength={254}
+                          />
+                          {fieldErrors.email && (
+                            <div className="invalid-feedback d-block">{fieldErrors.email}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Phone Number</label>
-                        <input
-                          type="tel"
-                          className="form-control"
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleInputChange}
-                          placeholder="Enter phone number"
-                        />
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Phone Number <span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="tel"
+                            className={`form-control ${fieldErrors.phone ? 'is-invalid' : ''}`}
+                            name="phone"
+                            value={formData.phone}
+                            onChange={handleInputChange}
+                            onFocus={() => clearFieldError('phone')}
+                            onBlur={(e) => handleFieldBlur('phone', e.target.value)}
+                            placeholder="Enter phone number"
+                            maxLength={20}
+                          />
+                          {fieldErrors.phone && (
+                            <div className="invalid-feedback d-block">{fieldErrors.phone}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Address</label>
-                        <textarea
-                          className="form-control"
-                          name="address"
-                          value={formData.address}
-                          onChange={handleInputChange}
-                          rows={3}
-                          placeholder="Enter address"
-                        />
+                      <div className="col-md-12">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Address <span className="text-danger"> *</span>
+                          </label>
+                          <textarea
+                            className={`form-control ${fieldErrors.address ? 'is-invalid' : ''}`}
+                            name="address"
+                            value={formData.address}
+                            onChange={handleInputChange}
+                            onFocus={() => clearFieldError('address')}
+                            onBlur={(e) => handleFieldBlur('address', e.target.value)}
+                            rows={3}
+                            placeholder="Enter address"
+                            maxLength={500}
+                          />
+                          {fieldErrors.address && (
+                            <div className="invalid-feedback d-block">{fieldErrors.address}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label className="form-label">Status</label>
-                        <select
-                          className="form-control"
-                          name="status"
-                          value={formData.status}
-                          onChange={handleInputChange}
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Inactive">Inactive</option>
-                        </select>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">Status</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="status"
+                            value={formData.status}
+                            readOnly
+                            disabled
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label className="form-label">Contract Value ($)</label>
-                        <input
-                          type="number"
-                          className={`form-control ${errors.contractValue ? 'is-invalid' : ''}`}
-                          name="contractValue"
-                          value={formData.contractValue}
-                          onChange={handleInputChange}
-                          min="0"
-                          step="0.01"
-                        />
-                        {errors.contractValue && <div className="invalid-feedback">{errors.contractValue}</div>}
-                      </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label className="form-label">Projects Count</label>
-                        <input
-                          type="number"
-                          className={`form-control ${errors.projects ? 'is-invalid' : ''}`}
-                          name="projects"
-                          value={formData.projects}
-                          onChange={handleInputChange}
-                          min="0"
-                        />
-                        {errors.projects && <div className="invalid-feedback">{errors.projects}</div>}
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">Contract Value ($)</label>
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.contractValue ? 'is-invalid' : ''}`}
+                            name="contractValue"
+                            value={formData.contractValue}
+                            onChange={handleInputChange}
+                            onKeyPress={(e) => {
+                              // Only allow numbers and decimal point
+                              if (!/[0-9.]/.test(e.key)) {
+                                e.preventDefault();
+                              }
+                            }}
+                            onFocus={() => clearFieldError('contractValue')}
+                            onBlur={(e) => handleFieldBlur('contractValue', Number(e.target.value))}
+                            placeholder="Enter contract value"
+                          />
+                          {fieldErrors.contractValue && (
+                            <div className="invalid-feedback d-block">
+                              {fieldErrors.contractValue}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-outline-light border me-2"
-                    onClick={closeModal}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={loading}
-                  >
-                    {loading ? 'Updating...' : 'Update Client'}
-                  </button>
+                  <div className="modal-footer">
+                    <button
+                      type="button"
+                      className="btn btn-outline-light border me-2"
+                      onClick={closeModal}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={loading || hasErrors}
+                    >
+                      {loading ? 'Updating...' : 'Update Client'}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </form>
+            </form>
           </div>
         </div>
       </div>

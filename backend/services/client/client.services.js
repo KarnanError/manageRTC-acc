@@ -1,43 +1,43 @@
-import { getTenantCollections } from "../../config/db.js";
-import { ObjectId } from "mongodb";
-import PDFDocument from "pdfkit";
-import ExcelJS from "exceljs";
-import fs from "fs";
-import path from "path";
-import { format } from "date-fns";
+import { format } from 'date-fns';
+import ExcelJS from 'exceljs';
+import fs from 'fs';
+import { ObjectId } from 'mongodb';
+import path from 'path';
+import PDFDocument from 'pdfkit';
+import { getTenantCollections } from '../../config/db.js';
 
 // Create new client
 export const createClient = async (companyId, clientData) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] createClient", { companyId, clientData });
+    console.log('[ClientService] createClient', { companyId, clientData });
 
     const newClient = {
       ...clientData,
       companyId,
       createdAt: new Date(),
       updatedAt: new Date(),
-      status: clientData.status || "Active",
+      status: clientData.status || 'Active',
       isDeleted: false,
       contractValue: clientData.contractValue || 0,
       projects: clientData.projects || 0,
     };
 
     const result = await collections.clients.insertOne(newClient);
-    console.log("[ClientService] insertOne result", { result });
+    console.log('[ClientService] insertOne result', { result });
 
     if (result.insertedId) {
       const inserted = await collections.clients.findOne({
         _id: result.insertedId,
       });
-      console.log("[ClientService] inserted client", { inserted });
+      console.log('[ClientService] inserted client', { inserted });
       return { done: true, data: inserted };
     } else {
-      console.error("[ClientService] Failed to insert client");
-      return { done: false, error: "Failed to insert client" };
+      console.error('[ClientService] Failed to insert client');
+      return { done: false, error: 'Failed to insert client' };
     }
   } catch (error) {
-    console.error("[ClientService] Error in createClient", {
+    console.error('[ClientService] Error in createClient', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -48,33 +48,33 @@ export const createClient = async (companyId, clientData) => {
 export const getClients = async (companyId, filters = {}) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] getClients", { companyId, filters });
+    console.log('[ClientService] getClients', { companyId, filters });
 
     const query = { companyId, isDeleted: { $ne: true } };
 
     // Apply filters
-    if (filters.status && filters.status !== "All") {
+    if (filters.status && filters.status !== 'All') {
       query.status = filters.status;
     }
 
     // Search filter
     if (filters.search) {
       query.$or = [
-        { name: { $regex: filters.search, $options: "i" } },
-        { company: { $regex: filters.search, $options: "i" } },
-        { email: { $regex: filters.search, $options: "i" } },
+        { name: { $regex: filters.search, $options: 'i' } },
+        { company: { $regex: filters.search, $options: 'i' } },
+        { email: { $regex: filters.search, $options: 'i' } },
       ];
     }
 
     // Sort options
     let sort = { createdAt: -1 };
     if (filters.sortBy) {
-      sort = { [filters.sortBy]: filters.sortOrder === "asc" ? 1 : -1 };
+      sort = { [filters.sortBy]: filters.sortOrder === 'asc' ? 1 : -1 };
     }
 
-    console.log("[ClientService] Final query", { query, sort });
+    console.log('[ClientService] Final query', { query, sort });
     const clients = await collections.clients.find(query).sort(sort).toArray();
-    console.log("[ClientService] found clients", { count: clients.length });
+    console.log('[ClientService] found clients', { count: clients.length });
 
     // Ensure dates are properly converted to Date objects
     const processedClients = clients.map((client) => ({
@@ -85,7 +85,7 @@ export const getClients = async (companyId, filters = {}) => {
 
     return { done: true, data: processedClients };
   } catch (error) {
-    console.error("[ClientService] Error in getClients", {
+    console.error('[ClientService] Error in getClients', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -96,10 +96,10 @@ export const getClients = async (companyId, filters = {}) => {
 export const getClientById = async (companyId, clientId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] getClientById", { companyId, clientId });
+    console.log('[ClientService] getClientById', { companyId, clientId });
 
     if (!ObjectId.isValid(clientId)) {
-      return { done: false, error: "Invalid client ID format" };
+      return { done: false, error: 'Invalid client ID format' };
     }
 
     const client = await collections.clients.findOne({
@@ -109,7 +109,7 @@ export const getClientById = async (companyId, clientId) => {
     });
 
     if (!client) {
-      return { done: false, error: "Client not found" };
+      return { done: false, error: 'Client not found' };
     }
 
     // Ensure dates are properly converted
@@ -121,7 +121,7 @@ export const getClientById = async (companyId, clientId) => {
 
     return { done: true, data: processedClient };
   } catch (error) {
-    console.error("[ClientService] Error in getClientById", {
+    console.error('[ClientService] Error in getClientById', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -132,14 +132,14 @@ export const getClientById = async (companyId, clientId) => {
 export const updateClient = async (companyId, clientId, updateData) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] updateClient", {
+    console.log('[ClientService] updateClient', {
       companyId,
       clientId,
       updateData,
     });
 
     if (!ObjectId.isValid(clientId)) {
-      return { done: false, error: "Invalid client ID format" };
+      return { done: false, error: 'Invalid client ID format' };
     }
 
     const updateFields = {
@@ -156,11 +156,11 @@ export const updateClient = async (companyId, clientId, updateData) => {
     );
 
     if (result.matchedCount === 0) {
-      return { done: false, error: "Client not found" };
+      return { done: false, error: 'Client not found' };
     }
 
     if (result.modifiedCount === 0) {
-      return { done: false, error: "No changes made to client" };
+      return { done: false, error: 'No changes made to client' };
     }
 
     // Return updated client
@@ -171,17 +171,13 @@ export const updateClient = async (companyId, clientId, updateData) => {
 
     const processedClient = {
       ...updatedClient,
-      createdAt: updatedClient.createdAt
-        ? new Date(updatedClient.createdAt)
-        : null,
-      updatedAt: updatedClient.updatedAt
-        ? new Date(updatedClient.updatedAt)
-        : null,
+      createdAt: updatedClient.createdAt ? new Date(updatedClient.createdAt) : null,
+      updatedAt: updatedClient.updatedAt ? new Date(updatedClient.updatedAt) : null,
     };
 
     return { done: true, data: processedClient };
   } catch (error) {
-    console.error("[ClientService] Error in updateClient", {
+    console.error('[ClientService] Error in updateClient', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -192,10 +188,10 @@ export const updateClient = async (companyId, clientId, updateData) => {
 export const deleteClient = async (companyId, clientId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] deleteClient", { companyId, clientId });
+    console.log('[ClientService] deleteClient', { companyId, clientId });
 
     if (!ObjectId.isValid(clientId)) {
-      return { done: false, error: "Invalid client ID format" };
+      return { done: false, error: 'Invalid client ID format' };
     }
 
     const result = await collections.clients.updateOne(
@@ -210,12 +206,12 @@ export const deleteClient = async (companyId, clientId) => {
     );
 
     if (result.matchedCount === 0) {
-      return { done: false, error: "Client not found" };
+      return { done: false, error: 'Client not found' };
     }
 
     return { done: true, data: { _id: clientId, deleted: true } };
   } catch (error) {
-    console.error("[ClientService] Error in deleteClient", {
+    console.error('[ClientService] Error in deleteClient', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -226,23 +222,20 @@ export const deleteClient = async (companyId, clientId) => {
 export const getClientStats = async (companyId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] getClientStats", { companyId });
+    console.log('[ClientService] getClientStats', { companyId });
 
     const totalClients = await collections.clients.countDocuments({
-      companyId,
       isDeleted: { $ne: true },
     });
 
     const activeClients = await collections.clients.countDocuments({
-      companyId,
       isDeleted: { $ne: true },
-      status: "Active",
+      status: 'Active',
     });
 
     const inactiveClients = await collections.clients.countDocuments({
-      companyId,
       isDeleted: { $ne: true },
-      status: "Inactive",
+      status: 'Inactive',
     });
 
     // New clients in last 30 days
@@ -250,7 +243,6 @@ export const getClientStats = async (companyId) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const newClients = await collections.clients.countDocuments({
-      companyId,
       isDeleted: { $ne: true },
       createdAt: { $gte: thirtyDaysAgo },
     });
@@ -262,10 +254,10 @@ export const getClientStats = async (companyId) => {
       newClients,
     };
 
-    console.log("[ClientService] Client stats", stats);
+    console.log('[ClientService] Client stats', stats);
     return { done: true, data: stats };
   } catch (error) {
-    console.error("[ClientService] Error in getClientStats", {
+    console.error('[ClientService] Error in getClientStats', {
       error: error.message,
     });
     return { done: false, error: error.message };
@@ -276,19 +268,21 @@ export const getClientStats = async (companyId) => {
 export const exportClientsPDF = async (companyId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] exportClientsPDF", { companyId });
+    console.log('[ClientService] exportClientsPDF', { companyId });
 
+    // Query tenant-specific database - no companyId field needed
     const clients = await collections.clients
       .find({
-        companyId,
-        isDeleted: { $ne: true },
+        $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
       })
       .sort({ createdAt: -1 })
       .toArray();
 
+    console.log('[ClientService] Found clients:', clients.length);
+
     const doc = new PDFDocument();
     const fileName = `clients_${companyId}_${Date.now()}.pdf`;
-    const tempDir = path.join(process.cwd(), "temp");
+    const tempDir = path.join(process.cwd(), 'temp');
     const filePath = path.join(tempDir, fileName);
 
     // Ensure temp directory exists
@@ -299,18 +293,18 @@ export const exportClientsPDF = async (companyId) => {
     doc.pipe(fs.createWriteStream(filePath));
 
     // Header
-    doc.fontSize(20).text("Client Report", 50, 50);
-    doc.fontSize(12).text(`Generated on: ${format(new Date(), "PPP")}`, 50, 80);
+    doc.fontSize(20).text('Client Report', 50, 50);
+    doc.fontSize(12).text(`Generated on: ${format(new Date(), 'PPP')}`, 50, 80);
     doc.text(`Total Clients: ${clients.length}`, 50, 100);
 
     let yPosition = 130;
 
     // Table header
-    doc.fontSize(10).text("Name", 50, yPosition);
-    doc.text("Company", 200, yPosition);
-    doc.text("Email", 350, yPosition);
-    doc.text("Status", 500, yPosition);
-    doc.text("Created", 580, yPosition);
+    doc.fontSize(10).text('Name', 50, yPosition);
+    doc.text('Company', 200, yPosition);
+    doc.text('Email', 350, yPosition);
+    doc.text('Status', 500, yPosition);
+    doc.text('Created', 580, yPosition);
 
     yPosition += 20;
 
@@ -326,12 +320,12 @@ export const exportClientsPDF = async (companyId) => {
         yPosition = 50;
       }
 
-      doc.text(client.name || "N/A", 50, yPosition);
-      doc.text(client.company || "N/A", 200, yPosition);
-      doc.text(client.email || "N/A", 350, yPosition);
-      doc.text(client.status || "N/A", 500, yPosition);
+      doc.text(client.name || 'N/A', 50, yPosition);
+      doc.text(client.company || 'N/A', 200, yPosition);
+      doc.text(client.email || 'N/A', 350, yPosition);
+      doc.text(client.status || 'N/A', 500, yPosition);
       doc.text(
-        format(new Date(client.createdAt), "MMM dd, yyyy"),
+        client.createdAt ? format(new Date(client.createdAt), 'MMM dd, yyyy') : 'N/A',
         580,
         yPosition
       );
@@ -341,7 +335,7 @@ export const exportClientsPDF = async (companyId) => {
 
     doc.end();
 
-    console.log("PDF generation completed successfully");
+    console.log('PDF generation completed successfully');
     const frontendurl = process.env.FRONTEND_URL + `/temp/${fileName}`;
 
     return {
@@ -352,7 +346,7 @@ export const exportClientsPDF = async (companyId) => {
       },
     };
   } catch (error) {
-    console.error("Error generating PDF:", error);
+    console.error('Error generating PDF:', error);
     return { done: false, error: error.message };
   }
 };
@@ -361,7 +355,7 @@ export const exportClientsPDF = async (companyId) => {
 export const exportClientsExcel = async (companyId) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log("[ClientService] exportClientsExcel", { companyId });
+    console.log('[ClientService] exportClientsExcel', { companyId });
 
     const clients = await collections.clients
       .find({
@@ -372,48 +366,46 @@ export const exportClientsExcel = async (companyId) => {
       .toArray();
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Clients");
+    const worksheet = workbook.addWorksheet('Clients');
 
     // Define columns
     worksheet.columns = [
-      { header: "Name", key: "name", width: 20 },
-      { header: "Company", key: "company", width: 25 },
-      { header: "Email", key: "email", width: 30 },
-      { header: "Phone", key: "phone", width: 15 },
-      { header: "Address", key: "address", width: 40 },
-      { header: "Status", key: "status", width: 10 },
-      { header: "Contract Value", key: "contractValue", width: 15 },
-      { header: "Projects", key: "projects", width: 10 },
-      { header: "Created At", key: "createdAt", width: 20 },
+      { header: 'Name', key: 'name', width: 20 },
+      { header: 'Company', key: 'company', width: 25 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'Address', key: 'address', width: 40 },
+      { header: 'Status', key: 'status', width: 10 },
+      { header: 'Contract Value', key: 'contractValue', width: 15 },
+      { header: 'Projects', key: 'projects', width: 10 },
+      { header: 'Created At', key: 'createdAt', width: 20 },
     ];
 
     // Add data
     clients.forEach((client) => {
       worksheet.addRow({
-        name: client.name || "",
-        company: client.company || "",
-        email: client.email || "",
-        phone: client.phone || "",
-        address: client.address || "",
-        status: client.status || "",
+        name: client.name || '',
+        company: client.company || '',
+        email: client.email || '',
+        phone: client.phone || '',
+        address: client.address || '',
+        status: client.status || '',
         contractValue: client.contractValue || 0,
         projects: client.projects || 0,
-        createdAt: client.createdAt
-          ? format(new Date(client.createdAt), "MMM dd, yyyy")
-          : "",
+        createdAt: client.createdAt ? format(new Date(client.createdAt), 'MMM dd, yyyy') : '',
       });
     });
 
     // Style the header
     worksheet.getRow(1).font = { bold: true };
     worksheet.getRow(1).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFE0E0E0" },
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
     };
 
     const fileName = `clients_${companyId}_${Date.now()}.xlsx`;
-    const tempDir = path.join(process.cwd(), "temp");
+    const tempDir = path.join(process.cwd(), 'temp');
     const filePath = path.join(tempDir, fileName);
 
     // Ensure temp directory exists
@@ -423,7 +415,7 @@ export const exportClientsExcel = async (companyId) => {
 
     await workbook.xlsx.writeFile(filePath);
 
-    console.log("Excel generation completed successfully");
+    console.log('Excel generation completed successfully');
     const frontendurl = process.env.FRONTEND_URL + `/temp/${fileName}`;
 
     return {
@@ -434,7 +426,7 @@ export const exportClientsExcel = async (companyId) => {
       },
     };
   } catch (error) {
-    console.error("Error generating Excel:", error);
+    console.error('Error generating Excel:', error);
     return { done: false, error: error.message };
   }
 };

@@ -67,6 +67,14 @@ const projectSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
   }],
+  milestones: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Milestone'
+  }],
+  budgetId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Budget'
+  },
   tags: [{
     type: String,
     trim: true
@@ -99,6 +107,7 @@ projectSchema.index({ companyId: 1, client: 1 });
 projectSchema.index({ companyId: 1, isDeleted: 1 });
 projectSchema.index({ startDate: 1 });
 projectSchema.index({ dueDate: 1 });
+projectSchema.index({ companyId: 1, budgetId: 1 });
 
 // Pre-save middleware to update the updatedAt timestamp
 projectSchema.pre('save', function(next) {

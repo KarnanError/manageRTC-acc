@@ -4,7 +4,7 @@
  * This replaces Socket.IO emits with standard HTTP requests
  */
 
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 // Global token cache - will be populated by AuthProvider
 let cachedToken: string | null = null;
@@ -24,7 +24,8 @@ export const getAuthToken = (): string | null => {
 };
 
 // API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 const API_TIMEOUT = 30000; // 30 seconds
 
 // API Response Types
@@ -72,6 +73,8 @@ const createApiClient = (): AxiosInstance => {
         const token = getAuthToken();
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
+        } else if (!token) {
+          console.warn('[API] No auth token available - request may fail with 401');
         }
         console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, config.params || '');
       } catch (error) {
@@ -97,8 +100,17 @@ const createApiClient = (): AxiosInstance => {
       // Handle specific error cases
       if (error.response?.status === 401) {
         // Unauthorized - Token expired or invalid
-        console.error('[API] Unauthorized access - redirecting to login');
-        // You can trigger a redirect or token refresh here
+        console.error(
+          '[API] Unauthorized access - token expired or invalid. Please refresh the page or log in again.'
+        );
+        // Optionally show a notification to the user
+        window.dispatchEvent(
+          new CustomEvent('auth-error', {
+            detail: {
+              message: 'Your session has expired. Please refresh the page or log in again.',
+            },
+          })
+        );
       }
 
       if (error.response?.status === 403) {
@@ -131,32 +143,51 @@ export const apiClient = createApiClient();
  */
 
 // Generic GET request
-export const get = async <T = any>(url: string, config?: RequestConfig): Promise<ApiResponse<T>> => {
+export const get = async <T = any>(
+  url: string,
+  config?: RequestConfig
+): Promise<ApiResponse<T>> => {
   const response = await apiClient.get<ApiResponse<T>>(url, config);
   return response.data;
 };
 
 // Generic POST request
-export const post = async <T = any>(url: string, data?: any, config?: RequestConfig): Promise<ApiResponse<T>> => {
+export const post = async <T = any>(
+  url: string,
+  data?: any,
+  config?: RequestConfig
+): Promise<ApiResponse<T>> => {
   const response = await apiClient.post<ApiResponse<T>>(url, data, config);
   return response.data;
 };
 
 // Generic PUT request
-export const put = async <T = any>(url: string, data?: any, config?: RequestConfig): Promise<ApiResponse<T>> => {
+export const put = async <T = any>(
+  url: string,
+  data?: any,
+  config?: RequestConfig
+): Promise<ApiResponse<T>> => {
   const response = await apiClient.put<ApiResponse<T>>(url, data, config);
   return response.data;
 };
 
 // Generic PATCH request
-export const patch = async <T = any>(url: string, data?: any, config?: RequestConfig): Promise<ApiResponse<T>> => {
+export const patch = async <T = any>(
+  url: string,
+  data?: any,
+  config?: RequestConfig
+): Promise<ApiResponse<T>> => {
   const response = await apiClient.patch<ApiResponse<T>>(url, data, config);
   return response.data;
 };
 
 // Generic DELETE request
 // Note: Axios delete with body requires { data: ... } in config
-export const del = async <T = any>(url: string, data?: any, config?: RequestConfig): Promise<ApiResponse<T>> => {
+export const del = async <T = any>(
+  url: string,
+  data?: any,
+  config?: RequestConfig
+): Promise<ApiResponse<T>> => {
   const response = await apiClient.delete<ApiResponse<T>>(url, data ? { data, ...config } : config);
   return response.data;
 };

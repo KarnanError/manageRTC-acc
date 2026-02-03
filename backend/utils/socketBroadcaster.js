@@ -101,24 +101,24 @@ export const broadcastEmployeeEvents = {
 export const broadcastProjectEvents = {
   /**
    * Broadcast project created event
+   * Now sends complete project object to match REST API response
    */
   created: (io, companyId, project) => {
+    // Send complete project object for consistency with REST API
     broadcastToCompany(io, companyId, 'project:created', {
-      projectId: project.projectId,
-      _id: project._id,
-      name: project.name,
-      status: project.status,
-      teamLeader: project.teamLeader,
-      createdBy: project.createdBy
+      ...project.toObject(),
+      isOverdue: project.isOverdue,
+      timestamp: new Date().toISOString()
     });
 
-    // Notify team members
+    // Notify team members individually
     if (project.teamMembers && project.teamMembers.length > 0) {
       project.teamMembers.forEach(memberId => {
         broadcastToUser(io, memberId, 'project:you_joined', {
           projectId: project.projectId,
           _id: project._id,
-          name: project.name
+          name: project.name,
+          timestamp: new Date().toISOString()
         });
       });
     }
@@ -126,27 +126,25 @@ export const broadcastProjectEvents = {
 
   /**
    * Broadcast project updated event
+   * Now sends complete project object to match REST API response
    */
   updated: (io, companyId, project) => {
     broadcastToCompany(io, companyId, 'project:updated', {
-      projectId: project.projectId,
-      _id: project._id,
-      name: project.name,
-      status: project.status,
-      updatedBy: project.updatedBy
+      ...project.toObject(),
+      isOverdue: project.isOverdue,
+      timestamp: new Date().toISOString()
     });
   },
 
   /**
    * Broadcast project progress updated event
+   * Now sends complete project object for consistency
    */
   progressUpdated: (io, companyId, project) => {
     broadcastToRoom(io, `project_${project._id}`, 'project:progress_updated', {
-      projectId: project.projectId,
-      _id: project._id,
-      name: project.name,
-      progress: project.progress,
-      status: project.status
+      ...project.toObject(),
+      isOverdue: project.isOverdue,
+      timestamp: new Date().toISOString()
     });
   },
 
@@ -1022,6 +1020,175 @@ export const broadcastPipelineEvents = {
 };
 
 /**
+ * Milestone event broadcasters
+ */
+export const broadcastMilestoneEvents = {
+  /**
+   * Broadcast milestone created event
+   */
+  created: (io, companyId, milestone) => {
+    broadcastToRoom(io, `project_${milestone.projectId}`, 'milestone:created', {
+      milestoneId: milestone.milestoneId,
+      _id: milestone._id,
+      title: milestone.title,
+      projectId: milestone.projectId,
+      status: milestone.status,
+      dueDate: milestone.dueDate,
+      createdBy: milestone.createdBy
+    });
+  },
+
+  /**
+   * Broadcast milestone updated event
+   */
+  updated: (io, companyId, milestone) => {
+    broadcastToRoom(io, `project_${milestone.projectId}`, 'milestone:updated', {
+      milestoneId: milestone.milestoneId,
+      _id: milestone._id,
+      title: milestone.title,
+      projectId: milestone.projectId,
+      status: milestone.status,
+      progress: milestone.progress,
+      updatedBy: milestone.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast milestone completed event
+   */
+  completed: (io, companyId, milestone) => {
+    broadcastToRoom(io, `project_${milestone.projectId}`, 'milestone:completed', {
+      milestoneId: milestone.milestoneId,
+      _id: milestone._id,
+      title: milestone.title,
+      projectId: milestone.projectId,
+      completedDate: milestone.completedDate,
+      progress: milestone.progress
+    });
+  },
+
+  /**
+   * Broadcast milestone progress updated event
+   */
+  progressUpdated: (io, companyId, milestone) => {
+    broadcastToRoom(io, `project_${milestone.projectId}`, 'milestone:progress_updated', {
+      milestoneId: milestone.milestoneId,
+      _id: milestone._id,
+      title: milestone.title,
+      projectId: milestone.projectId,
+      progress: milestone.progress,
+      status: milestone.status
+    });
+  },
+
+  /**
+   * Broadcast milestone deleted event
+   */
+  deleted: (io, companyId, milestoneId, projectId) => {
+    broadcastToRoom(io, `project_${projectId}`, 'milestone:deleted', {
+      milestoneId,
+      projectId
+    });
+  }
+};
+
+/**
+ * Time Tracking event broadcasters
+ */
+export const broadcastTimeTrackingEvents = {
+  /**
+   * Broadcast time entry created event
+   */
+  created: (io, companyId, timeEntry) => {
+    broadcastToUser(io, timeEntry.userId, 'timeentry:created', {
+      timeEntryId: timeEntry.timeEntryId,
+      _id: timeEntry._id,
+      projectId: timeEntry.projectId,
+      taskId: timeEntry.taskId,
+      date: timeEntry.date,
+      duration: timeEntry.duration,
+      billable: timeEntry.billable,
+      createdBy: timeEntry.createdBy
+    });
+
+    // Notify project room
+    if (timeEntry.projectId) {
+      broadcastToRoom(io, `project_${timeEntry.projectId}`, 'timeentry:project_created', {
+        timeEntryId: timeEntry.timeEntryId,
+        userId: timeEntry.userId,
+        duration: timeEntry.duration
+      });
+    }
+  },
+
+  /**
+   * Broadcast time entry updated event
+   */
+  updated: (io, companyId, timeEntry) => {
+    broadcastToUser(io, timeEntry.userId, 'timeentry:updated', {
+      timeEntryId: timeEntry.timeEntryId,
+      _id: timeEntry._id,
+      date: timeEntry.date,
+      duration: timeEntry.duration,
+      status: timeEntry.status
+    });
+  },
+
+  /**
+   * Broadcast timesheet submitted event
+   */
+  timesheetSubmitted: (io, companyId, userId, submittedCount) => {
+    broadcastToUser(io, userId, 'timesheet:submitted', {
+      submittedCount,
+      timestamp: new Date().toISOString()
+    });
+
+    // Notify admins
+    broadcastToCompany(io, companyId, 'timesheet:pending_approval', {
+      userId,
+      submittedCount
+    });
+  },
+
+  /**
+   * Broadcast timesheet approved event
+   */
+  timesheetApproved: (io, companyId, userId, approvedCount) => {
+    broadcastToUser(io, userId, 'timesheet:approved', {
+      approvedCount,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast timesheet rejected event
+   */
+  timesheetRejected: (io, companyId, userId, rejectedCount, reason) => {
+    broadcastToUser(io, userId, 'timesheet:rejected', {
+      rejectedCount,
+      reason,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast time entry deleted event
+   */
+  deleted: (io, companyId, timeEntryId, userId, projectId) => {
+    broadcastToUser(io, userId, 'timeentry:deleted', {
+      timeEntryId
+    });
+
+    if (projectId) {
+      broadcastToRoom(io, `project_${projectId}`, 'timeentry:project_deleted', {
+        timeEntryId,
+        userId
+      });
+    }
+  }
+};
+
+/**
  * Dashboard event broadcasters
  */
 export const broadcastDashboardEvents = {
@@ -1055,6 +1222,8 @@ export default {
   broadcastEmployeeEvents,
   broadcastProjectEvents,
   broadcastTaskEvents,
+  broadcastMilestoneEvents,
+  broadcastTimeTrackingEvents,
   broadcastLeadEvents,
   broadcastClientEvents,
   broadcastAttendanceEvents,

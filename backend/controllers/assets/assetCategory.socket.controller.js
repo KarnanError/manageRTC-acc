@@ -1,35 +1,33 @@
 // backend/controllers/assets/assetCategory.socket.controller.js
 import {
-  getAssetCategories,
   createAssetCategory,
+  deleteAssetCategory,
+  getAssetCategories,
   updateAssetCategory,
-  deleteAssetCategory, 
-} from "../../services/assets/assetCategory.services.js";
+} from '../../services/assets/assetCategory.services.js';
 
 const authorize = (socket, allowed = []) => {
-  const role = (socket.role || "").toLowerCase();
-  if (!allowed.includes(role)) throw new Error("Forbidden");
+  const role = (socket.role || '').toLowerCase();
+  if (!allowed.includes(role)) throw new Error('Forbidden');
 };
 
 const roomForCompany = (companyId) => `company:${companyId}`;
 
 const assetCategorySocketController = (socket, io) => {
-  console.log(`✅ assetCategory.socket.controller active for ${socket.id}`);
-
   // Ensure socket joined company room
   if (socket.companyId) {
     socket.join(roomForCompany(socket.companyId));
   }
 
   // GET all categories
-  socket.on("admin/asset-categories/get", async (params = {}) => {
+  socket.on('admin/asset-categories/get', async (params = {}) => {
     try {
-      authorize(socket, ["admin", "hr"]);
+      authorize(socket, ['admin', 'hr']);
       const companyId = socket.companyId;
       const res = await getAssetCategories(companyId, params);
-      socket.emit("admin/asset-categories/get-response", res);
+      socket.emit('admin/asset-categories/get-response', res);
     } catch (err) {
-      socket.emit("admin/asset-categories/get-response", {
+      socket.emit('admin/asset-categories/get-response', {
         done: false,
         error: err.message,
       });
@@ -37,9 +35,9 @@ const assetCategorySocketController = (socket, io) => {
   });
 
   // CREATE category
-  socket.on("admin/asset-categories/create", async (payload) => {
+  socket.on('admin/asset-categories/create', async (payload) => {
     try {
-      authorize(socket, ["admin"]);
+      authorize(socket, ['admin']);
       const companyId = socket.companyId;
       const res = await createAssetCategory(companyId, payload);
 
@@ -50,17 +48,14 @@ const assetCategorySocketController = (socket, io) => {
           pageSize: 100,
           filters: {},
         });
-        io.to(roomForCompany(companyId)).emit(
-          "admin/asset-categories/list-update",
-          fresh
-        );
+        io.to(roomForCompany(companyId)).emit('admin/asset-categories/list-update', fresh);
       } catch (e) {
-        console.error("Failed to broadcast refreshed category list:", e);
+        console.error('Failed to broadcast refreshed category list:', e);
       }
 
-      socket.emit("admin/asset-categories/create-response", res);
+      socket.emit('admin/asset-categories/create-response', res);
     } catch (err) {
-      socket.emit("admin/asset-categories/create-response", {
+      socket.emit('admin/asset-categories/create-response', {
         done: false,
         error: err.message,
       });
@@ -68,9 +63,9 @@ const assetCategorySocketController = (socket, io) => {
   });
 
   // UPDATE category
-  socket.on("admin/asset-categories/update", async (payload) => {
+  socket.on('admin/asset-categories/update', async (payload) => {
     try {
-      authorize(socket, ["admin"]);
+      authorize(socket, ['admin']);
       const companyId = socket.companyId;
       const { categoryId, updateData } = payload;
       await updateAssetCategory(companyId, categoryId, updateData);
@@ -82,17 +77,14 @@ const assetCategorySocketController = (socket, io) => {
           pageSize: 100,
           filters: {},
         });
-        io.to(roomForCompany(companyId)).emit(
-          "admin/asset-categories/list-update",
-          fresh
-        );
+        io.to(roomForCompany(companyId)).emit('admin/asset-categories/list-update', fresh);
       } catch (e) {
-        console.error("Failed to broadcast refreshed category list after update:", e);
+        console.error('Failed to broadcast refreshed category list after update:', e);
       }
 
-      socket.emit("admin/asset-categories/update-response", { done: true });
+      socket.emit('admin/asset-categories/update-response', { done: true });
     } catch (err) {
-      socket.emit("admin/asset-categories/update-response", {
+      socket.emit('admin/asset-categories/update-response', {
         done: false,
         error: err.message,
       });
@@ -100,9 +92,9 @@ const assetCategorySocketController = (socket, io) => {
   });
 
   // DELETE category
-  socket.on("admin/asset-categories/delete", async ({ categoryId }) => {
+  socket.on('admin/asset-categories/delete', async ({ categoryId }) => {
     try {
-      authorize(socket, ["admin"]);
+      authorize(socket, ['admin']);
       const companyId = socket.companyId;
       await deleteAssetCategory(companyId, categoryId);
 
@@ -113,17 +105,14 @@ const assetCategorySocketController = (socket, io) => {
           pageSize: 100,
           filters: {},
         });
-        io.to(roomForCompany(companyId)).emit(
-          "admin/asset-categories/list-update",
-          fresh
-        );
+        io.to(roomForCompany(companyId)).emit('admin/asset-categories/list-update', fresh);
       } catch (e) {
-        console.error("Failed to broadcast refreshed category list after delete:", e);
+        console.error('Failed to broadcast refreshed category list after delete:', e);
       }
 
-      socket.emit("admin/asset-categories/delete-response", { done: true });
+      socket.emit('admin/asset-categories/delete-response', { done: true });
     } catch (err) {
-      socket.emit("admin/asset-categories/delete-response", {
+      socket.emit('admin/asset-categories/delete-response', {
         done: false,
         error: err.message,
       });

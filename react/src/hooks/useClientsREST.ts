@@ -1,13 +1,11 @@
 /**
  * Clients REST API Hook
- * Replaces Socket.IO-based useClients with REST API calls
- * Real-time updates still use Socket.IO listeners
+ * Pure REST API hook - no Socket.IO dependency
  */
 
-import { useState, useCallback, useEffect } from 'react';
-import { useSocket } from '../SocketContext';
 import { message } from 'antd';
-import { get, post, put, del, buildParams, ApiResponse } from '../services/api';
+import { useCallback, useState } from 'react';
+import { ApiResponse, del, get, getAuthToken, post, put } from '../services/api';
 
 export interface Client {
   _id: string;
@@ -29,11 +27,11 @@ export interface Client {
 }
 
 export interface ClientStats {
+  total: number;
   totalClients: number;
   activeClients: number;
   inactiveClients: number;
   newClients: number;
-  totalContractValue: number;
 }
 
 export interface ClientFilters {
@@ -46,17 +44,18 @@ export interface ClientFilters {
   search?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  isDeleted?: boolean;
 }
 
 /**
  * Clients REST API Hook
- * Uses REST APIs for CRUD operations and Socket.IO for real-time broadcasts
+ * Uses REST APIs for all CRUD operations and exports
  */
 export const useClientsREST = () => {
-  const socket = useSocket();
   const [clients, setClients] = useState<Client[]>([]);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
@@ -67,8 +66,9 @@ export const useClientsREST = () => {
     setLoading(true);
     setError(null);
     try {
-      const params = buildParams(filters);
-      const response: ApiResponse<Client[]> = await get('/clients', { params });
+      // Backend automatically filters isDeleted = false
+      // Just send empty params to get all non-deleted clients
+      const response: ApiResponse<Client[]> = await get('/clients');
 
       if (response.success && response.data) {
         setClients(response.data);
@@ -79,7 +79,8 @@ export const useClientsREST = () => {
         throw new Error(response.error?.message || 'Failed to fetch clients');
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
+      const errorMessage =
+        err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
       setError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -117,7 +118,8 @@ export const useClientsREST = () => {
         setClients(response.data);
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
+      const errorMessage =
+        err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
       setError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -139,7 +141,8 @@ export const useClientsREST = () => {
         setClients(response.data);
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
+      const errorMessage =
+        err.response?.data?.error?.message || err.message || 'Failed to fetch clients';
       setError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -160,7 +163,8 @@ export const useClientsREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to fetch client');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch client';
+      const errorMessage =
+        err.response?.data?.error?.message || err.message || 'Failed to fetch client';
       message.error(errorMessage);
       return null;
     }
@@ -170,68 +174,80 @@ export const useClientsREST = () => {
    * Create new client
    * REST API: POST /api/clients
    */
-  const createClient = useCallback(async (clientData: Partial<Client>): Promise<boolean> => {
-    try {
-      const response: ApiResponse<Client> = await post('/clients', clientData);
+  const createClient = useCallback(
+    async (clientData: Partial<Client>): Promise<boolean> => {
+      try {
+        const response: ApiResponse<Client> = await post('/clients', clientData);
 
-      if (response.success && response.data) {
-        message.success('Client created successfully!');
-        setClients(prev => [...prev, response.data!]);
-        return true;
+        if (response.success && response.data) {
+          message.success('Client created successfully!');
+          // Refresh the full list to stay in sync
+          await fetchClients();
+          await fetchStats();
+          return true;
+        }
+        throw new Error(response.error?.message || 'Failed to create client');
+      } catch (err: any) {
+        const errorMessage =
+          err.response?.data?.error?.message || err.message || 'Failed to create client';
+        message.error(errorMessage);
+        return false;
       }
-      throw new Error(response.error?.message || 'Failed to create client');
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to create client';
-      message.error(errorMessage);
-      return false;
-    }
-  }, []);
+    },
+    [fetchClients, fetchStats]
+  );
 
   /**
    * Update client
    * REST API: PUT /api/clients/:id
    */
-  const updateClient = useCallback(async (clientId: string, updateData: Partial<Client>): Promise<boolean> => {
-    try {
-      const response: ApiResponse<Client> = await put(`/clients/${clientId}`, updateData);
+  const updateClient = useCallback(
+    async (clientId: string, updateData: Partial<Client>): Promise<boolean> => {
+      try {
+        const response: ApiResponse<Client> = await put(`/clients/${clientId}`, updateData);
 
-      if (response.success && response.data) {
-        message.success('Client updated successfully!');
-        setClients(prev =>
-          prev.map(client =>
-            client._id === clientId ? { ...client, ...response.data! } : client
-          )
-        );
-        return true;
+        if (response.success && response.data) {
+          message.success('Client updated successfully!');
+          // Refresh the full list to stay in sync
+          await fetchClients();
+          await fetchStats();
+          return true;
+        }
+        throw new Error(response.error?.message || 'Failed to update client');
+      } catch (err: any) {
+        const errorMessage =
+          err.response?.data?.error?.message || err.message || 'Failed to update client';
+        message.error(errorMessage);
+        return false;
       }
-      throw new Error(response.error?.message || 'Failed to update client');
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update client';
-      message.error(errorMessage);
-      return false;
-    }
-  }, []);
+    },
+    [fetchClients, fetchStats]
+  );
 
   /**
    * Delete client
    * REST API: DELETE /api/clients/:id
    */
-  const deleteClient = useCallback(async (clientId: string): Promise<boolean> => {
-    try {
-      const response: ApiResponse = await del(`/clients/${clientId}`);
+  const deleteClient = useCallback(
+    async (clientId: string): Promise<boolean> => {
+      try {
+        const response: ApiResponse = await del(`/clients/${clientId}`);
 
-      if (response.success) {
-        message.success('Client deleted successfully!');
-        setClients(prev => prev.filter(client => client._id !== clientId));
-        return true;
+        if (response.success) {
+          message.success('Client deleted successfully!');
+          // Refresh the full list to stay in sync
+          await fetchClients();
+          await fetchStats();
+          return true;
+        }
+        throw new Error(response.error?.message || 'Failed to delete client');
+      } catch (err: any) {
+        // Re-throw the error so the component can handle it with a modal
+        throw err;
       }
-      throw new Error(response.error?.message || 'Failed to delete client');
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete client';
-      message.error(errorMessage);
-      return false;
-    }
-  }, []);
+    },
+    [fetchClients, fetchStats]
+  );
 
   /**
    * Update client tier
@@ -243,8 +259,8 @@ export const useClientsREST = () => {
 
       if (response.success && response.data) {
         message.success(`Client tier updated to ${tier}`);
-        setClients(prev =>
-          prev.map(client =>
+        setClients((prev) =>
+          prev.map((client) =>
             client._id === clientId ? { ...client, ...response.data! } : client
           )
         );
@@ -252,7 +268,8 @@ export const useClientsREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to update client tier');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update client tier';
+      const errorMessage =
+        err.response?.data?.error?.message || err.message || 'Failed to update client tier';
       message.error(errorMessage);
       return false;
     }
@@ -262,54 +279,139 @@ export const useClientsREST = () => {
    * Search clients
    * REST API: GET /api/clients (with search parameter)
    */
-  const searchClients = useCallback(async (searchTerm: string) => {
-    return fetchClients({ search: searchTerm });
-  }, [fetchClients]);
+  const searchClients = useCallback(
+    async (searchTerm: string) => {
+      return fetchClients({ search: searchTerm });
+    },
+    [fetchClients]
+  );
 
   /**
    * Filter clients
    * REST API: GET /api/clients (with filter parameters)
    */
-  const filterClients = useCallback((filters: ClientFilters) => {
-    return fetchClients(filters);
-  }, [fetchClients]);
+  const filterClients = useCallback(
+    (filters: ClientFilters) => {
+      return fetchClients(filters);
+    },
+    [fetchClients]
+  );
 
-  // Set up Socket.IO listeners for real-time updates
-  useEffect(() => {
-    if (!socket) return;
+  /**
+   * Export clients as PDF
+   * REST API: GET /api/clients/export/pdf
+   */
+  const exportPDF = useCallback(async () => {
+    setExporting(true);
+    try {
+      // Get API base URL from environment
+      const apiBaseUrl =
+        process.env.REACT_APP_API_URL ||
+        process.env.REACT_APP_BACKEND_URL ||
+        'http://localhost:5000';
 
-    const handleClientCreated = (data: Client) => {
-      console.log('[useClientsREST] Client created via broadcast:', data);
-      setClients(prev => [...prev, data]);
-    };
+      // Get the auth token from the cached token
+      const token = getAuthToken();
 
-    const handleClientUpdated = (data: Client) => {
-      console.log('[useClientsREST] Client updated via broadcast:', data);
-      setClients(prev =>
-        prev.map(client => (client._id === data._id ? { ...client, ...data } : client))
-      );
-    };
+      // Make request to download PDF file directly
+      const response = await fetch(`${apiBaseUrl}/api/clients/export/pdf`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token || ''}`,
+        },
+      });
 
-    const handleClientDeleted = (data: { _id: string }) => {
-      console.log('[useClientsREST] Client deleted via broadcast:', data);
-      setClients(prev => prev.filter(client => client._id !== data._id));
-    };
+      if (!response.ok) {
+        throw new Error('Failed to export PDF');
+      }
 
-    socket.on('client:created', handleClientCreated);
-    socket.on('client:updated', handleClientUpdated);
-    socket.on('client:deleted', handleClientDeleted);
+      // Get the blob from response
+      const blob = await response.blob();
 
-    return () => {
-      socket.off('client:created', handleClientCreated);
-      socket.off('client:updated', handleClientUpdated);
-      socket.off('client:deleted', handleClientDeleted);
-    };
-  }, [socket]);
+      // Create a temporary URL for the blob
+      const url = window.URL.createObjectURL(blob);
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `clients_${Date.now()}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the temporary URL
+      window.URL.revokeObjectURL(url);
+
+      message.success('PDF exported successfully!');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to export PDF';
+      message.error(errorMessage);
+    } finally {
+      setExporting(false);
+    }
+  }, []);
+
+  /**
+   * Export clients as Excel
+   * REST API: GET /api/clients/export/excel
+   */
+  const exportExcel = useCallback(async () => {
+    setExporting(true);
+    try {
+      // Get API base URL from environment
+      const apiBaseUrl =
+        process.env.REACT_APP_API_URL ||
+        process.env.REACT_APP_BACKEND_URL ||
+        'http://localhost:5000';
+
+      // Get the auth token from the cached token
+      const token = getAuthToken();
+
+      // Make request to download Excel file directly
+      const response = await fetch(`${apiBaseUrl}/api/clients/export/excel`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token || ''}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export Excel');
+      }
+
+      // Get the blob from response
+      const blob = await response.blob();
+
+      // Create a temporary URL for the blob
+      const url = window.URL.createObjectURL(blob);
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `clients_${Date.now()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the temporary URL
+      window.URL.revokeObjectURL(url);
+
+      message.success('Excel exported successfully!');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to export Excel';
+      message.error(errorMessage);
+    } finally {
+      setExporting(false);
+    }
+  }, []);
 
   return {
     clients,
     stats,
     loading,
+    exporting,
     error,
     fetchClients,
     fetchStats,
@@ -321,7 +423,9 @@ export const useClientsREST = () => {
     deleteClient,
     updateClientTier,
     searchClients,
-    filterClients
+    filterClients,
+    exportPDF,
+    exportExcel,
   };
 };
 

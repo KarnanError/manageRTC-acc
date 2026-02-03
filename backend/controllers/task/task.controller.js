@@ -1,314 +1,361 @@
-import * as taskService from '../../services/task/task.services.js';
 import { ObjectId } from 'mongodb';
+import * as taskService from '../../services/task/task.services.js';
 
 const taskController = (socket, io) => {
-
   const validateCompanyAccess = (socket) => {
     if (!socket.companyId) {
-      console.error("[Task] Company ID not found in user metadata", { user: socket.user?.sub });
-      throw new Error("Company ID not found in user metadata");
+      console.error('[Task] Company ID not found in user metadata', { user: socket.user?.sub });
+      throw new Error('Company ID not found in user metadata');
     }
     const companyIdRegex = /^[a-zA-Z0-9_-]{3,50}$/;
     if (!companyIdRegex.test(socket.companyId)) {
       console.error(`[Task] Invalid company ID format: ${socket.companyId}`);
-      throw new Error("Invalid company ID format");
+      throw new Error('Invalid company ID format');
     }
     if (socket.userMetadata?.companyId !== socket.companyId) {
-      console.error(`[Task] Company ID mismatch: user metadata has ${socket.userMetadata?.companyId}, socket has ${socket.companyId}`);
-      throw new Error("Unauthorized: Company ID mismatch");
+      console.error(
+        `[Task] Company ID mismatch: user metadata has ${socket.userMetadata?.companyId}, socket has ${socket.companyId}`
+      );
+      throw new Error('Unauthorized: Company ID mismatch');
     }
     return socket.companyId;
   };
 
-  const isAuthorized = socket.userMetadata?.role === "admin" || socket.userMetadata?.role === "hr";
-  console.log("[Task] Authorization check", { role: socket.userMetadata?.role, isAuthorized });
+  const isAuthorized = socket.userMetadata?.role === 'admin' || socket.userMetadata?.role === 'hr';
 
-  
-  socket.on("task:create", async (data) => {
+  socket.on('task:create', async (data) => {
     try {
-      console.log("[Task] task:create event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR only");
+      console.log('[Task] task:create event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        data,
+      });
+      if (!isAuthorized) throw new Error('Unauthorized: Admin or HR only');
       const companyId = validateCompanyAccess(socket);
 
       if (!data.title || !data.projectId) {
-        throw new Error("Title and projectId are required");
+        throw new Error('Title and projectId are required');
       }
 
       const taskData = {
         ...data,
         companyId,
-        createdBy: socket.user?.sub || socket.userMetadata?.userId || 'unknown'
+        createdBy: socket.user?.sub || socket.userMetadata?.userId || 'unknown',
       };
 
       const result = await taskService.createTask(companyId, taskData);
       if (!result.done) {
-        console.error("[Task] Failed to create task", { error: result.error });
+        console.error('[Task] Failed to create task', { error: result.error });
       }
-      socket.emit("task:create-response", result);
+      socket.emit('task:create-response', result);
 
-      
-      io.to(`company_${companyId}`).emit("task:task-created", result);
+      io.to(`company_${companyId}`).emit('task:task-created', result);
     } catch (error) {
-      console.error("[Task] Error in task:create", { error: error.message });
-      socket.emit("task:create-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:create', { error: error.message });
+      socket.emit('task:create-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:getAll", async (filters = {}) => {
+  socket.on('task:getAll', async (filters = {}) => {
     try {
-      console.log("[Task] task:getAll event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
+      console.log('[Task] task:getAll event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        filters,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTasks(companyId, filters);
       if (!result.done) {
-        console.error("[Task] Failed to get tasks", { error: result.error });
+        console.error('[Task] Failed to get tasks', { error: result.error });
       }
-      socket.emit("task:getAll-response", result);
+      socket.emit('task:getAll-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:getAll", { error: error.message });
-      socket.emit("task:getAll-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getAll', { error: error.message });
+      socket.emit('task:getAll-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:getById", async (taskId) => {
+  socket.on('task:getById', async (taskId) => {
     try {
-      console.log("[Task] task:getById event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, taskId });
+      console.log('[Task] task:getById event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        taskId,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTaskById(companyId, taskId);
       if (!result.done) {
-        console.error("[Task] Failed to get task", { error: result.error });
+        console.error('[Task] Failed to get task', { error: result.error });
       }
-      socket.emit("task:getById-response", result);
+      socket.emit('task:getById-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:getById", { error: error.message });
-      socket.emit("task:getById-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getById', { error: error.message });
+      socket.emit('task:getById-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:getByProject", async ({ projectId, filters = {} }) => {
+  socket.on('task:getByProject', async ({ projectId, filters = {} }) => {
     try {
-
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTasksByProject(companyId, projectId, filters);
       if (!result.done) {
-        console.error("[Task] Failed to get project tasks", { error: result.error });
+        console.error('[Task] Failed to get project tasks', { error: result.error });
       }
       // Wrap tasks in data.tasks structure for frontend compatibility
-      const response = result.done ? {
-        done: true,
-        data: {
-          tasks: result.data || []
-        },
-        message: result.message
-      } : result;
-      socket.emit("task:getByProject-response", response);
+      const response = result.done
+        ? {
+            done: true,
+            data: {
+              tasks: result.data || [],
+            },
+            message: result.message,
+          }
+        : result;
+      socket.emit('task:getByProject-response', response);
     } catch (error) {
-      console.error("[Task] Error in task:getByProject", { error: error.message });
-      socket.emit("task:getByProject-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getByProject', { error: error.message });
+      socket.emit('task:getByProject-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:update", async (payload) => {
+  socket.on('task:update', async (payload) => {
     try {
       // Support both shapes: { taskId, update } and { taskId, assignee, ... }
       const taskId = payload?.taskId;
-      const update = payload?.update || (() => {
-        const { taskId: _tid, update: _up, ...rest } = payload || {};
-        return rest; // treat remaining fields as update object
-      })();
+      const update =
+        payload?.update ||
+        (() => {
+          const { taskId: _tid, update: _up, ...rest } = payload || {};
+          return rest; // treat remaining fields as update object
+        })();
 
-      console.log("[Task] task:update event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, taskId, update });
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR only");
+      console.log('[Task] task:update event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        taskId,
+        update,
+      });
+      if (!isAuthorized) throw new Error('Unauthorized: Admin or HR only');
       const companyId = validateCompanyAccess(socket);
       if (!taskId || !update || Object.keys(update).length === 0) {
-        throw new Error("Invalid update payload");
+        throw new Error('Invalid update payload');
       }
 
       const result = await taskService.updateTask(companyId, taskId, update);
       if (!result.done) {
-        console.error("[Task] Failed to update task", { error: result.error });
+        console.error('[Task] Failed to update task', { error: result.error });
       }
-      socket.emit("task:update-response", result);
+      socket.emit('task:update-response', result);
 
-      
-      io.to(`company_${companyId}`).emit("task:task-updated", result);
+      io.to(`company_${companyId}`).emit('task:task-updated', result);
     } catch (error) {
-      console.error("[Task] Error in task:update", { error: error.message });
-      socket.emit("task:update-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:update', { error: error.message });
+      socket.emit('task:update-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:delete", async ({ taskId }) => {
+  socket.on('task:delete', async ({ taskId }) => {
     try {
-      console.log("[Task] task:delete event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, taskId });
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR only");
+      console.log('[Task] task:delete event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        taskId,
+      });
+      if (!isAuthorized) throw new Error('Unauthorized: Admin or HR only');
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.deleteTask(companyId, taskId);
       if (!result.done) {
-        console.error("[Task] Failed to delete task", { error: result.error });
+        console.error('[Task] Failed to delete task', { error: result.error });
       }
-      socket.emit("task:delete-response", result);
+      socket.emit('task:delete-response', result);
 
-      
-      io.to(`company_${companyId}`).emit("task:task-deleted", result);
+      io.to(`company_${companyId}`).emit('task:task-deleted', result);
     } catch (error) {
-      console.error("[Task] Error in task:delete", { error: error.message });
-      socket.emit("task:delete-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:delete', { error: error.message });
+      socket.emit('task:delete-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:getStats", async (projectId = null) => {
+  socket.on('task:getStats', async (projectId = null) => {
     try {
-      console.log("[Task] task:getStats event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, projectId });
+      console.log('[Task] task:getStats event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        projectId,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTaskStats(companyId, projectId);
       if (!result.done) {
-        console.error("[Task] Failed to get task stats", { error: result.error });
+        console.error('[Task] Failed to get task stats', { error: result.error });
       }
       // include projectId in response to correlate on client
-      socket.emit("task:getStats-response", { ...result, projectId });
+      socket.emit('task:getStats-response', { ...result, projectId });
     } catch (error) {
-      console.error("[Task] Error in task:getStats", { error: error.message });
-      socket.emit("task:getStats-response", { done: false, error: error.message, projectId });
+      console.error('[Task] Error in task:getStats', { error: error.message });
+      socket.emit('task:getStats-response', { done: false, error: error.message, projectId });
     }
   });
-  
-  socket.on("task:getKanbanData", async (data = {}) => {
+
+  socket.on('task:getKanbanData', async (data = {}) => {
     try {
-      console.log("[Task] task:getKanbanData event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
+      console.log('[Task] task:getKanbanData event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        data,
+      });
       const companyId = validateCompanyAccess(socket);
       const { projectId, filters = {} } = data;
 
       const result = await taskService.getTasksForKanban(companyId, projectId, filters);
 
       if (!result.done) {
-        console.error("[Task] Failed to get kanban data", { error: result.error });
+        console.error('[Task] Failed to get kanban data', { error: result.error });
       }
 
-      socket.emit("task:getKanbanData-response", result);
+      socket.emit('task:getKanbanData-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:getKanbanData", { error: error.message });
-      socket.emit("task:getKanbanData-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getKanbanData', { error: error.message });
+      socket.emit('task:getKanbanData-response', { done: false, error: error.message });
     }
   });
 
-  
-  socket.on("task:updateStatus", async (data) => {
+  socket.on('task:updateStatus', async (data) => {
     try {
-      console.log("[Task] task:updateStatus event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
+      console.log('[Task] task:updateStatus event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+        data,
+      });
       const companyId = validateCompanyAccess(socket);
       const { taskId, newStatus } = data;
 
       if (!taskId || !newStatus) {
-        throw new Error("Task ID and new status are required");
+        throw new Error('Task ID and new status are required');
       }
 
-      
       if (!ObjectId.isValid(taskId)) {
-        throw new Error("Invalid task ID format");
+        throw new Error('Invalid task ID format');
       }
 
       const result = await taskService.updateTaskStatus(companyId, taskId, newStatus);
 
       if (!result.done) {
-        console.error("[Task] Failed to update task status", { error: result.error });
+        console.error('[Task] Failed to update task status', { error: result.error });
       }
 
-      socket.emit("task:updateStatus-response", result);
+      socket.emit('task:updateStatus-response', result);
 
-      
-      io.to(`company_${companyId}`).emit("task:status-updated", {
+      io.to(`company_${companyId}`).emit('task:status-updated', {
         taskId,
         newStatus,
-        updatedBy: socket.user?.sub
+        updatedBy: socket.user?.sub,
       });
     } catch (error) {
-      console.error("[Task] Error in task:updateStatus", { error: error.message });
-      socket.emit("task:updateStatus-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:updateStatus', { error: error.message });
+      socket.emit('task:updateStatus-response', { done: false, error: error.message });
     }
   });
 
   // Get Task Statistics
-  socket.on("task:getStats", async (projectId = null) => {
+  socket.on('task:getStats', async (projectId = null) => {
     try {
-      console.log("[Task] task:getStats event", { user: socket.user?.sub, companyId: socket.companyId, projectId });
+      console.log('[Task] task:getStats event', {
+        user: socket.user?.sub,
+        companyId: socket.companyId,
+        projectId,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTaskStats(companyId, projectId);
 
       if (!result.done) {
-        console.error("[Task] Failed to get task stats", { error: result.error });
+        console.error('[Task] Failed to get task stats', { error: result.error });
       }
 
-      socket.emit("task:getStats-response", result);
+      socket.emit('task:getStats-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:getStats", { error: error.message });
-      socket.emit("task:getStats-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getStats', { error: error.message });
+      socket.emit('task:getStats-response', { done: false, error: error.message });
     }
   });
 
   // Get task statuses
-  socket.on("task:getStatuses", async () => {
+  socket.on('task:getStatuses', async () => {
     try {
-      console.log("[Task] task:getStatuses event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
+      console.log('[Task] task:getStatuses event', {
+        user: socket.user?.sub,
+        role: socket.userMetadata?.role,
+        companyId: socket.companyId,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.getTaskStatuses(companyId);
       if (!result.done) {
-        console.error("[Task] Failed to get task statuses", { error: result.error });
+        console.error('[Task] Failed to get task statuses', { error: result.error });
       }
-      socket.emit("task:getStatuses-response", result);
+      socket.emit('task:getStatuses-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:getStatuses", { error: error.message });
-      socket.emit("task:getStatuses-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:getStatuses', { error: error.message });
+      socket.emit('task:getStatuses-response', { done: false, error: error.message });
     }
   });
 
   // Create task status
-  socket.on("task:addStatus", async (payload = {}) => {
+  socket.on('task:addStatus', async (payload = {}) => {
     try {
-      console.log("[Task] task:addStatus event", { user: socket.user?.sub, companyId: socket.companyId, payload });
+      console.log('[Task] task:addStatus event', {
+        user: socket.user?.sub,
+        companyId: socket.companyId,
+        payload,
+      });
       const companyId = validateCompanyAccess(socket);
       const result = await taskService.createTaskStatus(companyId, payload);
       if (!result.done) {
-        console.error("[Task] Failed to create task status", { error: result.error });
+        console.error('[Task] Failed to create task status', { error: result.error });
       }
-      socket.emit("task:addStatus-response", result);
+      socket.emit('task:addStatus-response', result);
     } catch (error) {
-      console.error("[Task] Error in task:addStatus", { error: error.message });
-      socket.emit("task:addStatus-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:addStatus', { error: error.message });
+      socket.emit('task:addStatus-response', { done: false, error: error.message });
     }
   });
 
   // Update task status board (the status itself, not a task's status)
-  socket.on("task:updateStatusBoard", async (payload = {}) => {
+  socket.on('task:updateStatusBoard', async (payload = {}) => {
     try {
-      console.log("[Task] task:updateStatusBoard event", { user: socket.user?.sub, companyId: socket.companyId, payload });
+      console.log('[Task] task:updateStatusBoard event', {
+        user: socket.user?.sub,
+        companyId: socket.companyId,
+        payload,
+      });
       const companyId = validateCompanyAccess(socket);
       const { statusId, ...updateData } = payload;
-      
+
       if (!statusId) {
-        throw new Error("Status ID is required");
+        throw new Error('Status ID is required');
       }
 
       const result = await taskService.updateStatusBoard(companyId, statusId, updateData);
       if (!result.done) {
-        console.error("[Task] Failed to update task status board", { error: result.error });
+        console.error('[Task] Failed to update task status board', { error: result.error });
       }
-      socket.emit("task:updateStatusBoard-response", result);
+      socket.emit('task:updateStatusBoard-response', result);
 
       // Broadcast to all connected clients in the company
-      io.to(`company_${companyId}`).emit("task:statusBoard-updated", {
+      io.to(`company_${companyId}`).emit('task:statusBoard-updated', {
         statusId,
         updatedData: result.data,
-        updatedBy: socket.user?.sub
+        updatedBy: socket.user?.sub,
       });
     } catch (error) {
-      console.error("[Task] Error in task:updateStatusBoard", { error: error.message });
-      socket.emit("task:updateStatusBoard-response", { done: false, error: error.message });
+      console.error('[Task] Error in task:updateStatusBoard', { error: error.message });
+      socket.emit('task:updateStatusBoard-response', { done: false, error: error.message });
     }
   });
 };
