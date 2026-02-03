@@ -1,162 +1,34 @@
-import React, { useEffect, useState, useCallback } from "react";
+import { useUser } from "@clerk/clerk-react";
+import jsPDF from "jspdf";
+import { Calendar } from "primereact/calendar";
+import { Chart } from "primereact/chart";
+import { Tooltip } from "primereact/tooltip";
+import { Nullable } from "primereact/ts-helpers";
+import { useEffect, useState } from "react";
 import ReactApexChart from "react-apexcharts";
 import { Link } from "react-router-dom";
+import * as XLSX from "xlsx";
+import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import Footer from "../../../core/common/footer";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { all_routes } from "../../router/all_routes";
-import { Chart } from "primereact/chart";
-import { Calendar } from "primereact/calendar";
-import { Tooltip } from "primereact/tooltip";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useUser } from "@clerk/clerk-react";
-import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
-import jsPDF from "jspdf";
-import * as XLSX from "xlsx";
-import Footer from "../../../core/common/footer";
-import { Nullable } from "primereact/ts-helpers";
-
-interface HRDashboardData {
-  stats?: {
-    totalEmployees: number;
-    activeEmployees: number;
-    inactiveEmployees: number;
-    newJoiners: number;
-    totalResignations: number;
-    resignationsLast30Days: number;
-    totalTerminations: number;
-    terminationsLast30Days: number;
-    // Growth percentages
-    employeesGrowth?: number;
-    activeGrowth?: number;
-    inactiveGrowth?: number;
-    joinersGrowth?: number;
-  };
-  employeesByDepartment?: Array<{ department: string; count: number }>;
-  employeesByStatus?: {
-    active: number;
-    inactive: number;
-    onNotice: number;
-    terminated: number;
-    resigned: number;
-  };
-  departmentStats?: {
-    totalDepartments: number;
-    activeDepartments: number;
-    inactiveDepartments: number;
-    recentlyAdded: number;
-  };
-  designationStats?: {
-    totalDesignations: number;
-    activeDesignations: number;
-    inactiveDesignations: number;
-    departmentWiseCount: Array<{ department: string; count: number }>;
-  };
-  policyStats?: {
-    totalActivePolicies: number;
-    policiesCreatedLast30Days: number;
-    policiesAppliedToAll: number;
-    policiesSelective: number;
-  };
-  holidayStats?: {
-    totalHolidays: number;
-    upcomingHolidays: number;
-    holidayTypesCount: number;
-  };
-  trainingStats?: {
-    totalTrainings: number;
-    activeTrainings: number;
-    totalTrainers: number;
-    employeesInTraining: number;
-  };
-  projectStats?: {
-    totalProjects: number;
-    activeProjects: number;
-    completedProjects: number;
-    onHoldProjects: number;
-  };
-  resourceStats?: {
-    allocatedResources: number;
-    availableResources: number;
-    overAllocated: number;
-    averageTeamSize: number;
-  };
-  recentActivities?: Array<{
-    _id: string;
-    action: string;
-    description: string;
-    createdAt: string;
-    actorName: string;
-    actorRole: string;
-  }>;
-  departmentWiseProjects?: Array<{ department: string; count: number }>;
-  trainingDistribution?: Array<{ type: string; count: number }>;
-  upcomingHolidays?: Array<{
-    _id: string;
-    title: string;
-    date: string;
-    originalDate: string;
-    description: string;
-    status: string;
-    holidayTypeName: string;
-    holidayTypeId: string;
-    repeatsEveryYear: boolean;
-  }>;
-  todaysHolidays?: Array<{
-    _id: string;
-    title: string;
-    date: string;
-    originalDate: string;
-    description: string;
-    status: string;
-    holidayTypeName: string;
-    holidayTypeId: string;
-    repeatsEveryYear: boolean;
-  }>;
-  allActiveHolidays?: Array<{
-    _id: string;
-    title: string;
-    date: string;
-    originalDate: string;
-    holidayTypeName: string;
-    repeatsEveryYear: boolean;
-  }>;
-  employeeBirthdays?: Array<{
-    _id: string;
-    employeeId: string;
-    firstName: string;
-    lastName: string;
-    status: string;
-    date: string;
-    originalDate: string;
-    birthYear: number;
-    type: string;
-    repeatsYearly: boolean;
-  }>;
-  employeeAnniversaries?: Array<{
-    _id: string;
-    employeeId: string;
-    firstName: string;
-    lastName: string;
-    status: string;
-    date: string;
-    originalDate: string;
-    joiningYear: number;
-    yearsWithCompany: number;
-    type: 'joined' | 'anniversary';
-    repeatsYearly: boolean;
-  }>;
-}
+// REST API Hook for HR Dashboard
+import { useHRDashboardREST } from "../../../hooks/useHRDashboardREST";
 
 const HRDashboard = () => {
   const routes = all_routes;
   const { user } = useUser();
-  const socket = useSocket() as Socket | null;
-  const [dashboardData, setDashboardData] = useState<HRDashboardData>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(new Date());
   const [miniCalendarDate, setMiniCalendarDate] = useState<Nullable<Date>>(null);
-  
+
+  // REST API Hook for HR Dashboard
+  const {
+    dashboardData,
+    loading,
+    error,
+    fetchDashboardStats
+  } = useHRDashboardREST();
+
   // Filter states
   const [filters, setFilters] = useState({
     employeeDistribution: "all",
@@ -168,11 +40,6 @@ const HRDashboard = () => {
   const handleYearChange = (newDate: Date) => {
     console.log(`[HR Dashboard] Year changed to: ${newDate.getFullYear()}`);
     setDate(newDate);
-
-    if (socket) {
-      const year = newDate.getFullYear();
-      socket.emit("hr/dashboard/get-all-data", { year });
-    }
   };
 
   const getUserName = () => {
@@ -192,13 +59,13 @@ const HRDashboard = () => {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const selected = new Date(selectedDate);
     selected.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
@@ -214,8 +81,8 @@ const HRDashboard = () => {
         day: "numeric",
         year: selected.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
       });
-      return { 
-        title: `Events on ${dateStr}`, 
+      return {
+        title: `Events on ${dateStr}`,
         badge: selected < today ? "Past" : "Upcoming",
         prefix: `About ${dateStr}`
       };
@@ -245,13 +112,13 @@ const HRDashboard = () => {
     const baseDate = selectedDate || new Date();
     const base = new Date(baseDate);
     base.setHours(0, 0, 0, 0);
-    
+
     const futureDate = new Date(base);
     futureDate.setDate(futureDate.getDate() + days);
-    
+
     const eventDate = new Date(dateStr);
     eventDate.setHours(0, 0, 0, 0);
-    
+
     return eventDate >= base && eventDate <= futureDate;
   };
 
@@ -260,13 +127,13 @@ const HRDashboard = () => {
     const baseDate = selectedDate || new Date();
     const base = new Date(baseDate);
     base.setHours(0, 0, 0, 0);
-    
+
     const eventDate = new Date(dateStr);
     eventDate.setHours(0, 0, 0, 0);
-    
+
     const diffTime = eventDate.getTime() - base.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     return diffDays;
   };
 
@@ -283,32 +150,32 @@ const HRDashboard = () => {
       daysUntil?: number;
       message: string;
     }> = [];
-    
+
     const checkDate = selectedDate || new Date();
     const check = new Date(checkDate);
     check.setHours(0, 0, 0, 0);
     const checkYear = check.getFullYear();
-    
+
     // Check birthdays (Active and On Notice employees only)
-    if (dashboardData.employeeBirthdays) {
+    if (dashboardData?.employeeBirthdays) {
       dashboardData.employeeBirthdays.forEach(birthday => {
         // Birthdays are for Active and On Notice employees
         if (birthday.status !== "Active" && birthday.status !== "On Notice") {
           return; // Skip employees with other statuses
         }
-        
+
         // Don't show birthday if checking a year before birth year
         if (checkYear < birthday.birthYear) {
           return;
         }
-        
+
         const birthdayDate = new Date(birthday.date);
         birthdayDate.setHours(0, 0, 0, 0);
-        
+
         // Check if selected date matches birthday (by day and month, ignoring year)
         // This allows viewing birthdays from any year
         const isBirthdayMatch = isSameDayAndMonth(check, birthdayDate);
-        
+
         if (isBirthdayMatch) {
           // This is the actual birthday date
           events.push({
@@ -319,7 +186,7 @@ const HRDashboard = () => {
         } else {
           // Check for reminders based on days until (only for future dates)
           const daysUntil = getDaysUntil(birthday.date, selectedDate);
-          
+
           // 1 day reminder (tomorrow)
           if (daysUntil === 1) {
             const dateStr = birthdayDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -343,15 +210,15 @@ const HRDashboard = () => {
         }
       });
     }
-    
+
     // Check anniversaries (ONLY Active employees)
-    if (dashboardData.employeeAnniversaries) {
+    if (dashboardData?.employeeAnniversaries) {
       dashboardData.employeeAnniversaries.forEach(anniversary => {
         // Anniversaries are ONLY for Active employees (already filtered in backend)
         if (anniversary.status !== "Active") {
           return; // Extra safety check - skip non-Active employees
         }
-        
+
         // Year validation based on event type
         if (anniversary.type === 'joined') {
           // "Joined" events only show in the joining year
@@ -364,13 +231,13 @@ const HRDashboard = () => {
             return;
           }
         }
-        
+
         const anniversaryDate = new Date(anniversary.date);
         anniversaryDate.setHours(0, 0, 0, 0);
-        
+
         // Check if selected date matches anniversary (by day and month, ignoring year)
         const isAnniversaryMatch = isSameDayAndMonth(check, anniversaryDate);
-        
+
         if (isAnniversaryMatch) {
           // This is the actual date
           if (anniversary.type === 'joined') {
@@ -392,7 +259,7 @@ const HRDashboard = () => {
           // Check for reminders based on days until (only for actual anniversaries, not joining day)
           if (anniversary.type === 'anniversary') {
             const daysUntil = getDaysUntil(anniversary.date, selectedDate);
-            
+
             // 30 days reminder
             if (daysUntil === 30) {
               events.push({
@@ -406,22 +273,23 @@ const HRDashboard = () => {
         }
       });
     }
-    
+
     return events;
   };
 
   // Helper function to check if a date is a holiday and return holiday info
   // Handles repeating yearly holidays by matching day+month only
   const getHolidayForDate = (date: Date) => {
-    if (!dashboardData.allActiveHolidays) return null;
-    
+    if (!dashboardData?.allActiveHolidays) return null;
+
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
-    
+
+    if (!dashboardData?.allActiveHolidays) return null;
     return dashboardData.allActiveHolidays.find(holiday => {
       const holidayDate = new Date(holiday.date);
       holidayDate.setHours(0, 0, 0, 0);
-      
+
       if (holiday.repeatsEveryYear) {
         // For repeating holidays, match day and month only (ignore year)
         return (
@@ -437,26 +305,27 @@ const HRDashboard = () => {
 
   // Helper function to check if a date is a birthday (Active and On Notice employees only)
   const getBirthdayForDate = (date: Date) => {
-    if (!dashboardData.employeeBirthdays) return null;
-    
+    if (!dashboardData?.employeeBirthdays) return null;
+
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
     const checkYear = checkDate.getFullYear();
-    
+
+    if (!dashboardData?.employeeBirthdays) return null;
     return dashboardData.employeeBirthdays.find(birthday => {
       // Only show birthdays for Active and On Notice employees
       if (birthday.status !== "Active" && birthday.status !== "On Notice") {
         return false;
       }
-      
+
       // Don't show birthday if checking a year before birth year
       if (checkYear < birthday.birthYear) {
         return false;
       }
-      
+
       const birthdayDate = new Date(birthday.date);
       birthdayDate.setHours(0, 0, 0, 0);
-      
+
       // Match day and month only (birthdays repeat yearly)
       return (
         birthdayDate.getDate() === checkDate.getDate() &&
@@ -472,10 +341,10 @@ const HRDashboard = () => {
     const fullDate = new Date(date.year, date.month, date.day);
     const holiday = getHolidayForDate(fullDate);
     const birthday = getBirthdayForDate(fullDate);
-    
+
     // Create unique ID for tooltip target
     const dateId = `cal-date-${date.year}-${date.month}-${date.day}`;
-    
+
     // Priority: Birthday > Holiday
     if (birthday) {
       return (
@@ -525,7 +394,7 @@ const HRDashboard = () => {
         </>
       );
     }
-    
+
     if (holiday) {
       return (
         <>
@@ -573,69 +442,16 @@ const HRDashboard = () => {
         </>
       );
     }
-    
+
     return date.day;
   };
 
+  // Fetch dashboard data when date changes
   useEffect(() => {
-    let isMounted = true;
-
-    const initDashboard = () => {
-      if (!socket) {
-        console.log("[HR Dashboard] Socket not available yet, waiting...");
-        return;
-      }
-
-      console.log("[HR Dashboard] Socket available, initializing dashboard...");
-      setLoading(true);
-
-      const timeoutId = setTimeout(() => {
-        if (loading && isMounted) {
-          console.warn("[HR Dashboard] Dashboard loading timeout");
-          setError("Dashboard loading timed out. Please refresh the page.");
-          setLoading(false);
-        }
-      }, 30000);
-
-      const currentYear = date.getFullYear();
-      console.log(`[HR Dashboard] Sending year: ${currentYear}`);
-      socket.emit("hr/dashboard/get-all-data", { year: currentYear });
-
-      const handleDashboardResponse = (response: any) => {
-        console.log("[HR Dashboard] Received dashboard data:", response);
-        clearTimeout(timeoutId);
-        if (!isMounted) return;
-
-        if (response.done) {
-          console.log("[HR Dashboard] Dashboard data loaded successfully");
-          setDashboardData(response.data);
-          setLoading(false);
-        } else {
-          console.error("[HR Dashboard] Error:", response.error);
-          setError(response.error || "Failed to fetch dashboard data");
-          setLoading(false);
-        }
-      };
-
-      socket.on("hr/dashboard/get-all-data-response", handleDashboardResponse);
-
-      return () => {
-        clearTimeout(timeoutId);
-        if (socket) {
-          socket.off("hr/dashboard/get-all-data-response", handleDashboardResponse);
-        }
-      };
-    };
-
-    if (socket) {
-      const cleanup = initDashboard();
-      return cleanup;
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [socket, date]);
+    const currentYear = date.getFullYear();
+    console.log(`[HR Dashboard] Fetching data for year: ${currentYear}`);
+    fetchDashboardStats({ year: currentYear });
+  }, [date]);
 
   // Export to PDF
   const exportToPDF = () => {
@@ -659,29 +475,29 @@ const HRDashboard = () => {
       yPosition += 15;
 
       doc.setFontSize(10);
-      if (dashboardData.stats) {
-        doc.text(`Total Employees: ${dashboardData.stats.totalEmployees || 0}`, 20, yPosition);
+      if (dashboardData?.stats) {
+        doc.text(`Total Employees: ${dashboardData?.stats?.totalEmployees || 0}`, 20, yPosition);
         yPosition += 8;
-        doc.text(`Active Employees: ${dashboardData.stats.activeEmployees || 0}`, 20, yPosition);
+        doc.text(`Active Employees: ${dashboardData?.stats?.activeEmployees || 0}`, 20, yPosition);
         yPosition += 8;
-        doc.text(`Inactive Employees: ${dashboardData.stats.inactiveEmployees || 0}`, 20, yPosition);
+        doc.text(`Inactive Employees: ${dashboardData?.stats?.inactiveEmployees || 0}`, 20, yPosition);
         yPosition += 8;
-        doc.text(`New Joiners (Last 30 Days): ${dashboardData.stats.newJoiners || 0}`, 20, yPosition);
+        doc.text(`New Joiners (Last 30 Days): ${dashboardData?.stats?.newJoiners || 0}`, 20, yPosition);
         yPosition += 15;
       }
 
       // Department & Designation
-      if (dashboardData.departmentStats) {
+      if (dashboardData?.departmentStats) {
         doc.setFontSize(16);
         doc.text("Department Statistics", 20, yPosition);
         yPosition += 15;
 
         doc.setFontSize(10);
-        doc.text(`Total Departments: ${dashboardData.departmentStats.totalDepartments || 0}`, 20, yPosition);
+        doc.text(`Total Departments: ${dashboardData?.departmentStats?.totalDepartments || 0}`, 20, yPosition);
         yPosition += 8;
-        doc.text(`Active Departments: ${dashboardData.departmentStats.activeDepartments || 0}`, 20, yPosition);
+        doc.text(`Active Departments: ${dashboardData?.departmentStats?.activeDepartments || 0}`, 20, yPosition);
         yPosition += 8;
-        doc.text(`Recently Added: ${dashboardData.departmentStats.recentlyAdded || 0}`, 20, yPosition);
+        doc.text(`Recently Added: ${dashboardData?.departmentStats?.recentlyAdded || 0}`, 20, yPosition);
         yPosition += 15;
       }
 
@@ -699,17 +515,17 @@ const HRDashboard = () => {
       const wb = XLSX.utils.book_new();
 
       // Employee Stats Sheet
-      if (dashboardData.stats) {
+      if (dashboardData?.stats) {
         const employeeData: (string | number)[][] = [
           ["Employee Statistics", ""],
-          ["Total Employees", dashboardData.stats.totalEmployees || 0],
-          ["Active Employees", dashboardData.stats.activeEmployees || 0],
-          ["Inactive Employees", dashboardData.stats.inactiveEmployees || 0],
-          ["New Joiners (Last 30 Days)", dashboardData.stats.newJoiners || 0],
-          ["Total Resignations", dashboardData.stats.totalResignations || 0],
-          ["Resignations (Last 30 Days)", dashboardData.stats.resignationsLast30Days || 0],
-          ["Total Terminations", dashboardData.stats.totalTerminations || 0],
-          ["Terminations (Last 30 Days)", dashboardData.stats.terminationsLast30Days || 0],
+          ["Total Employees", dashboardData?.stats?.totalEmployees || 0],
+          ["Active Employees", dashboardData?.stats?.activeEmployees || 0],
+          ["Inactive Employees", dashboardData?.stats?.inactiveEmployees || 0],
+          ["New Joiners (Last 30 Days)", dashboardData?.stats?.newJoiners || 0],
+          ["Total Resignations", dashboardData?.stats?.totalResignations || 0],
+          ["Resignations (Last 30 Days)", dashboardData?.stats?.resignationsLast30Days || 0],
+          ["Total Terminations", dashboardData?.stats?.totalTerminations || 0],
+          ["Terminations (Last 30 Days)", dashboardData?.stats?.terminationsLast30Days || 0],
         ];
         const employeeWS = XLSX.utils.aoa_to_sheet(employeeData);
         XLSX.utils.book_append_sheet(wb, employeeWS, "Employee Stats");
@@ -759,7 +575,7 @@ const HRDashboard = () => {
     series: [
       {
         data:
-          dashboardData.employeesByDepartment?.map((dept) => ({
+          dashboardData?.employeesByDepartment?.map((dept) => ({
             x: dept.department,
             y: dept.count,
           })) || [],
@@ -785,11 +601,11 @@ const HRDashboard = () => {
       {
         label: "Employee Status",
         data: [
-          dashboardData.employeesByStatus?.active || 0,
-          dashboardData.employeesByStatus?.inactive || 0,
-          dashboardData.employeesByStatus?.onNotice || 0,
-          dashboardData.employeesByStatus?.resigned || 0,
-          dashboardData.employeesByStatus?.terminated || 0,
+          dashboardData?.employeesByStatus?.active || 0,
+          dashboardData?.employeesByStatus?.inactive || 0,
+          dashboardData?.employeesByStatus?.onNotice || 0,
+          dashboardData?.employeesByStatus?.resigned || 0,
+          dashboardData?.employeesByStatus?.terminated || 0,
         ],
         backgroundColor: ["#03C95A", "#FFC107", "#1B84FF", "#F26522", "#E70D0D"],
         borderWidth: 5,
@@ -831,11 +647,11 @@ const HRDashboard = () => {
     series: [
       {
         name: "Projects",
-        data: dashboardData.departmentWiseProjects?.map((dept) => dept.count) || [],
+        data: dashboardData?.departmentWiseProjects?.map((dept) => dept.count) || [],
       },
     ],
     xaxis: {
-      categories: dashboardData.departmentWiseProjects?.map((dept) => dept.department) || [],
+      categories: dashboardData?.departmentWiseProjects?.map((dept) => dept.department) || [],
       labels: {
         style: { colors: "#6B7280", fontSize: "11px" },
       },
@@ -853,11 +669,11 @@ const HRDashboard = () => {
 
   // Training Distribution Donut Chart
   const trainingDistributionData = {
-    labels: dashboardData.trainingDistribution?.map((t) => t.type) || ["No Data"],
+    labels: dashboardData?.trainingDistribution?.map((t) => t.type) || ["No Data"],
     datasets: [
       {
         label: "Training Distribution",
-        data: dashboardData.trainingDistribution?.map((t) => t.count) || [0],
+        data: dashboardData?.trainingDistribution?.map((t) => t.count) || [0],
         backgroundColor: ["#F26522", "#1B84FF", "#03C95A", "#FFC107", "#E70D0D", "#AB47BC"],
         borderWidth: 5,
         borderRadius: 10,
@@ -896,6 +712,21 @@ const HRDashboard = () => {
         <div className="content">
           <div className="alert alert-danger" role="alert">
             {error}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state if data hasn't been fetched yet
+  if (!dashboardData && !error) {
+    return (
+      <div className="page-wrapper">
+        <div className="content">
+          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: "400px" }}>
+            <div className="spinner-border text-primary" role="status">
+              <span className="visually-hidden">Loading dashboard data...</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1209,8 +1040,8 @@ const HRDashboard = () => {
                     dateTemplate={dateTemplate}
                   />
                   {/* Tooltips for calendar dates */}
-                  <Tooltip 
-                    target=".calendar-birthday-date" 
+                  <Tooltip
+                    target=".calendar-birthday-date"
                     className="calendar-birthday-tooltip"
                     event="hover"
                     position="top"
@@ -1218,8 +1049,8 @@ const HRDashboard = () => {
                     hideDelay={0}
                     autoHide={true}
                   />
-                  <Tooltip 
-                    target=".calendar-holiday-date" 
+                  <Tooltip
+                    target=".calendar-holiday-date"
                     className="calendar-holiday-tooltip"
                     event="hover"
                     position="top"
@@ -1241,20 +1072,20 @@ const HRDashboard = () => {
                     Upcoming Holidays
                     {dashboardData.upcomingHolidays && dashboardData.upcomingHolidays.length > 0 && (
                       <span className="badge badge-success rounded-pill ms-2 fs-10">
-                        {dashboardData.upcomingHolidays.length}
+                        {dashboardData?.upcomingHolidays?.length}
                       </span>
                     )}
                   </h5>
                 </div>
                 <div className="card-body">
-                  {dashboardData.upcomingHolidays && dashboardData.upcomingHolidays.length > 0 ? (
+                  {dashboardData?.upcomingHolidays && dashboardData.upcomingHolidays.length > 0 ? (
                     <div style={{ maxHeight: "320px", overflowY: "auto" }}>
-                      {dashboardData.upcomingHolidays.slice(0, 7).map((holiday) => {
+                      {dashboardData?.upcomingHolidays?.slice(0, 7).map((holiday) => {
                         // Color rotation for borders
                         const colors = ["purple", "pink", "success", "info", "warning"];
-                        const colorIndex = dashboardData.upcomingHolidays!.indexOf(holiday) % colors.length;
+                        const colorIndex = (dashboardData?.upcomingHolidays?.indexOf(holiday) || 0) % colors.length;
                         const borderColor = colors[colorIndex];
-                        
+
                         return (
                           <div key={holiday._id} className={`border-start border-${borderColor} border-3 mb-3 pb-2`}>
                             <div className="ps-3">
@@ -1323,7 +1154,7 @@ const HRDashboard = () => {
                     {/* Employee Birthday and Anniversary Events */}
                     {(() => {
                       const employeeEvents = getEmployeeEventsForDate(miniCalendarDate);
-                      
+
                       return employeeEvents.map((event, index) => {
                         if (event.type === 'birthday') {
                           return (
@@ -1350,7 +1181,7 @@ const HRDashboard = () => {
                             </div>
                           );
                         }
-                        
+
                         if (event.type === 'birthday-reminder') {
                           return (
                             <div key={`birthday-reminder-${event.employee._id}-${event.daysUntil}`} className="border-start border-info border-3 mb-3 pb-2">
@@ -1376,7 +1207,7 @@ const HRDashboard = () => {
                             </div>
                           );
                         }
-                        
+
                         if (event.type === 'anniversary') {
                           return (
                             <div key={`anniversary-${event.employee._id}`} className="border-start border-success border-3 mb-3 pb-2">
@@ -1402,7 +1233,7 @@ const HRDashboard = () => {
                             </div>
                           );
                         }
-                        
+
                         if (event.type === 'anniversary-reminder') {
                           return (
                             <div key={`anniversary-reminder-${event.employee._id}-${event.daysUntil}`} className="border-start border-secondary border-3 mb-3 pb-2">
@@ -1428,13 +1259,13 @@ const HRDashboard = () => {
                             </div>
                           );
                         }
-                        
+
                         return null;
                       });
                     })()}
 
                     {/* Notice Period Ending Events */}
-                    {dashboardData.stats?.resignationsLast30Days && dashboardData.stats.resignationsLast30Days > 0 ? (
+                    {dashboardData?.stats?.resignationsLast30Days && dashboardData.stats.resignationsLast30Days > 0 ? (
                       <div className="border-start border-warning border-3 mb-3 pb-2">
                         <div className="ps-3">
                           <div className="d-flex align-items-start justify-content-between mb-1">
@@ -1445,7 +1276,7 @@ const HRDashboard = () => {
                               <div>
                                 <h6 className="fw-semibold mb-1 fs-13">Notice Period Ending</h6>
                                 <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.stats.resignationsLast30Days} employee(s) have notice periods ending soon
+                                  {dashboardData?.stats?.resignationsLast30Days} employee(s) have notice periods ending soon
                                 </p>
                                 <p className="mb-0 fs-11 text-warning">
                                   <i className="ti ti-alert-circle me-1"></i>Action required: Plan replacement
@@ -1459,7 +1290,7 @@ const HRDashboard = () => {
                     ) : null}
 
                     {/* Today's Holidays */}
-                    {dashboardData.todaysHolidays && dashboardData.todaysHolidays.length > 0 && (
+                    {dashboardData?.todaysHolidays && dashboardData.todaysHolidays.length > 0 && (
                       dashboardData.todaysHolidays.map(holiday => (
                         <div key={holiday._id} className="border-start border-primary border-3 mb-3 pb-2">
                           <div className="ps-3">
@@ -1493,12 +1324,12 @@ const HRDashboard = () => {
                       const selectedDate = miniCalendarDate || new Date();
                       const selected = new Date(selectedDate);
                       selected.setHours(0, 0, 0, 0);
-                      
+
                       // Check for holiday on exact date (handles repeating holidays)
-                      const holidayOnDate = dashboardData.upcomingHolidays.find(holiday => {
+                      const holidayOnDate = dashboardData?.upcomingHolidays?.find(holiday => {
                         const holidayDate = new Date(holiday.date);
                         holidayDate.setHours(0, 0, 0, 0);
-                        
+
                         if (holiday.repeatsEveryYear) {
                           // For repeating holidays, match day and month only
                           return (
@@ -1541,13 +1372,13 @@ const HRDashboard = () => {
                       // If no holiday on exact date, check for holidays within 7 days
                       const weekFromSelected = new Date(selected);
                       weekFromSelected.setDate(weekFromSelected.getDate() + 7);
-                      
-                      const upcomingFromDate = dashboardData.upcomingHolidays.filter(holiday => {
+
+                      const upcomingFromDate = dashboardData?.upcomingHolidays?.filter(holiday => {
                         const holidayDate = new Date(holiday.date);
                         holidayDate.setHours(0, 0, 0, 0);
                         return holidayDate > selected && holidayDate <= weekFromSelected;
                       });
-                      
+
                       return upcomingFromDate.length > 0 ? (
                         <div className="border-start border-primary border-3 mb-3 pb-2">
                           <div className="ps-3">
@@ -1577,7 +1408,7 @@ const HRDashboard = () => {
                     })()}
 
                     {/* Resource Availability Alert */}
-                    {dashboardData.resourceStats?.overAllocated && dashboardData.resourceStats.overAllocated > 0 ? (
+                    {dashboardData?.resourceStats?.overAllocated && dashboardData.resourceStats.overAllocated > 0 ? (
                       <div className="border-start border-danger border-3 mb-3 pb-2">
                         <div className="ps-3">
                           <div className="d-flex align-items-start justify-content-between mb-1">
@@ -1588,7 +1419,7 @@ const HRDashboard = () => {
                               <div>
                                 <h6 className="fw-semibold mb-1 fs-13">Resource Over-Allocation</h6>
                                 <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.resourceStats.overAllocated} resource(s) over-allocated
+                                  {dashboardData?.resourceStats?.overAllocated} resource(s) over-allocated
                                 </p>
                                 <p className="mb-0 fs-11 text-danger">
                                   <i className="ti ti-flag me-1"></i>Critical: Rebalance workload
@@ -1610,13 +1441,13 @@ const HRDashboard = () => {
                        const selectedDate = miniCalendarDate || new Date();
                        const selected = new Date(selectedDate);
                        selected.setHours(0, 0, 0, 0);
-                       
+
                        const hasHolidayOnDate = dashboardData.upcomingHolidays?.some(holiday => {
                          const holidayDate = new Date(holiday.date);
                          holidayDate.setHours(0, 0, 0, 0);
                          return holidayDate.getTime() === selected.getTime();
                        });
-                       
+
                        return !hasHolidayOnDate;
                      })() &&
                      !dashboardData.resourceStats?.overAllocated &&
@@ -1634,7 +1465,7 @@ const HRDashboard = () => {
             {/* /Column 3: Dynamic Events (Today/Yesterday/Tomorrow/Specific Date) */}
           </div>
           {/* /TIER 3: Calendar */}
-         
+
 
 
           {/* TIER 2: OPERATIONAL OVERVIEW - 3 Column Layout */}
@@ -1870,7 +1701,7 @@ const HRDashboard = () => {
                   </div>
                 </div>
                 <div className="card-body">
-                  {dashboardData.employeesByDepartment && dashboardData.employeesByDepartment.length > 0 ? (
+                  {dashboardData?.employeesByDepartment && dashboardData.employeesByDepartment.length > 0 ? (
                     <ReactApexChart
                       id="emp-department"
                       options={empDepartmentOptions}
@@ -1928,35 +1759,35 @@ const HRDashboard = () => {
                             <i className="ti ti-circle-filled text-success me-1 fs-8" />
                             Active
                           </span>
-                          <span className="fw-bold">{dashboardData.employeesByStatus?.active || 0}</span>
+                          <span className="fw-bold">{dashboardData?.employeesByStatus?.active || 0}</span>
                         </div>
                         <div className="d-flex justify-content-between align-items-center">
                           <span>
                             <i className="ti ti-circle-filled text-warning me-1 fs-8" />
                             Inactive
                           </span>
-                          <span className="fw-bold">{dashboardData.employeesByStatus?.inactive || 0}</span>
+                          <span className="fw-bold">{dashboardData?.employeesByStatus?.inactive || 0}</span>
                         </div>
                         <div className="d-flex justify-content-between align-items-center">
                           <span>
                             <i className="ti ti-circle-filled text-info me-1 fs-8" />
                             On Notice
                           </span>
-                          <span className="fw-bold">{dashboardData.employeesByStatus?.onNotice || 0}</span>
+                          <span className="fw-bold">{dashboardData?.employeesByStatus?.onNotice || 0}</span>
                         </div>
                         <div className="d-flex justify-content-between align-items-center">
                           <span>
                             <i className="ti ti-circle-filled text-primary me-1 fs-8" />
                             Resigned
                           </span>
-                          <span className="fw-bold">{dashboardData.employeesByStatus?.resigned || 0}</span>
+                          <span className="fw-bold">{dashboardData?.employeesByStatus?.resigned || 0}</span>
                         </div>
                         <div className="d-flex justify-content-between align-items-center">
                           <span>
                             <i className="ti ti-circle-filled text-danger me-1 fs-8" />
                             Terminated
                           </span>
-                          <span className="fw-bold">{dashboardData.employeesByStatus?.terminated || 0}</span>
+                          <span className="fw-bold">{dashboardData?.employeesByStatus?.terminated || 0}</span>
                         </div>
                       </div>
                     </div>
@@ -2011,7 +1842,7 @@ const HRDashboard = () => {
           </div>
           {/* /TIER 2: Resource Allocation */}
 
-          
+
 
           {/* TIER 3: COMPLIANCE - Policy & Holiday Overview */}
           <div className="row">

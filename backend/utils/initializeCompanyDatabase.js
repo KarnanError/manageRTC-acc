@@ -70,44 +70,8 @@ export const initializeCompanyDatabase = async (companyId) => {
       }
     }
 
-    // Initialize default departments
-    const departmentsCollection = db.collection("departments");
-    const defaultDepartments = [
-      { department: "Human Resources", createdAt: new Date() },
-      { department: "Engineering", createdAt: new Date() },
-      { department: "Sales", createdAt: new Date() },
-      { department: "Marketing", createdAt: new Date() },
-      { department: "Finance", createdAt: new Date() },
-    ];
-
-    await departmentsCollection.insertMany(defaultDepartments);
-    console.log(`✅ Inserted default departments for company: ${companyId}`);
-
-    // Initialize default leave types
-    const leaveTypesCollection = db.collection("leaveTypes");
-    const defaultLeaveTypes = [
-      { name: "Sick Leave", days: 10, createdAt: new Date() },
-      { name: "Casual Leave", days: 12, createdAt: new Date() },
-      { name: "Paid Leave", days: 15, createdAt: new Date() },
-      { name: "Maternity Leave", days: 90, createdAt: new Date() },
-      { name: "Paternity Leave", days: 7, createdAt: new Date() },
-    ];
-
-    await leaveTypesCollection.insertMany(defaultLeaveTypes);
-    console.log(`✅ Inserted default leave types for company: ${companyId}`);
-
-    // Initialize default asset categories
-    const assetCategoriesCollection = db.collection("assetCategories");
-    const defaultAssetCategories = [
-      { name: "Office Furniture", status: "active", createdAt: new Date() },
-      { name: "Electronics", status: "active", createdAt: new Date() },
-      { name: "Computers & Laptops", status: "active", createdAt: new Date() },
-      { name: "Mobile Devices", status: "active", createdAt: new Date() },
-      { name: "Vehicles", status: "active", createdAt: new Date() },
-    ];
-
-    await assetCategoriesCollection.insertMany(defaultAssetCategories);
-    console.log(`✅ Inserted default asset categories for company: ${companyId}`);
+    // Note: No default departments, designations, leave types, or asset categories are created
+    // These should be added by the company admin as needed
 
     // Initialize default task statuses
     const taskStatusCollection = db.collection("taskstatus");

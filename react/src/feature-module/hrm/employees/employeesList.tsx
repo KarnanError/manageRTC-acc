@@ -1,25 +1,24 @@
-import React from "react";
-import { useState, useEffect, useRef, useMemo } from "react";
-import { all_routes } from "../../router/all_routes";
-import { Link, useNavigate } from "react-router-dom";
-import Table from "../../../core/common/dataTable/index";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import EmployeeNameCell from "../../../core/common/EmployeeNameCell";
-import PredefinedDateRanges from "../../../core/common/datePicker";
-import { employee_list_details } from "../../../core/data/json/employees_list_details";
-import { DatePicker } from "antd";
-import CommonSelect from "../../../core/common/commonSelect";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
-import { toast, ToastContainer } from "react-toastify";
-import dayjs from "dayjs";
-import Footer from "../../../core/common/footer";
 import { useUser } from "@clerk/clerk-react";
+import { DatePicker } from "antd";
+import dayjs from "dayjs";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { toast, ToastContainer } from "react-toastify";
+import { Socket } from "socket.io-client";
+import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import CommonSelect from "../../../core/common/commonSelect";
+import Table from "../../../core/common/dataTable/index";
+import PredefinedDateRanges from "../../../core/common/datePicker";
+import EmployeeNameCell from "../../../core/common/EmployeeNameCell";
+import Footer from "../../../core/common/footer";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import { employee_list_details } from "../../../core/data/json/employees_list_details";
+import { useSocket } from "../../../SocketContext";
+import { all_routes } from "../../router/all_routes";
 // REST API Hooks for HRM operations
-import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
+import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
 
 interface Department {
   _id: string;
@@ -433,6 +432,21 @@ const EmployeeList = () => {
       setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
     }
   }, [departments]);
+
+  // Sync designations from REST hook to local state
+  useEffect(() => {
+    if (designations && designations.length > 0) {
+      const mappedDesignations = designations.map((d: Designation) => ({
+        value: d._id,
+        label: d.designation,
+      }));
+      setDesignation([{ value: "", label: "Select Designation" }, ...mappedDesignations]);
+      setAllDesignations([{ value: "", label: "Select Designation" }, ...mappedDesignations]);
+    } else {
+      // If no designations, reset to empty with placeholder
+      setDesignation([{ value: "", label: "Select Designation" }]);
+    }
+  }, [designations]);
 
   // Sync REST hook data with local state
   useEffect(() => {
@@ -1530,7 +1544,7 @@ const EmployeeList = () => {
     if (Object.keys(errors).length > 0) {
       setTimeout(() => {
         const firstErrorField = Object.keys(errors)[0];
-        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
+        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) ||
                             document.querySelector(`#${firstErrorField}`) ||
                             document.querySelector(`.field-${firstErrorField}`);
         if (errorElement) {
@@ -1538,7 +1552,7 @@ const EmployeeList = () => {
           (errorElement as HTMLElement).focus?.();
         }
       }, 100);
-      
+
       return false;
     }
 
@@ -3244,9 +3258,10 @@ const EmployeeList = () => {
 
                                 // Reset designation when department changes
                                 setDesignation([
-                                  { value: "", label: "Select" },
+                                  { value: "", label: "Select Designation" },
                                 ]);
                                 handleSelectChange("designationId", "");
+                                setSelectedDesignation("");
 
                                 // Clear errors for both department and designation
                                 clearFieldError("departmentId");
@@ -3260,7 +3275,7 @@ const EmployeeList = () => {
                                 handleSelectChange("designationId", "");
                                 setSelectedDepartment("");
                                 setSelectedDesignation("");
-                                setDesignation([{ value: "", label: "Select" }]);
+                                setDesignation([{ value: "", label: "Select Designation" }]);
                                 clearFieldError('departmentId');
                                 clearFieldError('designationId');
                               }
@@ -4167,6 +4182,10 @@ const EmployeeList = () => {
                                     : prev,
                                 );
                                 setSelectedDesignation("");
+                                // Reset designation dropdown to default
+                                setDesignation([{ value: "", label: "Select Designation" }]);
+                                // Clear designation error
+                                clearFieldError('designationId');
                                 if (option.value) {
                                   console.log(
                                     "Fetching designations for department:",
@@ -4178,7 +4197,7 @@ const EmployeeList = () => {
                                 // clear selection
                                 setSelectedDepartment("");
                                 setSelectedDesignation("");
-                                setDesignation([{ value: "", label: "Select" }]);
+                                setDesignation([{ value: "", label: "Select Designation" }]);
                                 setEditingEmployee((prev) =>
                                   prev
                                     ? { ...prev, departmentId: "", designationId: "" }

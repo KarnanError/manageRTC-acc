@@ -39,6 +39,7 @@ import designationRoutes from "./routes/api/designations.js";
 import employeeRoutes from "./routes/api/employees.js";
 import holidayTypeRoutes from "./routes/api/holiday-types.js";
 import holidayRoutes from "./routes/api/holidays.js";
+import hrDashboardRoutes from "./routes/api/hr-dashboard.js";
 import leadRoutes from "./routes/api/leads.js";
 import leaveRoutes from "./routes/api/leave.js";
 import pipelineRoutes from "./routes/api/pipelines.js";
@@ -165,6 +166,7 @@ const initializeServer = async () => {
     app.use("/api/resignations", resignationRoutes);
     app.use("/api/terminations", terminationRoutes);
     app.use("/api/holidays", holidayRoutes);
+    app.use("/api/hr-dashboard", hrDashboardRoutes);
 
     // API Documentation (Swagger)
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
@@ -282,11 +284,27 @@ const initializeServer = async () => {
     console.log('✅ Promotion scheduler initialized');
 
     // Server listen
+    console.log('📡 About to start HTTP server...');
     const PORT = process.env.PORT || 5000;
-    httpServer.listen(PORT, () => {
+    console.log(`📡 Starting server on port ${PORT}...`);
+
+    httpServer.listen(PORT, (err) => {
+      if (err) {
+        console.error('❌ Failed to start server:', err);
+        process.exit(1);
+      }
       console.log(`🚀 Server running on port ${PORT}`);
       // console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
       console.log(`Environment: Development`);
+    });
+
+    // Handle server errors
+    httpServer.on('error', (err) => {
+      console.error('❌ Server error:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use`);
+      }
+      process.exit(1);
     });
   } catch (error) {
     console.error("Failed to initialize server:", error);

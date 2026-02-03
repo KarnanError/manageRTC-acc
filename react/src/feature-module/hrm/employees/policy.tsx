@@ -1,19 +1,17 @@
-import { DatePicker, message } from 'antd';
+import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { DateTime } from 'luxon';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import Table from "../../../core/common/dataTable/index";
-import CommonSelect from '../../../core/common/commonSelect';
-import PredefinedDateRanges from '../../../core/common/datePicker';
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
+import Table from "../../../core/common/dataTable/index";
+import PredefinedDateRanges from '../../../core/common/datePicker';
 import Footer from "../../../core/common/footer";
-import { usePoliciesREST, Policy as PolicyType, PolicyAssignment } from "../../../hooks/usePoliciesREST";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
+import { PolicyAssignment, Policy as PolicyType, usePoliciesREST } from "../../../hooks/usePoliciesREST";
 import { hideModal } from '../../../utils/modalUtils';
-import { all_routes } from '../../router/all_routes';
 
 interface Department {
   _id: string;
@@ -53,13 +51,13 @@ const Policy = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState(staticOptions[0].value);
   const [selectedFilterDepartment, setSelectedFilterDepartment] = useState<string>("");
-  
+
   // PolicyType Assignment State - Hierarchical toggle-based structure
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);  // Array of department IDs where toggle is ON
   const [selectedDesignations, setSelectedDesignations] = useState<{[departmentId: string]: string[]}>({});  // Map: deptId -> designationIds[]
   const [applyToAll, setApplyToAll] = useState<boolean>(false);
   const [expandedDepartments, setExpandedDepartments] = useState<Set<string>>(new Set());  // Track which departments are expanded
-  
+
   // State for viewing policy details
   const [viewingPolicyType, setViewingPolicyType] = useState<PolicyType | null>(null);
 
@@ -147,8 +145,8 @@ const Policy = () => {
       title: "Name",
       dataIndex: "policyName",
       render: (text: String, record: PolicyType) => (
-        <h6 
-          className="fw-medium fs-14 text-dark" 
+        <h6
+          className="fw-medium fs-14 text-dark"
           style={{ cursor: 'pointer' }}
           onClick={() => setViewingPolicyType(record)}
           data-bs-toggle="modal"
@@ -205,7 +203,7 @@ const Policy = () => {
       dataIndex: "policyDescription",
       sorter: (a: any, b: any) => a.Description.length - b.Description.length,
       render: (text: string, record: any) => (
-        <h6 
+        <h6
           className="fw-normal fs-14 text-muted mb-0"
           style={{
             maxWidth: '300px',
@@ -247,28 +245,28 @@ const Policy = () => {
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_policy"
-            onClick={() => { 
+            onClick={() => {
               setEditingPolicyType(policy);
               setApplyToAll(policy.applyToAll || false);
-              
+
               // Initialize from policy assignTo with hierarchical logic
               if (!policy.applyToAll && policy.assignTo && policy.assignTo.length > 0) {
                 const toggledDepts: string[] = [];
                 const desigMap: {[key: string]: string[]} = {};
                 const expandedSet = new Set<string>();
-                
+
                 policy.assignTo.forEach(a => {
                   // Empty designationIds = department toggle is ON (all designations)
                   if (!a.designationIds || a.designationIds.length === 0) {
                     toggledDepts.push(a.departmentId);
-                  } 
+                  }
                   // Non-empty designationIds = specific designations selected
                   else {
                     desigMap[a.departmentId] = a.designationIds;
                     expandedSet.add(a.departmentId);  // Auto-expand if has specific designations
                   }
                 });
-                
+
                 setSelectedDepartments(toggledDepts);
                 setSelectedDesignations(desigMap);
                 setExpandedDepartments(expandedSet);
@@ -332,7 +330,7 @@ const Policy = () => {
       } else {
         setPolicyTypeNameError(errorMessage);
       }
-    } else if (error.includes("effective date") || error.includes("effectivedate") || 
+    } else if (error.includes("effective date") || error.includes("effectivedate") ||
                error.includes("in-effect date") || error.includes("date") ||
                error.includes("future")) {
       if (isEditMode) {
@@ -340,7 +338,7 @@ const Policy = () => {
       } else {
         setEffectiveDateError(errorMessage);
       }
-    } else if (error.includes("department") || error.includes("designation") || 
+    } else if (error.includes("department") || error.includes("designation") ||
                error.includes("apply") || error.includes("assign")) {
       if (isEditMode) {
         setEditApplyToError(errorMessage);
@@ -418,9 +416,9 @@ const Policy = () => {
       } else {
         newDepts = prev.filter(id => id !== deptId);
       }
-      
+
       const activeDepts = departments.filter(d => d.status === 'Active');
-      
+
       // Auto-sync: If all departments are now toggled ON, turn on "Apply to All"
       if (newDepts.length === activeDepts.length && activeDepts.length > 0) {
         setApplyToAll(true);
@@ -429,10 +427,10 @@ const Policy = () => {
       else if (!isChecked && applyToAll) {
         setApplyToAll(false);
       }
-      
+
       return newDepts;
     });
-    
+
     // Clear designation selections for this department when toggling ON
     if (isChecked) {
       setSelectedDesignations(prev => {
@@ -441,7 +439,7 @@ const Policy = () => {
         return updated;
       });
     }
-    
+
     // Clear apply to error if any
     if (applyToError) setApplyToError(null);
     if (editApplyToError) setEditApplyToError(null);
@@ -452,7 +450,7 @@ const Policy = () => {
     setSelectedDesignations(prev => {
       const updated = { ...prev };
       const currentDesigs = updated[deptId] || [];
-      
+
       if (isChecked) {
         updated[deptId] = [...currentDesigs, desigId];
       } else {
@@ -462,7 +460,7 @@ const Policy = () => {
           delete updated[deptId];
         }
       }
-      
+
       // Auto-sync: If ALL designations in this department are now selected, toggle department ON
       const allDeptDesignations = designations.filter(
         d => d.departmentId === deptId && d.status?.toLowerCase() === 'active'
@@ -471,13 +469,13 @@ const Policy = () => {
         setSelectedDepartments(prevDepts => {
           if (!prevDepts.includes(deptId)) {
             const newDepts = [...prevDepts, deptId];
-            
+
             // Check if all departments are now toggled
             const activeDepts = departments.filter(d => d.status === 'Active');
             if (newDepts.length === activeDepts.length && activeDepts.length > 0) {
               setApplyToAll(true);
             }
-            
+
             return newDepts;
           }
           return prevDepts;
@@ -487,10 +485,10 @@ const Policy = () => {
         delete finalUpdated[deptId];
         return finalUpdated;
       }
-      
+
       return updated;
     });
-    
+
     // Clear apply to error if any
     if (applyToError) setApplyToError(null);
     if (editApplyToError) setEditApplyToError(null);
@@ -499,12 +497,12 @@ const Policy = () => {
   // Helper: Handle "Apply to All Employees" toggle
   const handleApplyToAllToggle = (isChecked: boolean) => {
     setApplyToAll(isChecked);
-    
+
     // Always clear department and designation selections when toggling
     // This ensures clean state whether turning on or off
     setSelectedDepartments([]);
     setSelectedDesignations({});
-    
+
     // Clear apply to error if any
     if (applyToError) setApplyToError(null);
     if (editApplyToError) setEditApplyToError(null);
@@ -539,7 +537,7 @@ const Policy = () => {
         // Check if at least one department toggle is ON OR at least one designation is selected
         const hasDepartmentToggled = selectedDepartments.length > 0;
         const hasDesignationSelected = Object.values(selectedDesignations).some(desigs => desigs.length > 0);
-        
+
         if (!hasDepartmentToggled && !hasDesignationSelected) {
           setApplyToError("Please select at least one department or designation, or enable 'Apply to All Employees'");
           hasError = true;
@@ -560,22 +558,22 @@ const Policy = () => {
 
       // Build assignTo array with hierarchical logic
       const assignTo: PolicyAssignment[] = [];
-      
+
       // Get all active departments
       const activeDepartments = departments.filter(d => d.status === 'Active');
-      
+
       activeDepartments.forEach(dept => {
         const deptId = dept._id;
         const isDeptToggled = selectedDepartments.includes(deptId);
         const deptDesignations = selectedDesignations[deptId] || [];
-        
+
         // If department toggle is ON, include with empty designationIds (= all designations)
         if (isDeptToggled) {
           assignTo.push({
             departmentId: deptId,
             designationIds: []  // Empty = all current and future designations
           });
-        } 
+        }
         // If department toggle is OFF but some designations are selected
         else if (deptDesignations.length > 0) {
           assignTo.push({
@@ -715,7 +713,7 @@ const Policy = () => {
         // Check if at least one department toggle is ON OR at least one designation is selected
         const hasDepartmentToggled = selectedDepartments.length > 0;
         const hasDesignationSelected = Object.values(selectedDesignations).some(desigs => desigs.length > 0);
-        
+
         if (!hasDepartmentToggled && !hasDesignationSelected) {
           setEditApplyToError("Please select at least one department or designation, or enable 'Apply to All Employees'");
           hasError = true;
@@ -736,22 +734,22 @@ const Policy = () => {
 
       // Build assignTo array with hierarchical logic
       const assignTo: PolicyAssignment[] = [];
-      
+
       // Get all active departments
       const activeDepartments = departments.filter(d => d.status === 'Active');
-      
+
       activeDepartments.forEach(dept => {
         const deptId = dept._id;
         const isDeptToggled = selectedDepartments.includes(deptId);
         const deptDesignations = selectedDesignations[deptId] || [];
-        
+
         // If department toggle is ON, include with empty designationIds (= all designations)
         if (isDeptToggled) {
           assignTo.push({
             departmentId: deptId,
             designationIds: []  // Empty = all current and future designations
           });
-        } 
+        }
         // If department toggle is OFF but some designations are selected
         else if (deptDesignations.length > 0) {
           assignTo.push({
@@ -855,25 +853,25 @@ const Policy = () => {
           transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
           opacity: 0;
         }
-        
+
         .designation-collapse.show {
           max-height: 1000px;
           opacity: 1;
         }
-        
+
         .department-list-container {
           transition: opacity 0.3s ease-in-out;
         }
-        
+
         .chevron-icon {
           transition: transform 0.2s ease-in-out;
         }
-        
+
         .chevron-icon.expanded {
           transform: rotate(90deg);
         }
       `}</style>
-      
+
       {/* Page Wrapper */}
       <div className="page-wrapper">
         <div className="content">
@@ -941,7 +939,7 @@ const Policy = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
-          
+
           {/* PolicyType Stats Cards */}
           <div className="row">
             <div className="col-xl-3 col-sm-6 col-12 d-flex">
@@ -952,7 +950,7 @@ const Policy = () => {
                       <i className="ti ti-file-text text-primary fs-20" />
                     </div>
                     <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.total}
+                      {stats?.total || 0}
                     </h5>
                   </div>
                   <div className="d-flex align-items-center justify-content-between mt-3">
@@ -969,7 +967,7 @@ const Policy = () => {
                       <i className="ti ti-circle-check text-success fs-20" />
                     </div>
                     <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.active}
+                      {stats?.active || 0}
                     </h5>
                   </div>
                   <div className="d-flex align-items-center justify-content-between mt-3">
@@ -986,7 +984,7 @@ const Policy = () => {
                       <i className="ti ti-circle-x text-danger fs-20" />
                     </div>
                     <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.inactive}
+                      {stats?.inactive || 0}
                     </h5>
                   </div>
                   <div className="d-flex align-items-center justify-content-between mt-3">
@@ -1003,7 +1001,7 @@ const Policy = () => {
                       <i className="ti ti-users text-info fs-20" />
                     </div>
                     <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.applyToAllCount}
+                      {stats?.applyToAllCount || 0}
                     </h5>
                   </div>
                   <div className="d-flex align-items-center justify-content-between mt-3">
@@ -1014,7 +1012,7 @@ const Policy = () => {
             </div>
           </div>
           {/* /PolicyType Stats Cards */}
-          
+
           {/* PolicyType list */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
@@ -1128,17 +1126,17 @@ const Policy = () => {
                       <label className="form-label">
                         PolicyType Name <span className="text-danger">*</span>
                       </label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         className={`form-control ${policyNameError ? 'is-invalid' : ''}`}
-                        value={policyName} 
+                        value={policyName}
                         onChange={(e) => {
                           setPolicyTypeName(e.target.value);
                           // Clear error when user starts typing
                           if (policyNameError) {
                             setPolicyTypeNameError(null);
                           }
-                        }} 
+                        }}
                       />
                       {policyNameError && (
                         <div className="invalid-feedback d-block">
@@ -1184,7 +1182,7 @@ const Policy = () => {
                       <label className="form-label">
                         Apply To <span className="text-danger">*</span>
                       </label>
-                      
+
                       {/* Apply to All Employees toggle */}
                       <div className="mb-3">
                         <div className="form-check form-switch">
@@ -1212,7 +1210,7 @@ const Policy = () => {
                               Toggle departments to include all designations, or expand to select specific ones
                             </small>
                           </div>
-                          
+
                           <div className="p-2">
                             {departments.filter(d => d.status === 'Active').map(dept => {
                               const deptDesignations = designations.filter(
@@ -1221,7 +1219,7 @@ const Policy = () => {
                               const isDeptToggled = selectedDepartments.includes(dept._id);
                               const isExpanded = expandedDepartments.has(dept._id);
                               const selectedDesigs = selectedDesignations[dept._id] || [];
-                              
+
                               return (
                                 <div key={dept._id} className="mb-2 border rounded">
                                   {/* Department Row */}
@@ -1251,7 +1249,7 @@ const Policy = () => {
                                         )}
                                       </label>
                                     </div>
-                                    
+
                                     {/* Expand/Collapse Icon - Always Visible on Right */}
                                     <button
                                       type="button"
@@ -1262,7 +1260,7 @@ const Policy = () => {
                                       <i className={`ti ti-chevron-${isExpanded ? 'down' : 'right'}`}></i>
                                     </button>
                                   </div>
-                                  
+
                                   {/* Designation List - Expandable with Animation */}
                                   {deptDesignations.length > 0 && (
                                     <div className={`designation-collapse ${isExpanded ? 'show' : ''}`}>
@@ -1296,8 +1294,8 @@ const Policy = () => {
                                                 }}
                                                 disabled={isDeptToggled}
                                               />
-                                              <label 
-                                                className={`form-check-label ${isDeptToggled ? 'text-muted' : ''}`} 
+                                              <label
+                                                className={`form-check-label ${isDeptToggled ? 'text-muted' : ''}`}
                                                 htmlFor={`desig-${desig._id}`}
                                               >
                                                 {desig.designation}
@@ -1309,7 +1307,7 @@ const Policy = () => {
                                     </div>
                                     </div>
                                   )}
-                                  
+
                                   {deptDesignations.length === 0 && (
                                     <div className={`designation-collapse ${isExpanded ? 'show' : ''}`}>
                                       <div className="p-3 bg-white border-top text-muted small">
@@ -1321,7 +1319,7 @@ const Policy = () => {
                                 </div>
                               );
                             })}
-                            
+
                             {departments.filter(d => d.status === 'Active').length === 0 && (
                               <div className="text-center text-muted py-4">
                                 <i className="ti ti-info-circle me-1"></i>
@@ -1382,10 +1380,10 @@ const Policy = () => {
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-primary"
-                  disabled={loading} 
+                  disabled={loading}
                   onClick={handleSubmit}
                 >
                   Add PolicyType
@@ -1478,7 +1476,7 @@ const Policy = () => {
                       <label className="form-label">
                         Apply To <span className="text-danger">*</span>
                       </label>
-                      
+
                       {/* Apply to All Employees toggle */}
                       <div className="mb-3">
                         <div className="form-check form-switch">
@@ -1506,7 +1504,7 @@ const Policy = () => {
                               Toggle departments to include all designations, or expand to select specific ones
                             </small>
                           </div>
-                          
+
                           <div className="p-2">
                             {departments.filter(d => d.status === 'Active').map(dept => {
                               const deptDesignations = designations.filter(
@@ -1515,7 +1513,7 @@ const Policy = () => {
                               const isDeptToggled = selectedDepartments.includes(dept._id);
                               const isExpanded = expandedDepartments.has(dept._id);
                               const selectedDesigs = selectedDesignations[dept._id] || [];
-                              
+
                               return (
                                 <div key={dept._id} className="mb-2 border rounded">
                                   {/* Department Row */}
@@ -1545,7 +1543,7 @@ const Policy = () => {
                                         )}
                                       </label>
                                     </div>
-                                    
+
                                     {/* Expand/Collapse Icon - Always Visible on Right */}
                                     <button
                                       type="button"
@@ -1556,7 +1554,7 @@ const Policy = () => {
                                       <i className={`ti ti-chevron-${isExpanded ? 'down' : 'right'}`}></i>
                                     </button>
                                   </div>
-                                  
+
                                   {/* Designation List - Expandable with Animation */}
                                   {deptDesignations.length > 0 && (
                                     <div className={`designation-collapse ${isExpanded ? 'show' : ''}`}>
@@ -1590,8 +1588,8 @@ const Policy = () => {
                                                 }}
                                                 disabled={isDeptToggled}
                                               />
-                                              <label 
-                                                className={`form-check-label ${isDeptToggled ? 'text-muted' : ''}`} 
+                                              <label
+                                                className={`form-check-label ${isDeptToggled ? 'text-muted' : ''}`}
                                                 htmlFor={`desig-edit-${desig._id}`}
                                               >
                                                 {desig.designation}
@@ -1603,7 +1601,7 @@ const Policy = () => {
                                     </div>
                                     </div>
                                   )}
-                                  
+
                                   {deptDesignations.length === 0 && (
                                     <div className={`designation-collapse ${isExpanded ? 'show' : ''}`}>
                                       <div className="p-3 bg-white border-top text-muted small">
@@ -1615,7 +1613,7 @@ const Policy = () => {
                                 </div>
                               );
                             })}
-                            
+
                             {departments.filter(d => d.status === 'Active').length === 0 && (
                               <div className="text-center text-muted py-4">
                                 <i className="ti ti-info-circle me-1"></i>
@@ -1802,10 +1800,10 @@ const Policy = () => {
                         <div className="departments-list">
                           {viewingPolicyType.assignTo.map((mapping, index) => {
                             const hasSpecificDesignations = mapping.designationIds && mapping.designationIds.length > 0;
-                            const deptDesignations = hasSpecificDesignations 
+                            const deptDesignations = hasSpecificDesignations
                               ? designations.filter(d => mapping.designationIds.includes(d._id))
                               : [];
-                            
+
                             return (
                               <div key={index} className="mb-3 border rounded p-3 bg-light">
                                 <div className="d-flex align-items-center mb-2">
@@ -1826,8 +1824,8 @@ const Policy = () => {
                                   <div className="ms-4 mt-2">
                                     <div className="d-flex flex-wrap gap-2">
                                       {deptDesignations.map(designation => (
-                                        <span 
-                                          key={designation._id} 
+                                        <span
+                                          key={designation._id}
                                           className="badge bg-secondary"
                                         >
                                           <i className="ti ti-user-check me-1"></i>

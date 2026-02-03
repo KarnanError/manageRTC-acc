@@ -1,27 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Link, useParams, } from 'react-router-dom'
-import PredefinedDateRanges from '../../../core/common/datePicker'
-import Table from "../../../core/common/dataTable/index";
-import { all_routes } from '../../router/all_routes';
+import { DatePicker } from "antd";
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useParams, } from 'react-router-dom';
+import { toast, ToastContainer } from "react-toastify";
+import { Socket } from "socket.io-client";
+import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
+import CommonSelect from '../../../core/common/commonSelect';
+import Footer from "../../../core/common/footer";
 import ImageWithBasePath from '../../../core/common/imageWithBasePath';
 import { employeereportDetails } from '../../../core/data/json/employeereportDetails';
-import { DatePicker, TimePicker } from "antd";
-import CommonSelect from '../../../core/common/commonSelect';
-import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
-import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
-import { toast, ToastContainer } from "react-toastify";
-import Footer from "../../../core/common/footer";
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
+import { useSocket } from "../../../SocketContext";
+import { all_routes } from '../../router/all_routes';
 // REST API Hooks for HRM operations
-import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
+import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
 
-import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 
 // Declare Bootstrap type for modal
 declare const bootstrap: any;
@@ -361,7 +359,7 @@ const EmployeeDetails = () => {
         relationship: "",
         phone1: "",
         phone2: ""
-    }); 
+    });
 
     const [experienceFormData, setExperienceFormData] = useState({
         company: "",
@@ -784,7 +782,7 @@ const EmployeeDetails = () => {
             });
         }
     };
-    
+
     const resetEmergencyModel = () => {
         setEmergencyFormData({
             name: employee.emergencyContacts?.name || "",
@@ -887,7 +885,7 @@ const EmployeeDetails = () => {
             setLoading(false);
         }
     };
-    
+
     const resetAboutForm = () => {
         setAboutFormData({
             about: typeof employee?.about === 'string' ? employee.about : "",
@@ -1065,7 +1063,7 @@ const EmployeeDetails = () => {
                     }
                 }
             });
-            
+
             // Initialize bank form data
             setBankFormData({
                 bankName: employee.bank?.bankName || "",
@@ -1073,7 +1071,7 @@ const EmployeeDetails = () => {
                 ifscCode: employee.bank?.ifscCode || "",
                 branch: employee.bank?.branch || ""
             });
-            
+
             // Initialize personal form data
             setPersonalFormData({
                 passportNo: employee.personal?.passport?.number || "",
@@ -1120,7 +1118,7 @@ const EmployeeDetails = () => {
         }
     }, [employee]);
 
-    
+
     // Handle edit form changes
     const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -1280,6 +1278,7 @@ const EmployeeDetails = () => {
         // Fetch designations using REST API
         const fetchDesignations = async () => {
             try {
+                // Fetch all designations initially - they will be filtered when department is selected
                 await designationsREST.fetchDesignations();
             } catch (err) {
                 console.error("Error fetching designations:", err);
@@ -1470,9 +1469,9 @@ const EmployeeDetails = () => {
     // Get employee's most recent promotion (if any)
     const getEmployeePromotion = (): Promotion | null => {
         if (!employee || !promotions.length) {
-            console.log('[EmployeeDetails] No promotion data:', { 
-                hasEmployee: !!employee, 
-                promotionsCount: promotions.length 
+            console.log('[EmployeeDetails] No promotion data:', {
+                hasEmployee: !!employee,
+                promotionsCount: promotions.length
             });
             return null;
         }
@@ -1492,14 +1491,14 @@ const EmployeeDetails = () => {
         // Check multiple possible ID fields to ensure we find the promotion
         const employeePromotions = promotions.filter(promo => {
             const promoEmployeeId = promo.employee?.id;
-            const matches = promoEmployeeId === employee._id || 
+            const matches = promoEmployeeId === employee._id ||
                            promoEmployeeId === employee.employeeId ||
                            promoEmployeeId === employeeId; // Also check the route param
-            
+
             if (matches) {
                 console.log('[EmployeeDetails] Found matching promotion:', promo);
             }
-            
+
             return matches;
         });
 
@@ -1508,7 +1507,7 @@ const EmployeeDetails = () => {
         if (employeePromotions.length === 0) return null;
 
         // Sort by promotion date (most recent first) and return the first one
-        const sortedPromotions = employeePromotions.sort((a, b) => 
+        const sortedPromotions = employeePromotions.sort((a, b) =>
             new Date(b.promotionDate).getTime() - new Date(a.promotionDate).getTime()
         );
 
@@ -1521,9 +1520,9 @@ const EmployeeDetails = () => {
     // Get employee's most recent resignation (if any)
     const getEmployeeResignation = (): Resignation | null => {
         if (!employee || !resignations.length) {
-            console.log('[EmployeeDetails] No resignation data:', { 
-                hasEmployee: !!employee, 
-                resignationsCount: resignations.length 
+            console.log('[EmployeeDetails] No resignation data:', {
+                hasEmployee: !!employee,
+                resignationsCount: resignations.length
             });
             return null;
         }
@@ -1549,14 +1548,14 @@ const EmployeeDetails = () => {
 
         // Filter resignations for this specific employee
         const employeeResignations = resignations.filter(resignation => {
-            const matches = resignation.employeeId === employee._id || 
+            const matches = resignation.employeeId === employee._id ||
                            resignation.employeeId === employee.employeeId ||
                            resignation.employeeId === employeeId; // Also check the route param
-            
+
             if (matches) {
                 console.log('[EmployeeDetails] Found matching resignation:', resignation);
             }
-            
+
             return matches;
         });
 
@@ -1565,7 +1564,7 @@ const EmployeeDetails = () => {
         if (employeeResignations.length === 0) return null;
 
         // Sort by resignation date (most recent first) and return the first one
-        const sortedResignations = employeeResignations.sort((a, b) => 
+        const sortedResignations = employeeResignations.sort((a, b) =>
             new Date(b.resignationDate).getTime() - new Date(a.resignationDate).getTime()
         );
 
@@ -1578,9 +1577,9 @@ const EmployeeDetails = () => {
     // Get employee's most recent termination (if any)
     const getEmployeeTermination = (): Termination | null => {
         if (!employee || !terminations.length) {
-            console.log('[EmployeeDetails] No termination data:', { 
-                hasEmployee: !!employee, 
-                terminationsCount: terminations.length 
+            console.log('[EmployeeDetails] No termination data:', {
+                hasEmployee: !!employee,
+                terminationsCount: terminations.length
             });
             return null;
         }
@@ -1607,14 +1606,14 @@ const EmployeeDetails = () => {
         // Filter terminations for this specific employee
         const employeeTerminations = terminations.filter(termination => {
             // Handle both employee_id (ObjectId string) and employeeId (EMP-XXXX)
-            const matches = termination.employee_id === employee._id || 
+            const matches = termination.employee_id === employee._id ||
                            termination.employee_id === employee.employeeId ||
                            termination.employee_id === employeeId; // Also check the route param
-            
+
             if (matches) {
                 console.log('[EmployeeDetails] Found matching termination:', termination);
             }
-            
+
             return matches;
         });
 
@@ -1623,7 +1622,7 @@ const EmployeeDetails = () => {
         if (employeeTerminations.length === 0) return null;
 
         // Sort by termination date (most recent first) and return the first one
-        const sortedTerminations = employeeTerminations.sort((a, b) => 
+        const sortedTerminations = employeeTerminations.sort((a, b) =>
             new Date(b.terminationDate).getTime() - new Date(a.terminationDate).getTime()
         );
 
@@ -1670,7 +1669,7 @@ const EmployeeDetails = () => {
         const activeModal = document.querySelector('.modal.show');
         if (activeModal instanceof HTMLElement) {
             return activeModal;
-        }   
+        }
 
         const fallbackModal = document.getElementById('modal-datepicker');
         return fallbackModal || document.body;
@@ -2105,7 +2104,7 @@ const EmployeeDetails = () => {
                                             </span>
                                             <p className="text-dark text-end">{employee?.personal?.noOfChildren || '-'}</p>
                                         </div>
-                                        
+
                                         {/* Emergency Contact Number Section - Now inside Personal Information */}
                                         <div className="border-top mt-3 pt-3">
                                             <div className="d-flex align-items-center justify-content-between mb-2">
@@ -2350,7 +2349,7 @@ const EmployeeDetails = () => {
                                                 </div>
                                             </div>
                                             {/* {end Family details show} */}
-                                           
+
                                             <div className="row">
                                                  {/* {Education Details shown} */}
                                                 <div className="col-md-6">
@@ -2499,7 +2498,7 @@ const EmployeeDetails = () => {
                                                                                             Role:
                                                                                         </span>
 
-                                                                                        <p className="text-dark mb-0">{employee?.experience?.designation || '-'}</p> 
+                                                                                        <p className="text-dark mb-0">{employee?.experience?.designation || '-'}</p>
                                                                                     </div>
                                                                                 </div>
                                                                                 <div className="mb-3">
@@ -2742,8 +2741,8 @@ const EmployeeDetails = () => {
                                                                                 <div className="card-body">
                                                                                     <div className="d-flex align-items-start justify-content-between">
                                                                                         <div className="flex-grow-1">
-                                                                                            <h5 
-                                                                                                className="mb-2" 
+                                                                                            <h5
+                                                                                                className="mb-2"
                                                                                                 style={{ cursor: 'pointer' }}
                                                                                                 onClick={() => setViewingPolicy(policy)}
                                                                                                 data-bs-toggle="modal"
@@ -2758,10 +2757,10 @@ const EmployeeDetails = () => {
                                                                                             <div className="d-flex align-items-center gap-3 mt-3">
                                                                                                 <span className="badge bg-light text-dark">
                                                                                                     <i className="ti ti-calendar me-1"></i>
-                                                                                                    Effective: {new Date(policy.effectiveDate).toLocaleDateString('en-US', { 
-                                                                                                        year: 'numeric', 
-                                                                                                        month: 'short', 
-                                                                                                        day: 'numeric' 
+                                                                                                    Effective: {new Date(policy.effectiveDate).toLocaleDateString('en-US', {
+                                                                                                        year: 'numeric',
+                                                                                                        month: 'short',
+                                                                                                        day: 'numeric'
                                                                                                     })}
                                                                                                 </span>
                                                                                                 <span className="badge bg-success-transparent">
@@ -3285,9 +3284,20 @@ const EmployeeDetails = () => {
                                                                         departmentId: option.value,
                                                                         designationId: "" // Clear designation when department changes
                                                                     }));
-                                                                    if (socket && option.value) {
-                                                                        socket.emit("hrm/designations/get", { departmentId: option.value });
+                                                                    // Reset designation dropdown to default
+                                                                    setDesignation([{ value: "", label: "Select Designation" }]);
+                                                                    if (option.value) {
+                                                                        // Fetch designations for the selected department using REST API
+                                                                        designationsREST.fetchDesignations({ departmentId: option.value });
                                                                     }
+                                                                } else {
+                                                                    // Clear both department and designation when department is cleared
+                                                                    setEditFormData(prev => ({
+                                                                        ...prev,
+                                                                        departmentId: "",
+                                                                        designationId: ""
+                                                                    }));
+                                                                    setDesignation([{ value: "", label: "Select Designation" }]);
                                                                 }
                                                             }}
                                                         />
@@ -3340,8 +3350,8 @@ const EmployeeDetails = () => {
                                                                         }));
                                                                     }}
                                                                 />
-                                                                <label 
-                                                                    className="form-check-label" 
+                                                                <label
+                                                                    className="form-check-label"
                                                                     htmlFor="editStatusSwitch"
                                                                     style={{
                                                                         opacity: (
@@ -3389,9 +3399,9 @@ const EmployeeDetails = () => {
                                             >
                                                 Cancel
                                             </button>
-                                            <button 
-                                                type="button" 
-                                                className="btn btn-primary" 
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary"
                                                 disabled={loading}
                                                 onClick={handleNext}
                                             >
@@ -3496,8 +3506,8 @@ const EmployeeDetails = () => {
                                                 >
                                                     Cancel
                                                 </button>
-                                                <button 
-                                                    type="button" 
+                                                <button
+                                                    type="button"
                                                     className="btn btn-primary"
                                                     onClick={(e) => {
                                                         handlePermissionUpdateSubmit(e);
@@ -3554,7 +3564,7 @@ const EmployeeDetails = () => {
                                                         <label className="form-label">
                                                             About <span className="text-danger">*</span>
                                                         </label>
-                                                        
+
                                                         <textarea
                                                             className="form-control"
                                                             rows={4}
@@ -3577,9 +3587,9 @@ const EmployeeDetails = () => {
                                             >
                                                 Cancel
                                             </button>
-                                            <button 
-                                                type="submit" 
-                                                className="btn btn-primary" 
+                                            <button
+                                                type="submit"
+                                                className="btn btn-primary"
                                             >
                                                 Save
                                             </button>
@@ -3615,8 +3625,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Passport No <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={personalFormData.passportNo}
                                                 onChange={(e) => setPersonalFormData(prev => ({ ...prev, passportNo: e.target.value }))}
@@ -3650,8 +3660,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Nationality <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={personalFormData.nationality}
                                                 onChange={(e) => setPersonalFormData(prev => ({ ...prev, nationality: e.target.value }))}
@@ -3662,8 +3672,8 @@ const EmployeeDetails = () => {
                                     <div className="col-md-6">
                                         <div className="mb-3">
                                             <label className="form-label">Religion</label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={personalFormData.religion}
                                                 onChange={(e) => setPersonalFormData(prev => ({ ...prev, religion: e.target.value }))}
@@ -3693,8 +3703,8 @@ const EmployeeDetails = () => {
                                             <div className="col-md-6">
                                                 <div className="mb-3">
                                                     <label className="form-label">Employment spouse</label>
-                                                    <input 
-                                                        type="text" 
+                                                    <input
+                                                        type="text"
                                                         className="form-control"
                                                         value={personalFormData.employmentOfSpouse}
                                                         onChange={(e) => setPersonalFormData(prev => ({ ...prev, employmentOfSpouse: e.target.value }))}
@@ -3705,8 +3715,8 @@ const EmployeeDetails = () => {
                                             <div className="col-md-6">
                                                 <div className="mb-3">
                                                     <label className="form-label">No. of children</label>
-                                                    <input 
-                                                        type="number" 
+                                                    <input
+                                                        type="number"
                                                         className="form-control"
                                                         value={personalFormData.noOfChildren}
                                                         onChange={(e) => setPersonalFormData(prev => ({ ...prev, noOfChildren: parseInt(e.target.value) || 0 }))}
@@ -3762,7 +3772,7 @@ const EmployeeDetails = () => {
                                                 <label className="form-label">
                                                     Name <span className="text-danger"> *</span>
                                                 </label>
-                                                <input type="text" className="form-control" 
+                                                <input type="text" className="form-control"
                                                 value={emergencyFormData.name}
                                                 required
                                                 onChange={(e)=> setEmergencyFormData({...emergencyFormData, name: e.target.value})}/>
@@ -3773,7 +3783,7 @@ const EmployeeDetails = () => {
                                                 <label className="form-label">
                                                     Relationship <span className="text-danger"> *</span>
                                                 </label>
-                                                <input type="text" className="form-control" 
+                                                <input type="text" className="form-control"
                                                 value={emergencyFormData.relationship}
                                                 required
                                                 onChange={(e)=> setEmergencyFormData({...emergencyFormData, relationship: e.target.value})}/>
@@ -3784,7 +3794,7 @@ const EmployeeDetails = () => {
                                                 <label className="form-label">
                                                     Phone No 1 <span className="text-danger"> *</span>
                                                 </label>
-                                                <input type="text" className="form-control" 
+                                                <input type="text" className="form-control"
                                                 value={emergencyFormData.phone1}
                                                 required
                                                 onChange={(e)=> setEmergencyFormData({...emergencyFormData, phone1: e.target.value})}/>
@@ -3793,9 +3803,9 @@ const EmployeeDetails = () => {
                                         <div className="col-md-6">
                                             <div className="mb-3">
                                                 <label className="form-label">
-                                                    Phone No 2   
+                                                    Phone No 2
                                                 </label>
-                                                <input type="text" className="form-control" 
+                                                <input type="text" className="form-control"
                                                 value={emergencyFormData.phone2}
                                                 onChange={(e)=> setEmergencyFormData({...emergencyFormData, phone2: e.target.value})}/>
                                             </div>
@@ -3845,8 +3855,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Bank Name <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={bankFormData.bankName}
                                                 onChange={(e) => setBankFormData(prev => ({ ...prev, bankName: e.target.value }))}
@@ -3859,8 +3869,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Bank Account No <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={bankFormData.accountNumber}
                                                 onChange={(e) => setBankFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
@@ -3873,8 +3883,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 IFSC Code <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={bankFormData.ifscCode}
                                                 onChange={(e) => setBankFormData(prev => ({ ...prev, ifscCode: e.target.value }))}
@@ -3887,8 +3897,8 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Branch Address <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
+                                            <input
+                                                type="text"
                                                 className="form-control"
                                                 value={bankFormData.branch}
                                                 onChange={(e) => setBankFormData(prev => ({ ...prev, branch: e.target.value }))}
@@ -3940,7 +3950,7 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Name <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" 
+                                            <input type="text" className="form-control"
                                             value={familyFormData.familyMemberName}
                                             required
                                             onChange={(e) => setFamilyFormData(prev => ({ ...prev, familyMemberName: e.target.value }))}/>
@@ -3949,7 +3959,7 @@ const EmployeeDetails = () => {
                                     <div className="col-md-12">
                                         <div className="mb-3">
                                             <label className="form-label">Relationship </label>
-                                            <input type="text" className="form-control" 
+                                            <input type="text" className="form-control"
                                             value={familyFormData.relationship}
                                             required
                                             onChange={(e) => setFamilyFormData(prev => ({ ...prev, relationship: e.target.value }))}/>
@@ -3958,7 +3968,7 @@ const EmployeeDetails = () => {
                                     <div className="col-md-12">
                                         <div className="mb-3">
                                             <label className="form-label">Phone </label>
-                                            <input type="text" className="form-control" 
+                                            <input type="text" className="form-control"
                                             value={familyFormData.phone}
                                             required
                                             onChange={(e) => setFamilyFormData(prev => ({ ...prev, phone: e.target.value }))}/>
@@ -4008,7 +4018,7 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Institution Name <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" 
+                                            <input type="text" className="form-control"
                                             value={educationFormData.institution}
                                             required
                                             onChange={(e) => {
@@ -4021,7 +4031,7 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Course <span className="text-danger"> *</span>
                                             </label>
-                                            <input type="text" className="form-control" 
+                                            <input type="text" className="form-control"
                                             value={educationFormData.course}
                                             required
                                             onChange={(e) => {
@@ -4123,9 +4133,9 @@ const EmployeeDetails = () => {
                                                 Previous Company Name{" "}
                                                 <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
-                                                className="form-control" 
+                                            <input
+                                                type="text"
+                                                className="form-control"
                                                 value={experienceFormData.company}
                                                 required
                                                 onChange={(e) => setExperienceFormData({...experienceFormData, company: e.target.value})}
@@ -4137,9 +4147,9 @@ const EmployeeDetails = () => {
                                             <label className="form-label">
                                                 Designation <span className="text-danger"> *</span>
                                             </label>
-                                            <input 
-                                                type="text" 
-                                                className="form-control" 
+                                            <input
+                                                type="text"
+                                                className="form-control"
                                                 value={experienceFormData.designation}
                                                 required
                                                 onChange={(e) => setExperienceFormData({...experienceFormData, designation: e.target.value})}

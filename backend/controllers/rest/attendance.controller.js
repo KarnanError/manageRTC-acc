@@ -1,10 +1,11 @@
 /**
  * Attendance REST Controller
  * Handles all Attendance CRUD operations via REST API
+ * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import mongoose from 'mongoose';
-import Attendance from '../../models/attendance/attendance.schema.js';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
   buildNotFoundError,
   buildConflictError,
@@ -14,12 +15,20 @@ import {
 import {
   sendSuccess,
   sendCreated,
-  filterAndPaginate,
-  buildSearchFilter,
-  extractUser,
-  getRequestId
+  buildPagination,
+  extractUser
 } from '../../utils/apiResponse.js';
 import { getSocketIO, broadcastAttendanceEvents } from '../../utils/socketBroadcaster.js';
+
+/**
+ * Helper: Get employee by clerk user ID
+ */
+async function getEmployeeByClerkId(collections, clerkUserId) {
+  return await collections.employees.findOne({
+    'account.userId': clerkUserId,
+    isDeleted: { $ne: true }
+  });
+}
 
 /**
  * @desc    Get all attendance records with pagination and filtering
@@ -30,10 +39,14 @@ export const getAttendances = asyncHandler(async (req, res) => {
   const { page, limit, search, status, employee, startDate, endDate, sortBy, order } = req.query;
   const user = extractUser(req);
 
+  console.log('[Attendance Controller] getAttendances - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
-  let filter = {
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    isDeleted: { $ne: true }
   };
 
   // Apply status filter
@@ -43,7 +56,7 @@ export const getAttendances = asyncHandler(async (req, res) => {
 
   // Apply employee filter
   if (employee) {
-    filter.employee = employee;
+    filter.employeeId = employee;
   }
 
   // Apply date range filter
@@ -59,9 +72,14 @@ export const getAttendances = asyncHandler(async (req, res) => {
 
   // Apply search filter
   if (search && search.trim()) {
-    const searchFilter = buildSearchFilter(search, ['notes', 'managerNotes']);
-    filter = { ...filter, ...searchFilter };
+    filter.$or = [
+      { notes: { $regex: search, $options: 'i' } },
+      { managerNotes: { $regex: search, $options: 'i' } }
+    ];
   }
+
+  // Get total count
+  const total = await collections.attendance.countDocuments(filter);
 
   // Build sort option
   const sort = {};
@@ -71,24 +89,20 @@ export const getAttendances = asyncHandler(async (req, res) => {
     sort.date = -1;
   }
 
-  // Get paginated results
-  const result = await filterAndPaginate(Attendance, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort,
-    populate: [
-      {
-        path: 'employee',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'shift',
-        select: 'name startTime endTime'
-      }
-    ]
-  });
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
 
-  return sendSuccess(res, result.data, 'Attendance records retrieved successfully', 200, result.pagination);
+  const attendance = await collections.attendance
+    .find(filter)
+    .sort(sort)
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, attendance, 'Attendance records retrieved successfully', 200, pagination);
 });
 
 /**
@@ -100,20 +114,19 @@ export const getAttendanceById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid attendance ID format');
   }
 
-  // Find attendance record
-  const attendance = await Attendance.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  }).populate('employee', 'firstName lastName fullName employeeId')
-    .populate('shift', 'name startTime endTime')
-    .populate('createdBy', 'firstName lastName fullName')
-    .populate('updatedBy', 'firstName lastName fullName');
+  console.log('[Attendance Controller] getAttendanceById - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
 
   if (!attendance) {
     throw buildNotFoundError('Attendance record', id);
@@ -131,12 +144,13 @@ export const createAttendance = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const attendanceData = req.body;
 
+  console.log('[Attendance Controller] createAttendance - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Get Employee record from Clerk user ID
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  });
+  const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
     throw buildNotFoundError('Employee', user.userId);
@@ -148,38 +162,46 @@ export const createAttendance = asyncHandler(async (req, res) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const existingAttendance = await Attendance.findOne({
-    employee: employee._id,
+  const existingAttendance = await collections.attendance.findOne({
+    employeeId: employee.employeeId,
     date: {
       $gte: today,
       $lt: tomorrow
     },
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
-  if (existingAttendance && existingAttendance.clockIn.time && !existingAttendance.clockOut.time) {
+  if (existingAttendance && existingAttendance.clockIn?.time && !existingAttendance.clockOut?.time) {
     throw buildConflictError('Already clocked in today. Please clock out first.');
   }
 
   // Prepare attendance data
-  attendanceData.employee = employee._id;
-  attendanceData.companyId = user.companyId;
-  attendanceData.createdBy = user.userId;
+  const attendanceToInsert = {
+    attendanceId: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    employeeId: employee.employeeId,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    date: new Date(),
+    clockIn: {
+      time: attendanceData.clockIn?.time || new Date(),
+      location: attendanceData.clockIn?.location || { type: 'office' },
+      notes: attendanceData.clockIn?.notes || ''
+    },
+    status: 'present',
+    shiftId: attendanceData.shiftId || null,
+    createdBy: user.userId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    isDeleted: false
+  };
 
-  // If clock-in data provided, set it
-  if (!attendanceData.clockIn) {
-    attendanceData.clockIn = {
-      time: new Date(),
-      location: req.body.location || { type: 'office' }
-    };
+  const result = await collections.attendance.insertOne(attendanceToInsert);
+
+  if (!result.insertedId) {
+    throw new Error('Failed to create attendance record');
   }
 
-  // Create attendance record
-  const attendance = await Attendance.create(attendanceData);
-
-  // Populate references for response
-  await attendance.populate('employee', 'firstName lastName fullName employeeId');
-  await attendance.populate('shift', 'name startTime endTime');
+  // Get created attendance
+  const attendance = await collections.attendance.findOne({ _id: result.insertedId });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -201,16 +223,18 @@ export const updateAttendance = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid attendance ID format');
   }
 
-  // Find attendance record
-  const attendance = await Attendance.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Attendance Controller] updateAttendance - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!attendance) {
@@ -228,14 +252,18 @@ export const updateAttendance = asyncHandler(async (req, res) => {
   }
 
   // If clock-out data provided, set it
+  const updateObj = {
+    updatedAt: new Date()
+  };
+
   if (updateData.clockOut) {
-    attendance.clockOut = {
+    updateObj.clockOut = {
       time: updateData.clockOut.time || new Date(),
       location: updateData.clockOut.location || { type: 'office' },
       notes: updateData.clockOut.notes || ''
     };
   } else if (!updateData.clockOut) {
-    attendance.clockOut = {
+    updateObj.clockOut = {
       time: new Date(),
       location: { type: 'office' }
     };
@@ -243,24 +271,38 @@ export const updateAttendance = asyncHandler(async (req, res) => {
 
   // Update break duration if provided
   if (updateData.breakDuration !== undefined) {
-    attendance.breakDuration = updateData.breakDuration;
+    updateObj.breakDuration = updateData.breakDuration;
   }
 
-  attendance.updatedBy = user.userId;
-  await attendance.save();
+  // Calculate work hours if both clock in and out exist
+  if (updateObj.clockOut?.time && attendance.clockIn?.time) {
+    const clockInTime = new Date(attendance.clockIn.time);
+    const clockOutTime = new Date(updateObj.clockOut.time);
+    const breakDuration = updateObj.breakDuration || 0;
+    const workDuration = clockOutTime - clockInTime - (breakDuration * 60 * 1000);
+    updateObj.workHours = Math.max(0, workDuration / (60 * 60 * 1000)); // in hours
+  }
 
-  // Populate references for response
-  await attendance.populate('employee', 'firstName lastName fullName employeeId');
-  await attendance.populate('shift', 'name startTime endTime');
+  const result = await collections.attendance.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Get updated attendance
+  const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
-    broadcastAttendanceEvents.updated(io, user.companyId, attendance);
-    broadcastAttendanceEvents.clockOut(io, user.companyId, attendance);
+    broadcastAttendanceEvents.updated(io, user.companyId, updatedAttendance);
+    broadcastAttendanceEvents.clockOut(io, user.companyId, updatedAttendance);
   }
 
-  return sendSuccess(res, attendance, 'Clocked out successfully');
+  return sendSuccess(res, updatedAttendance, 'Clocked out successfully');
 });
 
 /**
@@ -272,16 +314,18 @@ export const deleteAttendance = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid attendance ID format');
   }
 
-  // Find attendance record
-  const attendance = await Attendance.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Attendance Controller] deleteAttendance - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!attendance) {
@@ -289,10 +333,20 @@ export const deleteAttendance = asyncHandler(async (req, res) => {
   }
 
   // Soft delete
-  attendance.isDeleted = true;
-  attendance.deletedAt = new Date();
-  attendance.deletedBy = user.userId;
-  await attendance.save();
+  const result = await collections.attendance.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: user.userId
+      }
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Attendance record', id);
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -316,22 +370,22 @@ export const getMyAttendance = asyncHandler(async (req, res) => {
   const { page, limit, startDate, endDate, status } = req.query;
   const user = extractUser(req);
 
+  console.log('[Attendance Controller] getMyAttendance - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Get Employee record
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  });
+  const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
     return sendSuccess(res, [], 'No attendance records found');
   }
 
   // Build filter
-  let filter = {
-    employee: employee._id,
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    employeeId: employee.employeeId,
+    isDeleted: { $ne: true }
   };
 
   // Apply date range filter
@@ -350,10 +404,11 @@ export const getMyAttendance = asyncHandler(async (req, res) => {
     filter.status = status;
   }
 
-  const attendances = await Attendance.find(filter)
-    .populate('shift', 'name startTime endTime')
+  const attendances = await collections.attendance
+    .find(filter)
     .sort({ date: -1 })
-    .limit(parseInt(limit) || 31);
+    .limit(parseInt(limit) || 31)
+    .toArray();
 
   return sendSuccess(res, attendances, 'My attendance records retrieved successfully');
 });
@@ -371,33 +426,36 @@ export const getAttendanceByDateRange = asyncHandler(async (req, res) => {
     throw buildValidationError('startDate/endDate', 'Both startDate and endDate are required');
   }
 
+  console.log('[Attendance Controller] getAttendanceByDateRange - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
   const filter = {
-    companyId: user.companyId,
     date: {
       $gte: new Date(startDate),
       $lte: new Date(endDate)
     },
-    isDeleted: false
+    isDeleted: { $ne: true }
   };
 
-  const result = await filterAndPaginate(Attendance, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 31,
-    sort: { date: -1 },
-    populate: [
-      {
-        path: 'employee',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'shift',
-        select: 'name startTime endTime'
-      }
-    ]
-  });
+  const total = await collections.attendance.countDocuments(filter);
 
-  return sendSuccess(res, result.data, 'Attendance records retrieved successfully', 200, result.pagination);
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 31;
+  const skip = (pageNum - 1) * limitNum;
+
+  const attendance = await collections.attendance
+    .find(filter)
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, attendance, 'Attendance records retrieved successfully', 200, pagination);
 });
 
 /**
@@ -410,16 +468,19 @@ export const getAttendanceByEmployee = asyncHandler(async (req, res) => {
   const { page, limit, startDate, endDate } = req.query;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+  if (!ObjectId.isValid(employeeId)) {
     throw buildValidationError('employeeId', 'Invalid employee ID format');
   }
 
+  console.log('[Attendance Controller] getAttendanceByEmployee - employeeId:', employeeId, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
   const filter = {
-    employee: employeeId,
-    companyId: user.companyId,
-    isDeleted: false
+    employeeId,
+    isDeleted: { $ne: true }
   };
 
   // Apply date range filter
@@ -433,17 +494,22 @@ export const getAttendanceByEmployee = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await filterAndPaginate(Attendance, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 31,
-    sort: { date: -1 },
-    populate: {
-      path: 'shift',
-      select: 'name startTime endTime'
-    }
-  });
+  const total = await collections.attendance.countDocuments(filter);
 
-  return sendSuccess(res, result.data, 'Employee attendance records retrieved successfully', 200, result.pagination);
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 31;
+  const skip = (pageNum - 1) * limitNum;
+
+  const attendance = await collections.attendance
+    .find(filter)
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, attendance, 'Employee attendance records retrieved successfully', 200, pagination);
 });
 
 /**
@@ -455,32 +521,52 @@ export const getAttendanceStats = asyncHandler(async (req, res) => {
   const { startDate, endDate, employee } = req.query;
   const user = extractUser(req);
 
+  console.log('[Attendance Controller] getAttendanceStats - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filters
-  const filters = {
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    isDeleted: { $ne: true }
   };
 
   if (employee) {
-    filters.employee = new mongoose.Types.ObjectId(employee);
+    filter.employeeId = employee;
   }
 
   if (startDate || endDate) {
-    filters.date = {};
+    filter.date = {};
     if (startDate) {
-      filters.date.$gte = new Date(startDate);
+      filter.date.$gte = new Date(startDate);
     }
     if (endDate) {
-      filters.date.$lte = new Date(endDate);
+      filter.date.$lte = new Date(endDate);
     }
   }
 
-  const stats = await Attendance.getStats(user.companyId, filters);
+  const allAttendance = await collections.attendance.find(filter).toArray();
 
-  // Add calculated metrics
-  stats.averageHoursPerDay = stats.total > 0 ? (stats.totalHoursWorked / stats.total).toFixed(2) : 0;
-  stats.attendanceRate = stats.total > 0 ? ((stats.present / stats.total) * 100).toFixed(2) : 0;
-  stats.lateRate = stats.total > 0 ? ((stats.late / stats.total) * 100).toFixed(2) : 0;
+  const present = allAttendance.filter(a => a.status === 'present').length;
+  const absent = allAttendance.filter(a => a.status === 'absent').length;
+  const late = allAttendance.filter(a => a.status === 'late').length;
+  const halfDay = allAttendance.filter(a => a.status === 'half-day').length;
+  const total = allAttendance.length;
+
+  // Calculate total hours worked
+  const totalHoursWorked = allAttendance.reduce((sum, a) => sum + (a.workHours || 0), 0);
+
+  const stats = {
+    total,
+    present,
+    absent,
+    late,
+    halfDay,
+    totalHoursWorked: totalHoursWorked.toFixed(2),
+    averageHoursPerDay: total > 0 ? (totalHoursWorked / total).toFixed(2) : 0,
+    attendanceRate: total > 0 ? ((present / total) * 100).toFixed(2) : 0,
+    lateRate: total > 0 ? ((late / total) * 100).toFixed(2) : 0
+  };
 
   return sendSuccess(res, stats, 'Attendance statistics retrieved successfully');
 });
@@ -494,6 +580,8 @@ export const bulkAttendanceAction = asyncHandler(async (req, res) => {
   const { action, attendanceIds, data } = req.body;
   const user = extractUser(req);
 
+  console.log('[Attendance Controller] bulkAttendanceAction - companyId:', user.companyId);
+
   if (!action || !attendanceIds || !Array.isArray(attendanceIds)) {
     throw buildValidationError('action/attendanceIds', 'Action and attendanceIds array are required');
   }
@@ -504,14 +592,16 @@ export const bulkAttendanceAction = asyncHandler(async (req, res) => {
   }
 
   // Convert IDs to ObjectIds
-  const attendanceObjectIds = attendanceIds.map(id => new mongoose.Types.ObjectId(id));
+  const attendanceObjectIds = attendanceIds.map(id => new ObjectId(id));
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
   // Find all attendance records
-  const attendances = await Attendance.find({
+  const attendances = await collections.attendance.find({
     _id: { $in: attendanceObjectIds },
-    companyId: user.companyId,
-    isDeleted: false
-  });
+    isDeleted: { $ne: true }
+  }).toArray();
 
   if (attendances.length === 0) {
     throw buildNotFoundError('Attendance records', attendanceIds.join(', '));
@@ -526,40 +616,64 @@ export const bulkAttendanceAction = asyncHandler(async (req, res) => {
       switch (action) {
         case 'approve-regularization':
           if (attendance.regularizationRequest?.requested) {
-            attendance.regularizationRequest.status = 'approved';
-            attendance.regularizationRequest.approvedBy = user.userId;
-            attendance.regularizationRequest.approvedAt = new Date();
-            attendance.isRegularized = true;
-            attendance.updatedBy = user.userId;
-            await attendance.save();
+            await collections.attendance.updateOne(
+              { _id: attendance._id },
+              {
+                $set: {
+                  'regularizationRequest.status': 'approved',
+                  'regularizationRequest.approvedBy': user.userId,
+                  'regularizationRequest.approvedAt': new Date(),
+                  isRegularized: true,
+                  updatedAt: new Date()
+                }
+              }
+            );
             updatedCount++;
           }
           break;
 
         case 'reject-regularization':
           if (attendance.regularizationRequest?.requested) {
-            attendance.regularizationRequest.status = 'rejected';
-            attendance.regularizationRequest.rejectionReason = data?.reason || 'Request rejected';
-            attendance.updatedBy = user.userId;
-            await attendance.save();
+            await collections.attendance.updateOne(
+              { _id: attendance._id },
+              {
+                $set: {
+                  'regularizationRequest.status': 'rejected',
+                  'regularizationRequest.rejectionReason': data?.reason || 'Request rejected',
+                  updatedAt: new Date()
+                }
+              }
+            );
             updatedCount++;
           }
           break;
 
         case 'update-status':
           if (data?.status) {
-            attendance.status = data.status;
-            attendance.updatedBy = user.userId;
-            await attendance.save();
+            await collections.attendance.updateOne(
+              { _id: attendance._id },
+              {
+                $set: {
+                  status: data.status,
+                  updatedAt: new Date()
+                }
+              }
+            );
             updatedCount++;
           }
           break;
 
         case 'bulk-delete':
-          attendance.isDeleted = true;
-          attendance.deletedAt = new Date();
-          attendance.deletedBy = user.userId;
-          await attendance.save();
+          await collections.attendance.updateOne(
+            { _id: attendance._id },
+            {
+              $set: {
+                isDeleted: true,
+                deletedAt: new Date(),
+                deletedBy: user.userId
+              }
+            }
+          );
           updatedCount++;
           break;
       }

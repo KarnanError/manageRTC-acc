@@ -1,422 +1,375 @@
 /**
  * Policy REST Controller
  * Handles all policy-related CRUD operations
+ * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import Policy from '../../models/policy/policy.schema.js';
-import Department from '../../models/organization/department.schema.js';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import logger from '../../utils/logger.js';
+import { extractUser } from '../../utils/apiResponse.js';
+import {
+  buildNotFoundError,
+  buildConflictError,
+  buildValidationError,
+  asyncHandler
+} from '../../middleware/errorHandler.js';
+import {
+  sendSuccess,
+  sendCreated,
+  buildPagination
+} from '../../utils/apiResponse.js';
 
 /**
  * Get all policies with optional filtering
  * REST API: GET /api/policies
  */
-export const getAllPolicies = async (req, res) => {
-  try {
-    const {
-      department,
-      startDate,
-      endDate,
-      sortBy = 'effectiveDate',
-      sortOrder = 'desc',
-      page = 1,
-      limit = 50
-    } = req.query;
+export const getAllPolicies = asyncHandler(async (req, res) => {
+  const {
+    department,
+    startDate,
+    endDate,
+    sortBy = 'effectiveDate',
+    sortOrder = 'desc',
+    page = 1,
+    limit = 50
+  } = req.query;
 
-    const companyId = req.user?.companyId;
-    if (!companyId) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Company ID is required' }
-      });
-    }
+  const user = extractUser(req);
 
-    // Build query
-    const query = {
-      companyId,
-      isDeleted: false
-    };
+  console.log('[Policy Controller] getAllPolicies - companyId:', user.companyId);
 
-    // Filter by department if specified
-    if (department) {
-      query['assignTo.departmentId'] = department;
-    }
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
-    // Filter by date range
-    if (startDate || endDate) {
-      query.effectiveDate = {};
-      if (startDate) {
-        query.effectiveDate.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        query.effectiveDate.$lte = new Date(endDate);
-      }
-    }
+  // Build query
+  const filter = {
+    isDeleted: { $ne: true }
+  };
 
-    // Execute query with sorting and pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
-    const policies = await Policy.find(query)
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-
-    // Get total count for pagination
-    const totalCount = await Policy.countDocuments(query);
-
-    res.json({
-      success: true,
-      data: policies,
-      count: policies.length,
-      totalCount,
-      page: parseInt(page),
-      totalPages: Math.ceil(totalCount / parseInt(limit))
-    });
-  } catch (error) {
-    logger.error('Error fetching policies:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to fetch policies' }
-    });
+  // Filter by department if specified
+  if (department) {
+    filter['assignTo.departmentId'] = department;
   }
-};
+
+  // Filter by date range
+  if (startDate || endDate) {
+    filter.effectiveDate = {};
+    if (startDate) {
+      filter.effectiveDate.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      filter.effectiveDate.$lte = new Date(endDate);
+    }
+  }
+
+  // Get total count
+  const total = await collections.policies.countDocuments(filter);
+
+  // Execute query with sorting and pagination
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 50;
+  const skip = (pageNum - 1) * limitNum;
+
+  const sortOptions = {};
+  sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+  const policies = await collections.policies
+    .find(filter)
+    .sort(sortOptions)
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, policies, 'Policies retrieved successfully', 200, pagination);
+});
 
 /**
  * Get policy stats
  * REST API: GET /api/policies/stats
  */
-export const getPolicyStats = async (req, res) => {
-  try {
-    const companyId = req.user?.companyId;
-    if (!companyId) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Company ID is required' }
-      });
-    }
+export const getPolicyStats = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
 
-    const stats = await Policy.getStats(companyId);
+  console.log('[Policy Controller] getPolicyStats - companyId:', user.companyId);
 
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    logger.error('Error fetching policy stats:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to fetch policy stats' }
-    });
-  }
-};
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const allPolicies = await collections.policies.find({
+    isDeleted: { $ne: true }
+  }).toArray();
+
+  const activePolicies = allPolicies.filter(p => {
+    if (!p.effectiveDate) return false;
+    const effectiveDate = new Date(p.effectiveDate);
+    return effectiveDate <= new Date();
+  });
+
+  const stats = {
+    totalPolicies: allPolicies.length,
+    activePolicies: activePolicies.length,
+    pendingPolicies: allPolicies.length - activePolicies.length,
+    applyToAllCount: allPolicies.filter(p => p.applyToAll).length,
+    departmentSpecificCount: allPolicies.filter(p => !p.applyToAll && p.assignTo?.length > 0).length
+  };
+
+  return sendSuccess(res, stats, 'Policy statistics retrieved successfully');
+});
 
 /**
  * Get policy by ID
  * REST API: GET /api/policies/:id
  */
-export const getPolicyById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const companyId = req.user?.companyId;
+export const getPolicyById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const user = extractUser(req);
 
-    const policy = await Policy.findOne({
-      _id: id,
-      companyId,
-      isDeleted: false
-    }).lean();
+  console.log('[Policy Controller] getPolicyById - id:', id, 'companyId:', user.companyId);
 
-    if (!policy) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Policy not found' }
-      });
-    }
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
-    res.json({
-      success: true,
-      data: policy
-    });
-  } catch (error) {
-    logger.error('Error fetching policy:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to fetch policy' }
-    });
+  const policy = await collections.policies.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
+
+  if (!policy) {
+    throw buildNotFoundError('Policy', id);
   }
-};
+
+  return sendSuccess(res, policy, 'Policy retrieved successfully');
+});
 
 /**
  * Create new policy
  * REST API: POST /api/policies
  */
-export const createPolicy = async (req, res) => {
-  try {
-    const companyId = req.user?.companyId;
-    if (!companyId) {
-      return res.status(401).json({
-        success: false,
-        error: { message: 'Company ID is required' }
-      });
-    }
+export const createPolicy = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+  const { policyName, policyDescription, effectiveDate, applyToAll, assignTo } = req.body;
 
-    const { policyName, policyDescription, effectiveDate, applyToAll, assignTo } = req.body;
+  console.log('[Policy Controller] createPolicy - companyId:', user.companyId);
 
-    // Validation
-    if (!policyName || !policyName.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Policy Name is required' }
-      });
-    }
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
-    if (!policyDescription || !policyDescription.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Policy Description is required' }
-      });
-    }
-
-    if (!effectiveDate) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Effective Date is required' }
-      });
-    }
-
-    // Validate applyToAll and assignTo combination
-    if (!applyToAll && (!assignTo || assignTo.length === 0)) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Either apply to all employees or assign to specific departments/designations' }
-      });
-    }
-
-    // Verify department assignments exist
-    if (assignTo && assignTo.length > 0) {
-      const departmentIds = assignTo.map(a => a.departmentId);
-      const departments = await Department.find({
-        _id: { $in: departmentIds },
-        companyId
-      });
-
-      if (departments.length !== departmentIds.length) {
-        return res.status(400).json({
-          success: false,
-          error: { message: 'One or more departments not found' }
-        });
-      }
-    }
-
-    // Create policy
-    const policy = await Policy.create({
-      companyId,
-      policyName: policyName.trim(),
-      policyDescription: policyDescription.trim(),
-      effectiveDate: new Date(effectiveDate),
-      applyToAll: applyToAll || false,
-      assignTo: assignTo || [],
-      createdBy: req.user?.userId
-    });
-
-    // Emit socket event for real-time updates
-    if (req.socket) {
-      req.socket.emit('policy:created', policy);
-    }
-
-    res.status(201).json({
-      success: true,
-      data: policy,
-      message: 'Policy created successfully'
-    });
-  } catch (error) {
-    logger.error('Error creating policy:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to create policy' }
-    });
+  // Validation
+  if (!policyName || !policyName.trim()) {
+    throw buildValidationError('policyName', 'Policy Name is required');
   }
-};
+
+  if (!policyDescription || !policyDescription.trim()) {
+    throw buildValidationError('policyDescription', 'Policy Description is required');
+  }
+
+  if (!effectiveDate) {
+    throw buildValidationError('effectiveDate', 'Effective Date is required');
+  }
+
+  // Validate applyToAll and assignTo combination
+  if (!applyToAll && (!assignTo || assignTo.length === 0)) {
+    throw buildValidationError('assignTo', 'Either apply to all employees or assign to specific departments/designations');
+  }
+
+  // Verify department assignments exist
+  if (assignTo && assignTo.length > 0) {
+    const departmentIds = assignTo.map(a => new ObjectId(a.departmentId));
+    const departments = await collections.departments.find({
+      _id: { $in: departmentIds }
+    }).toArray();
+
+    if (departments.length !== departmentIds.length) {
+      throw buildConflictError('One or more departments not found');
+    }
+  }
+
+  // Create policy
+  const policyToInsert = {
+    policyName: policyName.trim(),
+    policyDescription: policyDescription.trim(),
+    effectiveDate: new Date(effectiveDate),
+    applyToAll: applyToAll || false,
+    assignTo: assignTo || [],
+    createdBy: user.userId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    isDeleted: false
+  };
+
+  const result = await collections.policies.insertOne(policyToInsert);
+
+  if (!result.insertedId) {
+    throw new Error('Failed to create policy');
+  }
+
+  // Get created policy
+  const policy = await collections.policies.findOne({ _id: result.insertedId });
+
+  return sendCreated(res, policy, 'Policy created successfully');
+});
 
 /**
  * Update policy
  * REST API: PUT /api/policies/:id
  */
-export const updatePolicy = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const companyId = req.user?.companyId;
-    const { policyName, policyDescription, effectiveDate, applyToAll, assignTo } = req.body;
+export const updatePolicy = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const user = extractUser(req);
+  const { policyName, policyDescription, effectiveDate, applyToAll, assignTo } = req.body;
 
-    // Find existing policy
-    const policy = await Policy.findOne({
-      _id: id,
-      companyId,
-      isDeleted: false
-    });
+  console.log('[Policy Controller] updatePolicy - id:', id, 'companyId:', user.companyId);
 
-    if (!policy) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Policy not found' }
-      });
-    }
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
-    // Validation
-    if (policyName !== undefined && !policyName.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Policy Name is required' }
-      });
-    }
+  // Find existing policy
+  const policy = await collections.policies.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
 
-    if (policyDescription !== undefined && !policyDescription.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Policy Description is required' }
-      });
-    }
-
-    // Validate applyToAll and assignTo combination
-    const newApplyToAll = applyToAll !== undefined ? applyToAll : policy.applyToAll;
-    const newAssignTo = assignTo !== undefined ? assignTo : policy.assignTo;
-
-    if (!newApplyToAll && (!newAssignTo || newAssignTo.length === 0)) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Either apply to all employees or assign to specific departments/designations' }
-      });
-    }
-
-    // Verify department assignments exist if provided
-    if (newAssignTo && newAssignTo.length > 0) {
-      const departmentIds = newAssignTo.map(a => a.departmentId);
-      const departments = await Department.find({
-        _id: { $in: departmentIds },
-        companyId
-      });
-
-      if (departments.length !== departmentIds.length) {
-        return res.status(400).json({
-          success: false,
-          error: { message: 'One or more departments not found' }
-        });
-      }
-    }
-
-    // Update policy
-    if (policyName !== undefined) policy.policyName = policyName.trim();
-    if (policyDescription !== undefined) policy.policyDescription = policyDescription.trim();
-    if (effectiveDate !== undefined) policy.effectiveDate = new Date(effectiveDate);
-    if (applyToAll !== undefined) policy.applyToAll = applyToAll;
-    if (assignTo !== undefined) policy.assignTo = assignTo;
-    policy.updatedBy = req.user?.userId;
-
-    await policy.save();
-
-    // Emit socket event for real-time updates
-    if (req.socket) {
-      req.socket.emit('policy:updated', policy);
-    }
-
-    res.json({
-      success: true,
-      data: policy,
-      message: 'Policy updated successfully'
-    });
-  } catch (error) {
-    logger.error('Error updating policy:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to update policy' }
-    });
+  if (!policy) {
+    throw buildNotFoundError('Policy', id);
   }
-};
+
+  // Validation
+  if (policyName !== undefined && !policyName.trim()) {
+    throw buildValidationError('policyName', 'Policy Name is required');
+  }
+
+  if (policyDescription !== undefined && !policyDescription.trim()) {
+    throw buildValidationError('policyDescription', 'Policy Description is required');
+  }
+
+  // Validate applyToAll and assignTo combination
+  const newApplyToAll = applyToAll !== undefined ? applyToAll : policy.applyToAll;
+  const newAssignTo = assignTo !== undefined ? assignTo : policy.assignTo;
+
+  if (!newApplyToAll && (!newAssignTo || newAssignTo.length === 0)) {
+    throw buildValidationError('assignTo', 'Either apply to all employees or assign to specific departments/designations');
+  }
+
+  // Verify department assignments exist if provided
+  if (newAssignTo && newAssignTo.length > 0) {
+    const departmentIds = newAssignTo.map(a => new ObjectId(a.departmentId));
+    const departments = await collections.departments.find({
+      _id: { $in: departmentIds }
+    }).toArray();
+
+    if (departments.length !== departmentIds.length) {
+      throw buildConflictError('One or more departments not found');
+    }
+  }
+
+  // Build update object
+  const updateData = {
+    updatedAt: new Date()
+  };
+
+  if (policyName !== undefined) updateData.policyName = policyName.trim();
+  if (policyDescription !== undefined) updateData.policyDescription = policyDescription.trim();
+  if (effectiveDate !== undefined) updateData.effectiveDate = new Date(effectiveDate);
+  if (applyToAll !== undefined) updateData.applyToAll = applyToAll;
+  if (assignTo !== undefined) updateData.assignTo = assignTo;
+
+  // Update policy
+  const result = await collections.policies.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateData }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Policy', id);
+  }
+
+  // Get updated policy
+  const updatedPolicy = await collections.policies.findOne({ _id: new ObjectId(id) });
+
+  return sendSuccess(res, updatedPolicy, 'Policy updated successfully');
+});
 
 /**
  * Delete policy (soft delete)
  * REST API: DELETE /api/policies/:id
  */
-export const deletePolicy = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const companyId = req.user?.companyId;
+export const deletePolicy = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const user = extractUser(req);
 
-    const policy = await Policy.findOne({
-      _id: id,
-      companyId,
-      isDeleted: false
-    });
+  console.log('[Policy Controller] deletePolicy - id:', id, 'companyId:', user.companyId);
 
-    if (!policy) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Policy not found' }
-      });
-    }
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
-    // Soft delete
-    policy.isDeleted = true;
-    await policy.save();
+  const policy = await collections.policies.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
 
-    // Emit socket event for real-time updates
-    if (req.socket) {
-      req.socket.emit('policy:deleted', { _id: id });
-    }
-
-    res.json({
-      success: true,
-      message: 'Policy deleted successfully'
-    });
-  } catch (error) {
-    logger.error('Error deleting policy:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to delete policy' }
-    });
+  if (!policy) {
+    throw buildNotFoundError('Policy', id);
   }
-};
+
+  // Soft delete
+  const result = await collections.policies.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: user.userId
+      }
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Policy', id);
+  }
+
+  return sendSuccess(res, { _id: id }, 'Policy deleted successfully');
+});
 
 /**
  * Search policies
  * REST API: GET /api/policies/search
  */
-export const searchPolicies = async (req, res) => {
-  try {
-    const { q } = req.query;
-    const companyId = req.user?.companyId;
+export const searchPolicies = asyncHandler(async (req, res) => {
+  const { q } = req.query;
+  const user = extractUser(req);
 
-    if (!q || !q.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Search query is required' }
-      });
-    }
+  console.log('[Policy Controller] searchPolicies - query:', q, 'companyId:', user.companyId);
 
-    const policies = await Policy.find({
-      companyId,
-      isDeleted: false,
-      $or: [
-        { policyName: { $regex: q, $options: 'i' } },
-        { policyDescription: { $regex: q, $options: 'i' } }
-      ]
-    })
-      .sort({ effectiveDate: -1 })
-      .limit(20)
-      .lean();
-
-    res.json({
-      success: true,
-      data: policies,
-      count: policies.length
-    });
-  } catch (error) {
-    logger.error('Error searching policies:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to search policies' }
-    });
+  if (!q || !q.trim()) {
+    throw buildValidationError('q', 'Search query is required');
   }
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const policies = await collections.policies.find({
+    isDeleted: { $ne: true },
+    $or: [
+      { policyName: { $regex: q, $options: 'i' } },
+      { policyDescription: { $regex: q, $options: 'i' } }
+    ]
+  })
+    .sort({ effectiveDate: -1 })
+    .limit(20)
+    .toArray();
+
+  return sendSuccess(res, policies, 'Search results retrieved successfully');
+});
+
+export default {
+  getAllPolicies,
+  getPolicyStats,
+  getPolicyById,
+  createPolicy,
+  updatePolicy,
+  deletePolicy,
+  searchPolicies
 };

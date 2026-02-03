@@ -19,7 +19,9 @@ import { getSocketIO, broadcastDesignationEvents } from '../../utils/socketBroad
  */
 export const getAllDesignations = async (req, res) => {
   try {
-    const { departmentId, status } = req.query;
+    // Use validated query if available, otherwise use original query (for non-validated routes)
+    const query = req.validatedQuery || req.query;
+    const { departmentId, status } = query;
     const companyId = req.user?.companyId;
 
     if (!companyId) {

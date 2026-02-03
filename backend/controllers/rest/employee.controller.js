@@ -1,10 +1,10 @@
 /**
  * Employee REST Controller
  * Handles all Employee CRUD operations via REST API
+ * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import mongoose from 'mongoose';
-import Employee from '../../models/employee/employee.schema.js';
+import { ObjectId } from 'mongodb';
 import {
   buildNotFoundError,
   buildConflictError,
@@ -14,13 +14,14 @@ import {
 import {
   sendSuccess,
   sendCreated,
-  filterAndPaginate,
+  buildPagination,
   buildSearchFilter,
   extractUser,
   buildAuditFields,
   getRequestId
 } from '../../utils/apiResponse.js';
 import { getSocketIO, broadcastEmployeeEvents } from '../../utils/socketBroadcaster.js';
+import { getTenantCollections } from '../../config/db.js';
 
 /**
  * @desc    Get all employees with pagination and filtering
@@ -28,59 +29,128 @@ import { getSocketIO, broadcastEmployeeEvents } from '../../utils/socketBroadcas
  * @access  Private (Admin, HR, Superadmin)
  */
 export const getEmployees = asyncHandler(async (req, res) => {
-  const { page, limit, search, department, designation, status, sortBy, order } = req.query;
+  // Use validated query if available, otherwise use original query (for non-validated routes)
+  const query = req.validatedQuery || req.query;
+  const { page, limit, search, department, designation, status, sortBy, order } = query;
   const user = extractUser(req);
 
+  console.log('[Employee Controller] getEmployees - companyId:', user.companyId, 'filters:', { page, limit, search, department, designation, status });
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
-  let filter = {
-    companyId: user.companyId,
-    isActive: true,
-    isDeleted: false
-  };
+  let filter = {};
 
   // Apply status filter
   if (status) {
-    filter.employmentStatus = status;
+    filter.status = status;
   }
 
   // Apply department filter
   if (department) {
-    filter.department = department;
+    filter.departmentId = department;
   }
 
   // Apply designation filter
   if (designation) {
-    filter.designation = designation;
+    filter.designationId = designation;
   }
 
   // Apply search filter
   if (search && search.trim()) {
-    const searchFilter = buildSearchFilter(search, ['firstName', 'lastName', 'email', 'employeeCode']);
-    filter = { ...filter, ...searchFilter };
+    filter.$or = [
+      { firstName: { $regex: search, $options: 'i' } },
+      { lastName: { $regex: search, $options: 'i' } },
+      { fullName: { $regex: search, $options: 'i' } },
+      { 'contact.email': { $regex: search, $options: 'i' } },
+      { employeeId: { $regex: search, $options: 'i' } }
+    ];
   }
+
+  console.log('[Employee Controller] MongoDB filter:', filter);
+
+  // Get total count
+  const total = await collections.employees.countDocuments(filter);
 
   // Build sort option
-  const sort = {};
+  const sortObj = {};
   if (sortBy) {
-    sort[sortBy] = order === 'asc' ? 1 : -1;
+    sortObj[sortBy] = order === 'asc' ? 1 : -1;
   } else {
-    sort.createdAt = -1;
+    sortObj.createdAt = -1;
   }
 
-  // Get paginated results
-  const result = await filterAndPaginate(Employee, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort,
-    populate: [
-      { path: 'department', select: 'name' },
-      { path: 'designation', select: 'title level' },
-      { path: 'reportingTo', select: 'firstName lastName fullName employeeId' }
-    ],
-    select: '-salary -bankDetails -emergencyContact -socialProfiles'
-  });
+  // Get paginated results with aggregation for department/designation lookup
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
 
-  return sendSuccess(res, result.data, 'Employees retrieved successfully', 200, result.pagination);
+  const pipeline = [
+    { $match: filter },
+    {
+      $addFields: {
+        departmentObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$departmentId', null] }, { $ne: ['$departmentId', ''] }] },
+            then: { $toObjectId: '$departmentId' },
+            else: null
+          }
+        },
+        designationObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$designationId', null] }, { $ne: ['$designationId', ''] }] },
+            then: { $toObjectId: '$designationId' },
+            else: null
+          }
+        }
+      }
+    },
+    {
+      $lookup: {
+        from: 'departments',
+        localField: 'departmentObjId',
+        foreignField: '_id',
+        as: 'departmentInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'designations',
+        localField: 'designationObjId',
+        foreignField: '_id',
+        as: 'designationInfo'
+      }
+    },
+    {
+      $addFields: {
+        department: { $arrayElemAt: ['$departmentInfo', 0] },
+        designation: { $arrayElemAt: ['$designationInfo', 0] }
+      }
+    },
+    {
+      $project: {
+        departmentObjId: 0,
+        designationObjId: 0,
+        departmentInfo: 0,
+        designationInfo: 0,
+        salary: 0,
+        bank: 0,
+        emergencyContacts: 0,
+        'account.password': 0
+      }
+    },
+    { $sort: sortObj },
+    { $skip: skip },
+    { $limit: limitNum }
+  ];
+
+  const employees = await collections.employees.aggregate(pipeline).toArray();
+
+  // Build pagination metadata
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, employees, 'Employees retrieved successfully', 200, pagination);
 });
 
 /**
@@ -92,22 +162,89 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
+  console.log('[Employee Controller] getEmployeeById - id:', id, 'companyId:', user.companyId);
+
   // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid employee ID format');
   }
 
-  // Find employee
-  const employee = await Employee.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  }).populate('department', 'name')
-    .populate('designation', 'title level')
-    .populate('reportingTo', 'firstName lastName fullName employeeId')
-    .populate('reportees', 'firstName lastName fullName employeeId designation')
-    .populate('createdBy', 'firstName lastName fullName')
-    .populate('updatedBy', 'firstName lastName fullName');
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee with aggregation for lookups
+  const pipeline = [
+    { $match: { _id: new ObjectId(id) } },
+    {
+      $addFields: {
+        departmentObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$departmentId', null] }, { $ne: ['$departmentId', ''] }] },
+            then: { $toObjectId: '$departmentId' },
+            else: null
+          }
+        },
+        designationObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$designationId', null] }, { $ne: ['$designationId', ''] }] },
+            then: { $toObjectId: '$designationId' },
+            else: null
+          }
+        },
+        reportingToObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$reportingTo', null] }, { $ne: ['$reportingTo', ''] }] },
+            then: { $toObjectId: '$reportingTo' },
+            else: null
+          }
+        }
+      }
+    },
+    {
+      $lookup: {
+        from: 'departments',
+        localField: 'departmentObjId',
+        foreignField: '_id',
+        as: 'departmentInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'designations',
+        localField: 'designationObjId',
+        foreignField: '_id',
+        as: 'designationInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'employees',
+        localField: 'reportingToObjId',
+        foreignField: '_id',
+        as: 'reportingToInfo'
+      }
+    },
+    {
+      $addFields: {
+        department: { $arrayElemAt: ['$departmentInfo', 0] },
+        designation: { $arrayElemAt: ['$designationInfo', 0] },
+        reportingTo: { $arrayElemAt: ['$reportingToInfo', 0] }
+      }
+    },
+    {
+      $project: {
+        departmentObjId: 0,
+        designationObjId: 0,
+        reportingToObjId: 0,
+        departmentInfo: 0,
+        designationInfo: 0,
+        reportingToInfo: 0
+      }
+    }
+  ];
+
+  const results = await collections.employees.aggregate(pipeline).toArray();
+  const employee = results[0];
 
   if (!employee) {
     throw buildNotFoundError('Employee', id);
@@ -115,8 +252,7 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
 
   // Remove sensitive fields for non-admin users
   if (user.role !== 'admin' && user.role !== 'hr' && user.role !== 'superadmin') {
-    // Regular employees can't see salary, bank details
-    const { salary, bankDetails, ...sanitizedEmployee } = employee.toObject();
+    const { salary, bank, emergencyContacts, ...sanitizedEmployee } = employee;
     return sendSuccess(res, sanitizedEmployee);
   }
 
@@ -132,10 +268,14 @@ export const createEmployee = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const employeeData = req.body;
 
+  console.log('[Employee Controller] createEmployee - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Check if email already exists
-  const existingEmployee = await Employee.findOne({
-    email: employeeData.email,
-    companyId: user.companyId
+  const existingEmployee = await collections.employees.findOne({
+    'contact.email': employeeData.email
   });
 
   if (existingEmployee) {
@@ -143,27 +283,35 @@ export const createEmployee = asyncHandler(async (req, res) => {
   }
 
   // Check if employee code already exists (if provided)
-  if (employeeData.employeeCode) {
-    const existingCode = await Employee.findOne({
-      employeeCode: employeeData.employeeCode,
-      companyId: user.companyId
+  if (employeeData.employeeId) {
+    const existingCode = await collections.employees.findOne({
+      employeeId: employeeData.employeeId
     });
 
     if (existingCode) {
-      throw buildConflictError('Employee', `employee code: ${employeeData.employeeCode}`);
+      throw buildConflictError('Employee', `employee code: ${employeeData.employeeId}`);
     }
   }
 
-  // Add company and audit fields
-  employeeData.companyId = user.companyId;
-  Object.assign(employeeData, buildAuditFields(user.userId));
+  // Add audit fields
+  const employeeToInsert = {
+    ...employeeData,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    createdBy: user.userId,
+    updatedBy: user.userId,
+    status: employeeData.status || 'Active'
+  };
 
   // Create employee
-  const employee = await Employee.create(employeeData);
+  const result = await collections.employees.insertOne(employeeToInsert);
 
-  // Populate references for response
-  await employee.populate('department', 'name');
-  await employee.populate('designation', 'title level');
+  if (!result.insertedId) {
+    throw new Error('Failed to create employee');
+  }
+
+  // Get the created employee
+  const employee = await collections.employees.findOne({ _id: result.insertedId });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -184,67 +332,71 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
+  console.log('[Employee Controller] updateEmployee - id:', id, 'companyId:', user.companyId);
+
   // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid employee ID format');
   }
 
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Find employee
-  const employee = await Employee.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  });
+  const employee = await collections.employees.findOne({ _id: new ObjectId(id) });
 
   if (!employee) {
     throw buildNotFoundError('Employee', id);
   }
 
   // Check email uniqueness if email is being updated
-  if (updateData.email && updateData.email !== employee.email) {
-    const existingEmployee = await Employee.findOne({
-      email: updateData.email,
-      companyId: user.companyId,
-      _id: { $ne: id }
+  if (updateData.contact?.email && updateData.contact.email !== employee.contact?.email) {
+    const existingEmployee = await collections.employees.findOne({
+      'contact.email': updateData.contact.email,
+      _id: { $ne: new ObjectId(id) }
     });
 
     if (existingEmployee) {
-      throw buildConflictError('Employee', `email: ${updateData.email}`);
+      throw buildConflictError('Employee', `email: ${updateData.contact.email}`);
     }
   }
 
   // Check employee code uniqueness if being updated
-  if (updateData.employeeCode && updateData.employeeCode !== employee.employeeCode) {
-    const existingCode = await Employee.findOne({
-      employeeCode: updateData.employeeCode,
-      companyId: user.companyId,
-      _id: { $ne: id }
+  if (updateData.employeeId && updateData.employeeId !== employee.employeeId) {
+    const existingCode = await collections.employees.findOne({
+      employeeId: updateData.employeeId,
+      _id: { $ne: new ObjectId(id) }
     });
 
     if (existingCode) {
-      throw buildConflictError('Employee', `employee code: ${updateData.employeeCode}`);
+      throw buildConflictError('Employee', `employee code: ${updateData.employeeId}`);
     }
   }
 
   // Update audit fields
-  Object.assign(updateData, buildAuditFields(user.userId, true));
+  updateData.updatedAt = new Date();
+  updateData.updatedBy = user.userId;
 
   // Update employee
-  Object.assign(employee, updateData);
-  await employee.save();
+  const result = await collections.employees.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateData }
+  );
 
-  // Populate references for response
-  await employee.populate('department', 'name');
-  await employee.populate('designation', 'title level');
-  await employee.populate('reportingTo', 'firstName lastName fullName employeeId');
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Employee', id);
+  }
+
+  // Get updated employee
+  const updatedEmployee = await collections.employees.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
-    broadcastEmployeeEvents.updated(io, user.companyId, employee);
+    broadcastEmployeeEvents.updated(io, user.companyId, updatedEmployee);
   }
 
-  return sendSuccess(res, employee, 'Employee updated successfully');
+  return sendSuccess(res, updatedEmployee, 'Employee updated successfully');
 });
 
 /**
@@ -256,27 +408,39 @@ export const deleteEmployee = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
+  console.log('[Employee Controller] deleteEmployee - id:', id, 'companyId:', user.companyId);
+
   // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid employee ID format');
   }
 
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Find employee
-  const employee = await Employee.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  });
+  const employee = await collections.employees.findOne({ _id: new ObjectId(id) });
 
   if (!employee) {
     throw buildNotFoundError('Employee', id);
   }
 
-  // Prevent deletion of active employees with assigned tasks/projects
-  // Add business logic validation here if needed
+  // Soft delete - set isDeleted flag
+  const result = await collections.employees.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: user.userId,
+        updatedAt: new Date()
+      }
+    }
+  );
 
-  // Soft delete
-  await employee.softDelete(user.userId);
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Employee', id);
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -288,7 +452,7 @@ export const deleteEmployee = asyncHandler(async (req, res) => {
     _id: employee._id,
     employeeId: employee.employeeId,
     isDeleted: true,
-    deletedAt: employee.deletedAt
+    deletedAt: new Date()
   }, 'Employee deleted successfully');
 });
 
@@ -300,20 +464,22 @@ export const deleteEmployee = asyncHandler(async (req, res) => {
 export const getMyProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  // Find employee by clerk user ID
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  }).populate('department', 'name')
-    .populate('designation', 'title level')
-    .populate('reportingTo', 'firstName lastName fullName employeeId');
+  console.log('[Employee Controller] getMyProfile - userId:', user.userId, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee by clerk user ID (stored in account.userId or userId field)
+  const employee = await collections.employees.findOne({
+    'account.userId': user.userId
+  });
 
   if (!employee) {
     throw buildNotFoundError('Employee profile');
   }
 
   // Remove sensitive fields
-  const { salary, bankDetails, ...sanitizedEmployee } = employee.toObject();
+  const { salary, bank, emergencyContacts, ...sanitizedEmployee } = employee;
 
   return sendSuccess(res, sanitizedEmployee);
 });
@@ -327,10 +493,14 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
+  console.log('[Employee Controller] updateMyProfile - userId:', user.userId, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Find employee by clerk user ID
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
+  const employee = await collections.employees.findOne({
+    'account.userId': user.userId
   });
 
   if (!employee) {
@@ -356,16 +526,23 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   });
 
   // Update audit fields
-  Object.assign(sanitizedUpdate, buildAuditFields(user.userId, true));
+  sanitizedUpdate.updatedAt = new Date();
+  sanitizedUpdate.updatedBy = user.userId;
 
   // Update employee
-  Object.assign(employee, sanitizedUpdate);
-  await employee.save();
+  const result = await collections.employees.updateOne(
+    { _id: employee._id },
+    { $set: sanitizedUpdate }
+  );
 
-  await employee.populate('department', 'name');
-  await employee.populate('designation', 'title level');
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Employee profile');
+  }
 
-  return sendSuccess(res, employee, 'Profile updated successfully');
+  // Get updated employee
+  const updatedEmployee = await collections.employees.findOne({ _id: employee._id });
+
+  return sendSuccess(res, updatedEmployee, 'Profile updated successfully');
 });
 
 /**
@@ -377,31 +554,28 @@ export const getEmployeeReportees = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
+  console.log('[Employee Controller] getEmployeeReportees - id:', id, 'companyId:', user.companyId);
+
   // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid employee ID format');
   }
 
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Find employee
-  const employee = await Employee.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  });
+  const employee = await collections.employees.findOne({ _id: new ObjectId(id) });
 
   if (!employee) {
     throw buildNotFoundError('Employee', id);
   }
 
   // Get all reportees
-  const reportees = await Employee.find({
+  const reportees = await collections.employees.find({
     reportingTo: id,
-    companyId: user.companyId,
-    isActive: true,
-    isDeleted: false
-  }).populate('department', 'name')
-    .populate('designation', 'title level')
-    .select('-salary -bankDetails -emergencyContact');
+    status: 'Active'
+  }).toArray();
 
   return sendSuccess(res, reportees, 'Reportees retrieved successfully');
 });
@@ -414,36 +588,53 @@ export const getEmployeeReportees = asyncHandler(async (req, res) => {
 export const getEmployeeStatsByDepartment = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  const stats = await Employee.aggregate([
+  console.log('[Employee Controller] getEmployeeStatsByDepartment - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const stats = await collections.employees.aggregate([
     {
       $match: {
-        companyId: new mongoose.Types.ObjectId(user.companyId),
-        isActive: true,
-        isDeleted: false
+        status: 'Active'
+      }
+    },
+    {
+      $addFields: {
+        departmentObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$departmentId', null] }, { $ne: ['$departmentId', ''] }] },
+            then: { $toObjectId: '$departmentId' },
+            else: null
+          }
+        }
       }
     },
     {
       $lookup: {
         from: 'departments',
-        localField: 'department',
+        localField: 'departmentObjId',
         foreignField: '_id',
         as: 'departmentInfo'
       }
     },
     {
-      $unwind: '$departmentInfo'
+      $unwind: {
+        path: '$departmentInfo',
+        preserveNullAndEmptyArrays: true
+      }
     },
     {
       $group: {
-        _id: '$department',
-        departmentName: { $first: '$departmentInfo.name' },
+        _id: '$departmentId',
+        departmentName: { $first: '$departmentInfo.department' },
         count: { $sum: 1 }
       }
     },
     {
       $sort: { count: -1 }
     }
-  ]);
+  ]).toArray();
 
   return sendSuccess(res, stats, 'Employee statistics by department retrieved successfully');
 });
@@ -457,26 +648,33 @@ export const searchEmployees = asyncHandler(async (req, res) => {
   const { q } = req.query;
   const user = extractUser(req);
 
+  console.log('[Employee Controller] searchEmployees - query:', q, 'companyId:', user.companyId);
+
   if (!q || q.trim().length < 2) {
     throw buildValidationError('q', 'Search query must be at least 2 characters');
   }
 
-  const employees = await Employee.find({
-    companyId: user.companyId,
-    isActive: true,
-    isDeleted: false,
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const employees = await collections.employees.find({
+    status: 'Active',
     $or: [
       { firstName: { $regex: q, $options: 'i' } },
       { lastName: { $regex: q, $options: 'i' } },
       { fullName: { $regex: q, $options: 'i' } },
-      { email: { $regex: q, $options: 'i' } },
-      { employeeCode: { $regex: q, $options: 'i' } }
+      { 'contact.email': { $regex: q, $options: 'i' } },
+      { employeeId: { $regex: q, $options: 'i' } }
     ]
   })
-    .populate('department', 'name')
-    .populate('designation', 'title level')
-    .select('-salary -bankDetails -emergencyContact')
-    .limit(20);
+    .limit(20)
+    .project({
+      salary: 0,
+      bank: 0,
+      emergencyContacts: 0,
+      'account.password': 0
+    })
+    .toArray();
 
   return sendSuccess(res, employees, 'Search results retrieved successfully');
 });
@@ -490,6 +688,8 @@ export const bulkUploadEmployees = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const { employees } = req.body;
 
+  console.log('[Employee Controller] bulkUploadEmployees - count:', employees?.length, 'companyId:', user.companyId);
+
   if (!employees || !Array.isArray(employees) || employees.length === 0) {
     throw buildValidationError('employees', 'At least one employee is required');
   }
@@ -497,6 +697,9 @@ export const bulkUploadEmployees = asyncHandler(async (req, res) => {
   if (employees.length > 100) {
     throw buildValidationError('employees', 'Maximum 100 employees can be uploaded at once');
   }
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
 
   const results = {
     success: [],
@@ -507,34 +710,38 @@ export const bulkUploadEmployees = asyncHandler(async (req, res) => {
   for (const empData of employees) {
     try {
       // Check for duplicate email
-      const existing = await Employee.findOne({
-        email: empData.email,
-        companyId: user.companyId
+      const existing = await collections.employees.findOne({
+        'contact.email': empData.contact?.email
       });
 
       if (existing) {
         results.duplicate.push({
-          email: empData.email,
+          email: empData.contact?.email,
           reason: 'Email already exists'
         });
         continue;
       }
 
       // Create employee
-      const employee = await Employee.create({
+      const employeeToInsert = {
         ...empData,
-        companyId: user.companyId,
-        ...buildAuditFields(user.userId)
-      });
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: user.userId,
+        updatedBy: user.userId,
+        status: empData.status || 'Active'
+      };
+
+      const result = await collections.employees.insertOne(employeeToInsert);
 
       results.success.push({
-        employeeId: employee.employeeId,
-        email: employee.email,
-        name: `${employee.firstName} ${employee.lastName}`
+        _id: result.insertedId,
+        email: empData.contact?.email,
+        name: `${empData.firstName} ${empData.lastName}`
       });
     } catch (error) {
       results.failed.push({
-        email: empData.email,
+        email: empData.contact?.email,
         reason: error.message
       });
     }

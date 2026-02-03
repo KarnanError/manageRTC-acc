@@ -1,18 +1,18 @@
-import {
-  format,
-  startOfToday,
-  subDays,
-  startOfMonth,
-  subMonths,
-} from "date-fns";
-import { getsuperadminCollections } from "../../config/db.js";
-import { ObjectId } from "mongodb";
 import { clerkClient } from "@clerk/clerk-sdk-node";
+import axios from "axios";
+import {
+    format,
+    startOfMonth,
+    startOfToday,
+    subDays,
+    subMonths,
+} from "date-fns";
+import dotenv from "dotenv";
+import { ObjectId } from "mongodb";
+import { getsuperadminCollections } from "../../config/db.js";
 import { sendCredentialsEmail } from "../../utils/emailer.js";
 import generateRandomPassword from "../../utils/generatePassword.js";
 import { initializeCompanyDatabase } from "../../utils/initializeCompanyDatabase.js";
-import axios from "axios";
-import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -69,12 +69,13 @@ const addCompany = async (data, user) => {
     const result = await companiesCollection.insertOne(newCompany);
     const companyId = result.insertedId.toString();
 
-    // Create A Flag
+    // Step 3: Create a flag for tracking
+    const flag = `company_${companyId}_${Date.now()}`;
 
-    // Step 3: Generate a random temporary password
+    // Step 4: Generate a random temporary password
     const tempPassword = generateRandomPassword();
-    const clerkUserId = createdUser.id;
 
+    // Step 5: Create Clerk user
     const createdUser = await clerkClient.users.createUser({
       emailAddress: [data.email],
       password: tempPassword,
@@ -86,11 +87,10 @@ const addCompany = async (data, user) => {
       },
     });
 
-    // Step 4: Create Clerk user
+    // Step 6: Get Clerk user ID
+    const clerkUserId = createdUser.id;
 
-    // Flag passed -> User creation done
-
-    // Step 5: Update the company document with clerkUserId
+    // Step 7: Update the company document with clerkUserId
     await companiesCollection.updateOne(
       { _id: result.insertedId },
       {
@@ -495,12 +495,8 @@ const updateCompany = async (form) => {
 };
 
 export {
-  fetchPackages,
-  addCompany,
-  fetchCompanylist,
-  fetchCompanystats,
-  deleteCompany,
-  fetchcompany,
-  fetcheditcompanyview,
-  updateCompany,
+    addCompany, deleteCompany,
+    fetchcompany, fetchCompanylist,
+    fetchCompanystats, fetcheditcompanyview, fetchPackages, updateCompany
 };
+

@@ -1,10 +1,11 @@
 /**
  * Promotion REST Controller
  * Handles all Promotion CRUD operations via REST API
+ * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import mongoose from 'mongoose';
-import Promotion from '../../models/promotion/promotion.schema.js';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
   buildNotFoundError,
   buildConflictError,
@@ -14,10 +15,9 @@ import {
 import {
   sendSuccess,
   sendCreated,
-  filterAndPaginate,
+  buildPagination,
   extractUser
 } from '../../utils/apiResponse.js';
-import { getSocketIO } from '../../utils/socketBroadcaster.js';
 
 /**
  * @desc    Get all promotions
@@ -28,10 +28,14 @@ export const getPromotions = asyncHandler(async (req, res) => {
   const { page, limit, status, type, departmentId, employeeId, sortBy, order } = req.query;
   const user = extractUser(req);
 
+  console.log('[Promotion Controller] getPromotions - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
-  let filter = {
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    isDeleted: { $ne: true }
   };
 
   // Apply status filter
@@ -54,6 +58,9 @@ export const getPromotions = asyncHandler(async (req, res) => {
     filter.employeeId = employeeId;
   }
 
+  // Get total count
+  const total = await collections.promotions.countDocuments(filter);
+
   // Build sort option
   const sort = {};
   if (sortBy) {
@@ -62,13 +69,20 @@ export const getPromotions = asyncHandler(async (req, res) => {
     sort.promotionDate = -1;
   }
 
-  const result = await filterAndPaginate(Promotion, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort
-  });
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
 
-  return sendSuccess(res, result.data, 'Promotions retrieved successfully', 200, result.pagination);
+  const promotions = await collections.promotions
+    .find(filter)
+    .sort(sort)
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, promotions, 'Promotions retrieved successfully', 200, pagination);
 });
 
 /**
@@ -80,14 +94,18 @@ export const getPromotionById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid promotion ID format');
   }
 
-  const promotion = await Promotion.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Promotion Controller] getPromotionById - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const promotion = await collections.promotions.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!promotion) {
@@ -106,6 +124,11 @@ export const createPromotion = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const promotionData = req.body;
 
+  console.log('[Promotion Controller] createPromotion - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Validate required fields
   if (!promotionData.employeeId || !promotionData.promotionTo?.departmentId || !promotionData.promotionTo?.designationId) {
     throw buildValidationError('fields', 'Employee ID and target department/designation are required');
@@ -115,30 +138,66 @@ export const createPromotion = asyncHandler(async (req, res) => {
     throw buildValidationError('promotionDate', 'Promotion date is required');
   }
 
-  // Prepare promotion data
-  promotionData.companyId = user.companyId;
-  promotionData.createdBy = {
-    userId: user.userId,
-    userName: user.userName || user.fullName || user.name || ''
-  };
-
   // Check for overlapping pending promotions
-  const overlapping = await Promotion.findOne({
-    companyId: user.companyId,
+  const existingPromotion = await collections.promotions.findOne({
     employeeId: promotionData.employeeId,
     status: 'pending',
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
-  if (overlapping) {
+  if (existingPromotion) {
     throw buildConflictError('Employee already has a pending promotion');
   }
 
-  const promotion = await Promotion.create(promotionData);
+  // Prepare promotion data
+  const promotionToInsert = {
+    ...promotionData,
+    status: 'pending',
+    isDue: new Date(promotionData.promotionDate) <= new Date(),
+    isDeleted: false,
+    createdBy: {
+      userId: user.userId,
+      userName: user.userName || user.fullName || user.name || ''
+    },
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+
+  const result = await collections.promotions.insertOne(promotionToInsert);
+
+  if (!result.insertedId) {
+    throw new Error('Failed to create promotion');
+  }
 
   // Check if promotion should be applied immediately
+  let promotion = await collections.promotions.findOne({ _id: result.insertedId });
+
   if (promotion.isDue) {
-    await promotion.apply();
+    // Apply promotion immediately - update employee record
+    await collections.employees.updateOne(
+      { employeeId: promotionData.employeeId },
+      {
+        $set: {
+          departmentId: promotionData.promotionTo.departmentId,
+          designationId: promotionData.promotionTo.designationId,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    // Update promotion status
+    await collections.promotions.updateOne(
+      { _id: result.insertedId },
+      {
+        $set: {
+          status: 'applied',
+          appliedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    promotion = await collections.promotions.findOne({ _id: result.insertedId });
   }
 
   return sendCreated(res, promotion, 'Promotion created successfully');
@@ -154,14 +213,18 @@ export const updatePromotion = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid promotion ID format');
   }
 
-  const promotion = await Promotion.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Promotion Controller] updatePromotion - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const promotion = await collections.promotions.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!promotion) {
@@ -173,14 +236,29 @@ export const updatePromotion = asyncHandler(async (req, res) => {
     throw buildConflictError('Cannot update an applied promotion');
   }
 
-  Object.assign(promotion, updateData);
-  promotion.updatedBy = {
-    userId: user.userId,
-    userName: user.userName || user.fullName || user.name || ''
+  // Build update object
+  const updateObj = {
+    ...updateData,
+    updatedBy: {
+      userId: user.userId,
+      userName: user.userName || user.fullName || user.name || ''
+    },
+    updatedAt: new Date()
   };
-  await promotion.save();
 
-  return sendSuccess(res, promotion, 'Promotion updated successfully');
+  const result = await collections.promotions.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Promotion', id);
+  }
+
+  // Get updated promotion
+  const updatedPromotion = await collections.promotions.findOne({ _id: new ObjectId(id) });
+
+  return sendSuccess(res, updatedPromotion, 'Promotion updated successfully');
 });
 
 /**
@@ -192,27 +270,42 @@ export const deletePromotion = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid promotion ID format');
   }
 
-  const promotion = await Promotion.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Promotion Controller] deletePromotion - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const promotion = await collections.promotions.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!promotion) {
     throw buildNotFoundError('Promotion', id);
   }
 
-  promotion.isDeleted = true;
-  promotion.deletedAt = new Date();
-  promotion.deletedBy = {
-    userId: user.userId,
-    userName: user.userName || user.fullName || user.name || ''
-  };
-  await promotion.save();
+  // Soft delete
+  const result = await collections.promotions.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: {
+          userId: user.userId,
+          userName: user.userName || user.fullName || user.name || ''
+        }
+      }
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Promotion', id);
+  }
 
   return sendSuccess(res, {
     _id: promotion._id,
@@ -229,23 +322,52 @@ export const applyPromotion = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid promotion ID format');
   }
 
-  const promotion = await Promotion.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Promotion Controller] applyPromotion - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const promotion = await collections.promotions.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!promotion) {
     throw buildNotFoundError('Promotion', id);
   }
 
-  await promotion.apply();
+  // Apply promotion - update employee record
+  await collections.employees.updateOne(
+    { employeeId: promotion.employeeId },
+    {
+      $set: {
+        departmentId: promotion.promotionTo.departmentId,
+        designationId: promotion.promotionTo.designationId,
+        updatedAt: new Date()
+      }
+    }
+  );
 
-  return sendSuccess(res, promotion, 'Promotion applied successfully');
+  // Update promotion status
+  await collections.promotions.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        status: 'applied',
+        appliedAt: new Date(),
+        updatedAt: new Date()
+      }
+    }
+  );
+
+  // Get updated promotion
+  const updatedPromotion = await collections.promotions.findOne({ _id: new ObjectId(id) });
+
+  return sendSuccess(res, updatedPromotion, 'Promotion applied successfully');
 });
 
 /**
@@ -258,23 +380,40 @@ export const cancelPromotion = asyncHandler(async (req, res) => {
   const { reason } = req.body;
   const user = extractUser(req);
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid promotion ID format');
   }
 
-  const promotion = await Promotion.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Promotion Controller] cancelPromotion - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const promotion = await collections.promotions.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!promotion) {
     throw buildNotFoundError('Promotion', id);
   }
 
-  await promotion.cancel(reason);
+  // Update promotion status
+  const updateObj = {
+    status: 'cancelled',
+    cancellationReason: reason || '',
+    updatedAt: new Date()
+  };
 
-  return sendSuccess(res, promotion, 'Promotion cancelled successfully');
+  await collections.promotions.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  // Get updated promotion
+  const updatedPromotion = await collections.promotions.findOne({ _id: new ObjectId(id) });
+
+  return sendSuccess(res, updatedPromotion, 'Promotion cancelled successfully');
 });
 
 /**
@@ -285,12 +424,26 @@ export const cancelPromotion = asyncHandler(async (req, res) => {
 export const getDepartments = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  // Using existing departments from employee data
-  const Employee = mongoose.model('Employee');
-  const departments = await Employee.distinct('department', {
-    companyId: user.companyId,
-    isDeleted: false
-  });
+  console.log('[Promotion Controller] getDepartments - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get unique department IDs from employees
+  const employees = await collections.employees.find({
+    status: 'Active',
+    isDeleted: { $ne: true }
+  }).toArray();
+
+  const departmentIds = [...new Set(employees
+    .map(e => e.departmentId)
+    .filter(id => id)
+  )];
+
+  // Get department details
+  const departments = await collections.departments.find({
+    _id: { $in: departmentIds.map(id => new ObjectId(id)) }
+  }).toArray();
 
   return sendSuccess(res, departments, 'Departments retrieved successfully');
 });
@@ -304,17 +457,31 @@ export const getDesignationsForPromotion = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const { departmentId } = req.query;
 
+  console.log('[Promotion Controller] getDesignationsForPromotion - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   const filter = {
-    companyId: user.companyId,
-    isDeleted: false
+    status: 'Active',
+    isDeleted: { $ne: true }
   };
 
   if (departmentId) {
     filter.departmentId = departmentId;
   }
 
-  const Employee = mongoose.model('Employee');
-  const designations = await Employee.distinct('designation', filter);
+  const employees = await collections.employees.find(filter).toArray();
+
+  const designationIds = [...new Set(employees
+    .map(e => e.designationId)
+    .filter(id => id)
+  )];
+
+  // Get designation details
+  const designations = await collections.designations.find({
+    _id: { $in: designationIds.map(id => new ObjectId(id)) }
+  }).toArray();
 
   return sendSuccess(res, designations, 'Designations retrieved successfully');
 });

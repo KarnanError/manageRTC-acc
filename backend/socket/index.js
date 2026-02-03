@@ -135,7 +135,8 @@ export const socketHandler = (httpServer) => {
 
         // Check if role exists, else assign default role based on metadata
         let role = user.publicMetadata?.role;
-        let companyId = user.publicMetadata?.companyId || null;
+        // Check for both 'companyId' and 'company' field names in metadata
+        let companyId = user.publicMetadata?.companyId || user.publicMetadata?.company || null;
 
         // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
         // Auto-assigning companyId for admin users in development

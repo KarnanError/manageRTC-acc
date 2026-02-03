@@ -4,10 +4,11 @@
  * This replaces Socket.IO emits with standard HTTP requests
  */
 
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 // Global token cache - will be populated by AuthProvider
 let cachedToken: string | null = null;
+let tokenRefreshCallback: (() => Promise<string | null>) | null = null;
 
 /**
  * Set the authentication token (called by AuthProvider)
@@ -17,10 +18,34 @@ export const setAuthToken = (token: string | null) => {
 };
 
 /**
+ * Set the token refresh callback (called by AuthProvider)
+ */
+export const setTokenRefreshCallback = (callback: (() => Promise<string | null>) | null) => {
+  tokenRefreshCallback = callback;
+};
+
+/**
  * Get the current authentication token
  */
 export const getAuthToken = (): string | null => {
   return cachedToken;
+};
+
+/**
+ * Refresh the authentication token
+ */
+const refreshAuthToken = async (): Promise<string | null> => {
+  if (tokenRefreshCallback) {
+    try {
+      const newToken = await tokenRefreshCallback();
+      cachedToken = newToken;
+      return newToken;
+    } catch (error) {
+      console.error('[API] Token refresh failed:', error);
+      return null;
+    }
+  }
+  return null;
 };
 
 // API Configuration
@@ -70,9 +95,18 @@ const createApiClient = (): AxiosInstance => {
     async (config: InternalAxiosRequestConfig) => {
       try {
         // Get token from cache
-        const token = getAuthToken();
+        let token = getAuthToken();
+
+        // If no token and we have a refresh callback, try to get a fresh token
+        if (!token && tokenRefreshCallback) {
+          console.log('[API] No token in cache, attempting to get fresh token...');
+          token = await refreshAuthToken();
+        }
+
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
+        } else if (!token) {
+          console.warn('[API] No authentication token available for request');
         }
 
         console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {
@@ -96,14 +130,36 @@ const createApiClient = (): AxiosInstance => {
       console.log(`[API] Response:`, response.config.url, response.data);
       return response;
     },
-    (error: AxiosError<ApiResponse>) => {
+    async (error: AxiosError<ApiResponse>) => {
       console.error('[API] Response error:', error.config?.url, error.response?.data);
 
-      // Handle specific error cases
-      if (error.response?.status === 401) {
-        // Unauthorized - Token expired or invalid
-        console.error('[API] Unauthorized access - redirecting to login');
-        // You can trigger a redirect or token refresh here
+      const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+      // Handle 401 Unauthorized - Token expired or invalid
+      if (error.response?.status === 401 && !originalRequest._retry) {
+        originalRequest._retry = true;
+        console.log('[API] Token expired, attempting refresh...');
+
+        try {
+          // Refresh the token
+          const newToken = await refreshAuthToken();
+
+          if (newToken && originalRequest.headers) {
+            // Update the failed request with new token
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            console.log('[API] Retrying request with new token');
+            // Retry the original request
+            return client(originalRequest);
+          } else {
+            console.error('[API] Token refresh failed - redirecting to login');
+            // Token refresh failed, redirect to login
+            window.location.href = '/login';
+          }
+        } catch (refreshError) {
+          console.error('[API] Token refresh error:', refreshError);
+          window.location.href = '/login';
+          return Promise.reject(refreshError);
+        }
       }
 
       if (error.response?.status === 403) {

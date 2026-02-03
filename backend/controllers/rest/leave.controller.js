@@ -1,25 +1,92 @@
 /**
  * Leave REST Controller
  * Handles all Leave CRUD operations via REST API
+ * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import mongoose from 'mongoose';
-import Leave from '../../models/leave/leave.schema.js';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  buildValidationError,
-  asyncHandler
+    asyncHandler,
+    buildConflictError,
+    buildNotFoundError,
+    buildValidationError
 } from '../../middleware/errorHandler.js';
 import {
-  sendSuccess,
-  sendCreated,
-  filterAndPaginate,
-  buildSearchFilter,
-  extractUser,
-  getRequestId
+    buildPagination,
+    extractUser,
+    sendCreated,
+    sendSuccess
 } from '../../utils/apiResponse.js';
-import { getSocketIO, broadcastLeaveEvents } from '../../utils/socketBroadcaster.js';
+import { broadcastLeaveEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
+
+/**
+ * Helper: Check for overlapping leave requests
+ */
+async function checkOverlap(collections, employeeId, startDate, endDate, excludeId = null) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  const filter = {
+    employeeId,
+    status: { $in: ['pending', 'approved'] },
+    isDeleted: { $ne: true },
+    $or: [
+      // Overlap cases
+      {
+        startDate: { $lte: start },
+        endDate: { $gte: start }
+      },
+      {
+        startDate: { $lte: end },
+        endDate: { $gte: end }
+      },
+      {
+        startDate: { $gte: start },
+        endDate: { $lte: end }
+      }
+    ]
+  };
+
+  if (excludeId) {
+    filter._id = { $ne: new ObjectId(excludeId) };
+  }
+
+  const overlapping = await collections.leaves.find(filter).toArray();
+  return overlapping;
+}
+
+/**
+ * Helper: Get leave balance for an employee
+ */
+async function getEmployeeLeaveBalance(collections, employeeId, leaveType) {
+  const employee = await collections.employees.findOne({
+    employeeId
+  });
+
+  if (!employee || !employee.leaveBalances) {
+    return { type: leaveType, balance: 0, used: 0, total: 0 };
+  }
+
+  const balanceInfo = employee.leaveBalances.find(b => b.type === leaveType);
+
+  return {
+    type: leaveType,
+    balance: balanceInfo?.balance || 0,
+    used: balanceInfo?.used || 0,
+    total: balanceInfo?.total || 0
+  };
+}
+
+/**
+ * Helper: Get employee by clerk user ID
+ */
+async function getEmployeeByClerkId(collections, clerkUserId) {
+  return await collections.employees.findOne({
+    'account.userId': clerkUserId,
+    isDeleted: { $ne: true }
+  });
+}
 
 /**
  * @desc    Get all leave requests with pagination and filtering
@@ -30,10 +97,14 @@ export const getLeaves = asyncHandler(async (req, res) => {
   const { page, limit, search, status, leaveType, employee, startDate, endDate, sortBy, order } = req.query;
   const user = extractUser(req);
 
+  console.log('[Leave Controller] getLeaves - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Build filter
-  let filter = {
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    isDeleted: { $ne: true }
   };
 
   // Apply status filter
@@ -48,7 +119,7 @@ export const getLeaves = asyncHandler(async (req, res) => {
 
   // Apply employee filter
   if (employee) {
-    filter.employee = employee;
+    filter.employeeId = employee;
   }
 
   // Apply date range filter
@@ -71,9 +142,14 @@ export const getLeaves = asyncHandler(async (req, res) => {
 
   // Apply search filter
   if (search && search.trim()) {
-    const searchFilter = buildSearchFilter(search, ['reason', 'detailedReason']);
-    filter = { ...filter, ...searchFilter };
+    filter.$or = [
+      { reason: { $regex: search, $options: 'i' } },
+      { detailedReason: { $regex: search, $options: 'i' } }
+    ];
   }
+
+  // Get total count
+  const total = await collections.leaves.countDocuments(filter);
 
   // Build sort option
   const sort = {};
@@ -83,36 +159,20 @@ export const getLeaves = asyncHandler(async (req, res) => {
     sort.createdAt = -1;
   }
 
-  // Get paginated results
-  const result = await filterAndPaginate(Leave, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort,
-    populate: [
-      {
-        path: 'employee',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'approvedBy',
-        select: 'firstName lastName fullName'
-      },
-      {
-        path: 'rejectedBy',
-        select: 'firstName lastName fullName'
-      },
-      {
-        path: 'reportingManager',
-        select: 'firstName lastName fullName'
-      },
-      {
-        path: 'handoverTo',
-        select: 'firstName lastName fullName'
-      }
-    ]
-  });
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
 
-  return sendSuccess(res, result.data, 'Leave requests retrieved successfully', 200, result.pagination);
+  const leaves = await collections.leaves
+    .find(filter)
+    .sort(sort)
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, leaves, 'Leave requests retrieved successfully', 200, pagination);
 });
 
 /**
@@ -124,24 +184,19 @@ export const getLeaveById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid leave ID format');
   }
 
-  // Find leave request
-  const leave = await Leave.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
-  }).populate('employee', 'firstName lastName fullName employeeId')
-    .populate('approvedBy', 'firstName lastName fullName')
-    .populate('rejectedBy', 'firstName lastName fullName')
-    .populate('cancelledBy', 'firstName lastName fullName')
-    .populate('reportingManager', 'firstName lastName fullName')
-    .populate('handoverTo', 'firstName lastName fullName')
-    .populate('createdBy', 'firstName lastName fullName')
-    .populate('updatedBy', 'firstName lastName fullName');
+  console.log('[Leave Controller] getLeaveById - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
 
   if (!leave) {
     throw buildNotFoundError('Leave request', id);
@@ -159,12 +214,13 @@ export const createLeave = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const leaveData = req.body;
 
+  console.log('[Leave Controller] createLeave - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Get Employee record from Clerk user ID
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  });
+  const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
     throw buildNotFoundError('Employee', user.userId);
@@ -179,8 +235,9 @@ export const createLeave = asyncHandler(async (req, res) => {
   }
 
   // Check for overlapping leaves
-  const overlappingLeaves = await Leave.checkOverlap(
-    employee._id,
+  const overlappingLeaves = await checkOverlap(
+    collections,
+    employee.employeeId,
     leaveData.startDate,
     leaveData.endDate
   );
@@ -189,27 +246,43 @@ export const createLeave = asyncHandler(async (req, res) => {
     throw buildConflictError('You have overlapping leave requests for the same period');
   }
 
-  // Prepare leave data
-  leaveData.employee = employee._id;
-  leaveData.companyId = user.companyId;
-  leaveData.createdBy = user.userId;
+  // Get current leave balance
+  const currentBalance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveData.leaveType);
 
-  // Set reporting manager if not provided
-  if (!leaveData.reportingManager && employee.reportingManager) {
-    leaveData.reportingManager = employee.reportingManager;
+  // Calculate duration in days
+  const diffTime = Math.abs(endDate - startDate);
+  const duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+  // Prepare leave data
+  const leaveToInsert = {
+    leaveId: `leave_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    employeeId: employee.employeeId,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    leaveType: leaveData.leaveType,
+    startDate: new Date(leaveData.startDate),
+    endDate: new Date(leaveData.endDate),
+    duration: duration,
+    reason: leaveData.reason || '',
+    detailedReason: leaveData.detailedReason || '',
+    status: 'pending',
+    balanceAtRequest: currentBalance.balance,
+    reportingManagerId: employee.reportingTo || null,
+    handoverToId: leaveData.handoverTo || null,
+    attachments: leaveData.attachments || [],
+    createdBy: user.userId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    isDeleted: false
+  };
+
+  const result = await collections.leaves.insertOne(leaveToInsert);
+
+  if (!result.insertedId) {
+    throw new Error('Failed to create leave request');
   }
 
-  // Get current leave balance
-  const currentBalance = await Leave.getLeaveBalance(employee._id, leaveData.leaveType);
-  leaveData.balanceAtRequest = currentBalance.balance;
-
-  // Create leave request
-  const leave = await Leave.create(leaveData);
-
-  // Populate references for response
-  await leave.populate('employee', 'firstName lastName fullName employeeId');
-  await leave.populate('reportingManager', 'firstName lastName fullName');
-  await leave.populate('handoverTo', 'firstName lastName fullName');
+  // Get created leave
+  const leave = await collections.leaves.findOne({ _id: result.insertedId });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -230,16 +303,18 @@ export const updateLeave = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid leave ID format');
   }
 
-  // Find leave request
-  const leave = await Leave.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Leave Controller] updateLeave - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!leave) {
@@ -256,8 +331,9 @@ export const updateLeave = asyncHandler(async (req, res) => {
     const newStartDate = updateData.startDate || leave.startDate;
     const newEndDate = updateData.endDate || leave.endDate;
 
-    const overlappingLeaves = await Leave.checkOverlap(
-      leave.employee,
+    const overlappingLeaves = await checkOverlap(
+      collections,
+      leave.employeeId,
       newStartDate,
       newEndDate,
       id
@@ -268,23 +344,32 @@ export const updateLeave = asyncHandler(async (req, res) => {
     }
   }
 
-  // Update leave request
-  Object.assign(leave, updateData);
-  leave.updatedBy = user.userId;
-  await leave.save();
+  // Build update object
+  const updateObj = {
+    ...updateData,
+    updatedBy: user.userId,
+    updatedAt: new Date()
+  };
 
-  // Populate references for response
-  await leave.populate('employee', 'firstName lastName fullName employeeId');
-  await leave.populate('reportingManager', 'firstName lastName fullName');
-  await leave.populate('handoverTo', 'firstName lastName fullName');
+  const result = await collections.leaves.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Leave request', id);
+  }
+
+  // Get updated leave
+  const updatedLeave = await collections.leaves.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
-    broadcastLeaveEvents.updated(io, user.companyId, leave);
+    broadcastLeaveEvents.updated(io, user.companyId, updatedLeave);
   }
 
-  return sendSuccess(res, leave, 'Leave request updated successfully');
+  return sendSuccess(res, updatedLeave, 'Leave request updated successfully');
 });
 
 /**
@@ -296,16 +381,18 @@ export const deleteLeave = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid leave ID format');
   }
 
-  // Find leave request
-  const leave = await Leave.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Leave Controller] deleteLeave - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!leave) {
@@ -318,10 +405,20 @@ export const deleteLeave = asyncHandler(async (req, res) => {
   }
 
   // Soft delete
-  leave.isDeleted = true;
-  leave.deletedAt = new Date();
-  leave.deletedBy = user.userId;
-  await leave.save();
+  const result = await collections.leaves.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: user.userId
+      }
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Leave request', id);
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -345,22 +442,22 @@ export const getMyLeaves = asyncHandler(async (req, res) => {
   const { page, limit, status, leaveType } = req.query;
   const user = extractUser(req);
 
+  console.log('[Leave Controller] getMyLeaves - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Get Employee record
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  });
+  const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
     return sendSuccess(res, [], 'No leave requests found');
   }
 
   // Build filter
-  let filter = {
-    employee: employee._id,
-    companyId: user.companyId,
-    isDeleted: false
+  const filter = {
+    employeeId: employee.employeeId,
+    isDeleted: { $ne: true }
   };
 
   // Apply status filter
@@ -373,27 +470,23 @@ export const getMyLeaves = asyncHandler(async (req, res) => {
     filter.leaveType = leaveType;
   }
 
-  const result = await filterAndPaginate(Leave, filter, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort: { createdAt: -1 },
-    populate: [
-      {
-        path: 'approvedBy',
-        select: 'firstName lastName fullName'
-      },
-      {
-        path: 'rejectedBy',
-        select: 'firstName lastName fullName'
-      },
-      {
-        path: 'reportingManager',
-        select: 'firstName lastName fullName'
-      }
-    ]
-  });
+  // Get total count
+  const total = await collections.leaves.countDocuments(filter);
 
-  return sendSuccess(res, result.data, 'My leave requests retrieved successfully', 200, result.pagination);
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
+
+  const leaves = await collections.leaves
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, leaves, 'My leave requests retrieved successfully', 200, pagination);
 });
 
 /**
@@ -412,27 +505,32 @@ export const getLeavesByStatus = asyncHandler(async (req, res) => {
     throw buildValidationError('status', `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
   }
 
-  const result = await filterAndPaginate(Leave, {
-    companyId: user.companyId,
-    status,
-    isDeleted: false
-  }, {
-    page: parseInt(page) || 1,
-    limit: parseInt(limit) || 20,
-    sort: { createdAt: -1 },
-    populate: [
-      {
-        path: 'employee',
-        select: 'firstName lastName fullName employeeId'
-      },
-      {
-        path: 'reportingManager',
-        select: 'firstName lastName fullName'
-      }
-    ]
-  });
+  console.log('[Leave Controller] getLeavesByStatus - status:', status, 'companyId:', user.companyId);
 
-  return sendSuccess(res, result.data, `Leave requests with status '${status}' retrieved successfully`, 200, result.pagination);
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const filter = {
+    status,
+    isDeleted: { $ne: true }
+  };
+
+  const total = await collections.leaves.countDocuments(filter);
+
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
+
+  const leaves = await collections.leaves
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, leaves, `Leave requests with status '${status}' retrieved successfully`, 200, pagination);
 });
 
 /**
@@ -445,16 +543,18 @@ export const approveLeave = asyncHandler(async (req, res) => {
   const { comments } = req.body;
   const user = extractUser(req);
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid leave ID format');
   }
 
-  // Find leave request
-  const leave = await Leave.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Leave Controller] approveLeave - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!leave) {
@@ -467,13 +567,22 @@ export const approveLeave = asyncHandler(async (req, res) => {
   }
 
   // Approve leave
-  await leave.approve(user.userId, comments);
+  const updateObj = {
+    status: 'approved',
+    approvedBy: user.userId,
+    approvedAt: new Date(),
+    approveComments: comments || '',
+    updatedAt: new Date()
+  };
+
+  await collections.leaves.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
 
   // Update employee leave balance
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    _id: leave.employee,
-    isDeleted: false
+  const employee = await collections.employees.findOne({
+    employeeId: leave.employeeId
   });
 
   if (employee && employee.leaveBalances) {
@@ -484,7 +593,11 @@ export const approveLeave = asyncHandler(async (req, res) => {
     if (balanceIndex !== -1) {
       employee.leaveBalances[balanceIndex].used += leave.duration;
       employee.leaveBalances[balanceIndex].balance -= leave.duration;
-      await employee.save();
+
+      await collections.employees.updateOne(
+        { employeeId: leave.employeeId },
+        { $set: { leaveBalances: employee.leaveBalances } }
+      );
 
       // Broadcast balance update
       const io = getSocketIO(req);
@@ -494,17 +607,16 @@ export const approveLeave = asyncHandler(async (req, res) => {
     }
   }
 
-  // Populate references for response
-  await leave.populate('employee', 'firstName lastName fullName employeeId');
-  await leave.populate('approvedBy', 'firstName lastName fullName');
+  // Get updated leave
+  const updatedLeave = await collections.leaves.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
-    broadcastLeaveEvents.approved(io, user.companyId, leave, user.userId);
+    broadcastLeaveEvents.approved(io, user.companyId, updatedLeave, user.userId);
   }
 
-  return sendSuccess(res, leave, 'Leave request approved successfully');
+  return sendSuccess(res, updatedLeave, 'Leave request approved successfully');
 });
 
 /**
@@ -521,16 +633,18 @@ export const rejectLeave = asyncHandler(async (req, res) => {
     throw buildValidationError('reason', 'Rejection reason is required');
   }
 
-  // Validate ObjectId
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!ObjectId.isValid(id)) {
     throw buildValidationError('id', 'Invalid leave ID format');
   }
 
-  // Find leave request
-  const leave = await Leave.findOne({
-    _id: id,
-    companyId: user.companyId,
-    isDeleted: false
+  console.log('[Leave Controller] rejectLeave - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
   });
 
   if (!leave) {
@@ -543,19 +657,29 @@ export const rejectLeave = asyncHandler(async (req, res) => {
   }
 
   // Reject leave
-  await leave.reject(user.userId, reason);
+  const updateObj = {
+    status: 'rejected',
+    rejectedBy: user.userId,
+    rejectedAt: new Date(),
+    rejectionReason: reason,
+    updatedAt: new Date()
+  };
 
-  // Populate references for response
-  await leave.populate('employee', 'firstName lastName fullName employeeId');
-  await leave.populate('rejectedBy', 'firstName lastName fullName');
+  await collections.leaves.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  // Get updated leave
+  const updatedLeave = await collections.leaves.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
-    broadcastLeaveEvents.rejected(io, user.companyId, leave, user.userId, reason);
+    broadcastLeaveEvents.rejected(io, user.companyId, updatedLeave, user.userId, reason);
   }
 
-  return sendSuccess(res, leave, 'Leave request rejected successfully');
+  return sendSuccess(res, updatedLeave, 'Leave request rejected successfully');
 });
 
 /**
@@ -567,12 +691,13 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
   const { leaveType } = req.query;
   const user = extractUser(req);
 
+  console.log('[Leave Controller] getLeaveBalance - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
   // Get Employee record
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findOne({
-    clerkUserId: user.userId,
-    isDeleted: false
-  });
+  const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
     throw buildNotFoundError('Employee', user.userId);
@@ -580,7 +705,7 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
 
   // Get balance for specific type or all types
   if (leaveType) {
-    const balance = await Leave.getLeaveBalance(employee._id, leaveType);
+    const balance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveType);
     return sendSuccess(res, balance, 'Leave balance retrieved successfully');
   }
 
@@ -589,7 +714,7 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
   const leaveTypes = ['sick', 'casual', 'earned', 'maternity', 'paternity', 'bereavement', 'compensatory', 'unpaid', 'special'];
 
   for (const type of leaveTypes) {
-    balances[type] = await Leave.getLeaveBalance(employee._id, type);
+    balances[type] = await getEmployeeLeaveBalance(collections, employee.employeeId, type);
   }
 
   return sendSuccess(res, balances, 'All leave balances retrieved successfully');
