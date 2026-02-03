@@ -187,6 +187,13 @@ export const requireRole = (...roles) => {
 
     // Check if user has one of the required roles
     if (!roles.includes(req.user.role)) {
+      console.warn('[Authorization Failed]', {
+        userId: req.user.userId,
+        userRole: req.user.role,
+        requiredRoles: roles,
+        requestId: req.id
+      });
+
       return res.status(403).json({
         success: false,
         error: {
@@ -196,6 +203,14 @@ export const requireRole = (...roles) => {
         },
       });
     }
+
+    // User is authenticated and has required role
+    console.log('[Authorization Success]', {
+      userId: req.user.userId,
+      role: req.user.role,
+      companyId: req.user.companyId,
+      requestId: req.id
+    });
 
     next();
   };

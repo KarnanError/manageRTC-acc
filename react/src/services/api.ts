@@ -5,7 +5,6 @@
  */
 
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
-import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 // Global token cache - will be populated by AuthProvider
 let cachedToken: string | null = null;
@@ -109,8 +108,6 @@ const createApiClient = (): AxiosInstance => {
           config.headers.Authorization = `Bearer ${token}`;
         } else if (!token) {
           console.warn('[API] No authentication token available for request');
-        } else if (!token) {
-          console.warn('[API] No auth token available - request may fail with 401');
         }
 
         console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {
@@ -164,22 +161,9 @@ const createApiClient = (): AxiosInstance => {
           window.location.href = '/login';
           return Promise.reject(refreshError);
         }
-      // Handle specific error cases
-      if (error.response?.status === 401) {
-        // Unauthorized - Token expired or invalid
-        console.error(
-          '[API] Unauthorized access - token expired or invalid. Please refresh the page or log in again.'
-        );
-        // Optionally show a notification to the user
-        window.dispatchEvent(
-          new CustomEvent('auth-error', {
-            detail: {
-              message: 'Your session has expired. Please refresh the page or log in again.',
-            },
-          })
-        );
       }
 
+      // Handle specific error cases
       if (error.response?.status === 403) {
         // Forbidden - Insufficient permissions
         console.error('[API] Forbidden - insufficient permissions');
