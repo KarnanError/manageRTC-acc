@@ -4,24 +4,49 @@
  * Uses multi-tenant database architecture with getTenantCollections()
  */
 
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  buildValidationError,
-  asyncHandler
+    asyncHandler,
+    buildConflictError,
+    buildNotFoundError,
+    buildValidationError
 } from '../../middleware/errorHandler.js';
 import {
-  sendSuccess,
-  sendCreated,
-  buildPagination,
-  buildSearchFilter,
-  extractUser,
-  buildAuditFields,
-  getRequestId
+    buildPagination,
+    extractUser,
+    getRequestId,
+    sendCreated,
+    sendSuccess
 } from '../../utils/apiResponse.js';
-import { getSocketIO, broadcastEmployeeEvents } from '../../utils/socketBroadcaster.js';
-import { getTenantCollections } from '../../config/db.js';
+import { sendEmployeeCredentialsEmail } from '../../utils/emailer.js';
+import { broadcastEmployeeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
+
+/**
+ * Generate secure random password for new employees
+ */
+function generateSecurePassword(length = 12) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
+  const randomValues = new Uint32Array(length);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (v) => chars[v % chars.length]).join('');
+}
+
+/**
+ * Normalize status to ensure correct case
+ */
+const normalizeStatus = (status) => {
+  if (!status) return 'Active';
+  const normalized = status.toLowerCase();
+  if (normalized === 'active') return 'Active';
+  if (normalized === 'inactive') return 'Inactive';
+  if (normalized === 'on notice') return 'On Notice';
+  if (normalized === 'resigned') return 'Resigned';
+  if (normalized === 'terminated') return 'Terminated';
+  if (normalized === 'on leave') return 'On Leave';
+  return 'Active';
+};
 
 /**
  * @desc    Get all employees with pagination and filtering
@@ -39,8 +64,8 @@ export const getEmployees = asyncHandler(async (req, res) => {
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
-  // Build filter
-  let filter = {};
+  // Build filter - always exclude soft-deleted records
+  let filter = { isDeleted: { $ne: true } };
 
   // Apply status filter
   if (status) {
@@ -219,8 +244,15 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
     {
       $lookup: {
         from: 'employees',
-        localField: 'reportingToObjId',
-        foreignField: '_id',
+        let: { reportingToObjId: '$reportingToObjId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$_id', '$$reportingToObjId'] },
+              isDeleted: { $ne: true }  // Exclude deleted managers
+            }
+          }
+        ],
         as: 'reportingToInfo'
       }
     },
@@ -269,49 +301,223 @@ export const createEmployee = asyncHandler(async (req, res) => {
   const employeeData = req.body;
 
   console.log('[Employee Controller] createEmployee - companyId:', user.companyId);
+  console.log('[Employee Controller] employeeData:', JSON.stringify(employeeData, null, 2));
 
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
+  // Extract permissions data if present
+  const { permissionsData, ...restEmployeeData } = employeeData;
+
+  // Normalize data - handle both flat and nested structures from frontend
+  const normalizedData = {
+    ...restEmployeeData,
+    // Extract email from either root level or contact object
+    email: restEmployeeData.email || restEmployeeData.contact?.email,
+    // Extract phone from either root level or contact object
+    phone: restEmployeeData.phone || restEmployeeData.contact?.phone,
+    // Build contact object if not provided
+    contact: restEmployeeData.contact || {
+      email: restEmployeeData.email,
+      phone: restEmployeeData.phone || '',
+    },
+    // Handle nested personal structure
+    dateOfBirth: restEmployeeData.dateOfBirth || restEmployeeData.personal?.birthday,
+    gender: restEmployeeData.gender || restEmployeeData.personal?.gender,
+    address: restEmployeeData.address || restEmployeeData.personal?.address,
+  };
+
   // Check if email already exists
   const existingEmployee = await collections.employees.findOne({
-    'contact.email': employeeData.email
+    'contact.email': normalizedData.email
   });
 
   if (existingEmployee) {
-    throw buildConflictError('Employee', `email: ${employeeData.email}`);
+    throw buildConflictError('Employee', `email: ${normalizedData.email}`);
   }
 
   // Check if employee code already exists (if provided)
-  if (employeeData.employeeId) {
+  if (normalizedData.employeeId) {
     const existingCode = await collections.employees.findOne({
-      employeeId: employeeData.employeeId
+      employeeId: normalizedData.employeeId
     });
 
     if (existingCode) {
-      throw buildConflictError('Employee', `employee code: ${employeeData.employeeId}`);
+      throw buildConflictError('Employee', `employee code: ${normalizedData.employeeId}`);
     }
   }
 
-  // Add audit fields
+  // Generate secure password
+  const password = generateSecurePassword(12);
+  console.log('[Employee Controller] Generated password for employee');
+
+  // Determine role for Clerk
+  let clerkRole = 'employee';
+  if (normalizedData.account?.role === 'HR' || normalizedData.account?.role === 'hr') {
+    clerkRole = 'hr';
+  } else if (normalizedData.account?.role === 'Admin' || normalizedData.account?.role === 'admin') {
+    clerkRole = 'admin';
+  }
+
+  // Generate username from email if not provided
+  const username = normalizedData.account?.userName || normalizedData.email.split('@')[0];
+
+  // Create Clerk user
+  let clerkUserId;
+  try {
+    console.log('[Employee Controller] Creating Clerk user with username:', username);
+    const createdUser = await clerkClient.users.createUser({
+      emailAddress: [normalizedData.email],
+      username: username,
+      password: password,
+      publicMetadata: {
+        role: clerkRole,
+        companyId: user.companyId,
+      },
+    });
+    clerkUserId = createdUser.id;
+    console.log('[Employee Controller] Clerk user created:', clerkUserId);
+  } catch (clerkError) {
+    console.error('[Employee Controller] Failed to create Clerk user:', clerkError);
+    console.error('[Employee Controller] Clerk error details:', {
+      code: clerkError.code,
+      message: clerkError.message,
+      errors: clerkError.errors,
+      clerkTraceId: clerkError.clerkTraceId
+    });
+
+    // Parse Clerk errors and return field-specific errors
+    if (clerkError.errors && Array.isArray(clerkError.errors)) {
+      for (const error of clerkError.errors) {
+        console.error('[Employee Controller] Clerk error code:', error.code, 'message:', error.message);
+
+        // Username already taken
+        if (error.code === 'form_identifier_exists' || error.code === 'username_taken') {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'USERNAME_TAKEN',
+              message: 'Username is already taken. Please choose another.',
+              field: 'userName',
+              details: error.message,
+              requestId: getRequestId(req)
+            }
+          });
+        }
+
+        // Email already exists in Clerk
+        if (error.code === 'form_identifier_exists' && error.message.toLowerCase().includes('email')) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'EMAIL_EXISTS_IN_CLERK',
+              message: 'This email is already registered in the system.',
+              field: 'email',
+              details: error.message,
+              requestId: getRequestId(req)
+            }
+          });
+        }
+
+        // Password validation errors
+        if (error.code === 'form_password_pwned' || error.code === 'password_too_weak') {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'PASSWORD_TOO_WEAK',
+              message: 'Password is too weak or has been compromised. Please use a stronger password.',
+              field: 'password',
+              details: error.message,
+              requestId: getRequestId(req)
+            }
+          });
+        }
+      }
+    }
+
+    // Generic Clerk error
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'CLERK_USER_CREATION_FAILED',
+        message: 'Failed to create user account. Please try again.',
+        details: clerkError.message,
+        requestId: getRequestId(req),
+        clerkTraceId: clerkError.clerkTraceId
+      }
+    });
+  }
+
+  // Add audit fields and clerkUserId
   const employeeToInsert = {
-    ...employeeData,
+    ...normalizedData,
+    clerkUserId: clerkUserId,
+    account: {
+      ...normalizedData.account,
+      password: password, // Store password (for reference)
+      role: normalizedData.account?.role || 'Employee',
+    },
     createdAt: new Date(),
     updatedAt: new Date(),
     createdBy: user.userId,
     updatedBy: user.userId,
-    status: employeeData.status || 'Active'
+    status: normalizeStatus(normalizedData.status || 'Active')
   };
 
   // Create employee
   const result = await collections.employees.insertOne(employeeToInsert);
 
   if (!result.insertedId) {
+    // Rollback: Delete Clerk user if database insert fails
+    try {
+      await clerkClient.users.deleteUser(clerkUserId);
+      console.log('[Employee Controller] Rolled back Clerk user creation');
+    } catch (rollbackError) {
+      console.error('[Employee Controller] Failed to rollback Clerk user:', rollbackError);
+    }
     throw new Error('Failed to create employee');
+  }
+
+  // Create permissions record if provided
+  if (permissionsData && (permissionsData.permissions || permissionsData.enabledModules)) {
+    try {
+      await collections.permissions.insertOne({
+        employeeId: result.insertedId,
+        enabledModules: permissionsData.enabledModules || {},
+        permissions: permissionsData.permissions || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      console.log('[Employee Controller] Permissions created for employee');
+    } catch (permError) {
+      console.error('[Employee Controller] Failed to create permissions:', permError);
+      // Continue anyway - permissions can be added later
+    }
   }
 
   // Get the created employee
   const employee = await collections.employees.findOne({ _id: result.insertedId });
+
+  // Send email with credentials
+  try {
+    const loginLink = process.env.DOMAIN
+      ? `https://${process.env.DOMAIN}/login`
+      : 'http://localhost:3000/login';
+
+    await sendEmployeeCredentialsEmail({
+      to: normalizedData.email,
+      password: password,
+      userName: username,
+      loginLink: loginLink,
+      firstName: normalizedData.firstName,
+      lastName: normalizedData.lastName,
+      companyName: normalizedData.companyName || 'Your Company',
+    });
+    console.log('[Employee Controller] Credentials email sent to:', normalizedData.email);
+  } catch (emailError) {
+    console.error('[Employee Controller] Failed to send email:', emailError);
+    // Continue anyway - employee is created
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -319,7 +525,7 @@ export const createEmployee = asyncHandler(async (req, res) => {
     broadcastEmployeeEvents.created(io, user.companyId, employee);
   }
 
-  return sendCreated(res, employee, 'Employee created successfully');
+  return sendCreated(res, employee, 'Employee created successfully. Credentials email sent.');
 });
 
 /**
@@ -469,9 +675,9 @@ export const getMyProfile = asyncHandler(async (req, res) => {
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
-  // Find employee by clerk user ID (stored in account.userId or userId field)
+  // Find employee by clerk user ID (stored in clerkUserId field)
   const employee = await collections.employees.findOne({
-    'account.userId': user.userId
+    clerkUserId: user.userId
   });
 
   if (!employee) {
@@ -498,9 +704,9 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
-  // Find employee by clerk user ID
+  // Find employee by clerk user ID (stored in clerkUserId field)
   const employee = await collections.employees.findOne({
-    'account.userId': user.userId
+    clerkUserId: user.userId
   });
 
   if (!employee) {
@@ -571,9 +777,10 @@ export const getEmployeeReportees = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Employee', id);
   }
 
-  // Get all reportees
+  // Get all reportees (excluding deleted records)
   const reportees = await collections.employees.find({
     reportingTo: id,
+    isDeleted: { $ne: true },  // Exclude soft-deleted records
     status: 'Active'
   }).toArray();
 
@@ -596,6 +803,7 @@ export const getEmployeeStatsByDepartment = asyncHandler(async (req, res) => {
   const stats = await collections.employees.aggregate([
     {
       $match: {
+        isDeleted: { $ne: true },  // Exclude soft-deleted records
         status: 'Active'
       }
     },
@@ -658,6 +866,7 @@ export const searchEmployees = asyncHandler(async (req, res) => {
   const collections = getTenantCollections(user.companyId);
 
   const employees = await collections.employees.find({
+    isDeleted: { $ne: true },  // Exclude soft-deleted records
     status: 'Active',
     $or: [
       { firstName: { $regex: q, $options: 'i' } },
@@ -677,6 +886,82 @@ export const searchEmployees = asyncHandler(async (req, res) => {
     .toArray();
 
   return sendSuccess(res, employees, 'Search results retrieved successfully');
+});
+
+/**
+ * @desc    Check for duplicate email and phone
+ * @route   POST /api/employees/check-duplicates
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const checkDuplicates = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+  const { email, phone, userName } = req.body;
+
+  console.log('[Employee Controller] checkDuplicates - email:', email, 'phone:', phone, 'userName:', userName, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Check for duplicate email
+  if (email) {
+    const emailExists = await collections.employees.countDocuments({
+      'contact.email': email,
+      isDeleted: { $ne: true }  // Exclude soft-deleted records
+    });
+
+    if (emailExists > 0) {
+      console.log('[Employee Controller] checkDuplicates - email already exists');
+      return res.status(409).json({
+        done: false,
+        error: 'Email already registered',
+        field: 'email',
+        message: 'This email is already registered in the system'
+      });
+    }
+  }
+
+  // Check for duplicate phone if provided
+  if (phone) {
+    const phoneExists = await collections.employees.countDocuments({
+      'contact.phone': phone,
+      isDeleted: { $ne: true }  // Exclude soft-deleted records
+    });
+
+    if (phoneExists > 0) {
+      console.log('[Employee Controller] checkDuplicates - phone already exists');
+      return res.status(409).json({
+        done: false,
+        error: 'Phone number already registered',
+        field: 'phone',
+        message: 'This phone number is already registered in the system'
+      });
+    }
+  }
+
+  // Check for duplicate username in Clerk
+  if (userName) {
+    try {
+      console.log('[Employee Controller] checkDuplicates - checking Clerk username:', userName);
+      const existingUsers = await clerkClient.users.getUserList({
+        username: [userName]
+      });
+
+      if (existingUsers && existingUsers.data && existingUsers.data.length > 0) {
+        console.log('[Employee Controller] checkDuplicates - username already exists in Clerk');
+        return res.status(409).json({
+          done: false,
+          error: 'Username is already taken',
+          field: 'userName',
+          message: 'This username is already taken. Please choose another.'
+        });
+      }
+    } catch (clerkError) {
+      // Log but don't fail - Clerk check is optional
+      console.error('[Employee Controller] checkDuplicates - Clerk username check failed:', clerkError.message);
+    }
+  }
+
+  return sendSuccess(res, { done: true }, 'No duplicates found');
 });
 
 /**
@@ -707,41 +992,122 @@ export const bulkUploadEmployees = asyncHandler(async (req, res) => {
     duplicate: []
   };
 
+  const loginLink = process.env.DOMAIN
+    ? `https://${process.env.DOMAIN}/login`
+    : 'http://localhost:3000/login';
+
   for (const empData of employees) {
     try {
+      // Normalize email from contact or root level
+      const email = empData.email || empData.contact?.email;
+
+      if (!email) {
+        results.failed.push({
+          email: 'N/A',
+          reason: 'Email is required'
+        });
+        continue;
+      }
+
       // Check for duplicate email
       const existing = await collections.employees.findOne({
-        'contact.email': empData.contact?.email
+        'contact.email': email
       });
 
       if (existing) {
         results.duplicate.push({
-          email: empData.contact?.email,
+          email: email,
           reason: 'Email already exists'
         });
         continue;
       }
 
+      // Generate secure password
+      const password = generateSecurePassword(12);
+
+      // Determine role for Clerk
+      let clerkRole = 'employee';
+      const role = empData.account?.role || empData.role || 'Employee';
+      if (role.toLowerCase() === 'hr') {
+        clerkRole = 'hr';
+      } else if (role.toLowerCase() === 'admin') {
+        clerkRole = 'admin';
+      }
+
+      // Generate username from email if not provided
+      const username = empData.account?.userName || empData.userName || email.split('@')[0];
+
+      // Create Clerk user
+      let clerkUserId;
+      try {
+        const createdUser = await clerkClient.users.createUser({
+          emailAddress: [email],
+          username: username,
+          password: password,
+          publicMetadata: {
+            role: clerkRole,
+            companyId: user.companyId,
+          },
+        });
+        clerkUserId = createdUser.id;
+        console.log('[Employee Controller] Bulk upload - Clerk user created for:', email);
+      } catch (clerkError) {
+        console.error('[Employee Controller] Bulk upload - Failed to create Clerk user for:', email, clerkError);
+        results.failed.push({
+          email: email,
+          reason: `Clerk user creation failed: ${clerkError.message}`
+        });
+        continue;
+      }
+
+      // Normalize contact object
+      const contact = empData.contact || {
+        email: email,
+        phone: empData.phone || '',
+      };
+
       // Create employee
       const employeeToInsert = {
         ...empData,
+        clerkUserId: clerkUserId,
+        email: email,
+        contact: contact,
+        account: {
+          ...empData.account,
+          password: password,
+          role: role,
+        },
         createdAt: new Date(),
         updatedAt: new Date(),
         createdBy: user.userId,
         updatedBy: user.userId,
-        status: empData.status || 'Active'
+        status: normalizeStatus(empData.status || 'Active')
       };
 
       const result = await collections.employees.insertOne(employeeToInsert);
 
+      // Send email with credentials (non-blocking)
+      sendEmployeeCredentialsEmail({
+        to: email,
+        password: password,
+        userName: username,
+        loginLink: loginLink,
+        firstName: empData.firstName,
+        lastName: empData.lastName,
+        companyName: empData.companyName || 'Your Company',
+      }).catch(emailError => {
+        console.error('[Employee Controller] Bulk upload - Failed to send email to:', email, emailError);
+      });
+
       results.success.push({
         _id: result.insertedId,
-        email: empData.contact?.email,
-        name: `${empData.firstName} ${empData.lastName}`
+        email: email,
+        name: `${empData.firstName} ${empData.lastName}`,
+        passwordSent: true
       });
     } catch (error) {
       results.failed.push({
-        email: empData.contact?.email,
+        email: empData.email || empData.contact?.email || 'N/A',
         reason: error.message
       });
     }
@@ -761,5 +1127,6 @@ export default {
   getEmployeeReportees,
   getEmployeeStatsByDepartment,
   searchEmployees,
+  checkDuplicates,
   bulkUploadEmployees
 };

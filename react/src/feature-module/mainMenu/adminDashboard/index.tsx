@@ -1,21 +1,22 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useUser } from "@clerk/clerk-react";
+import jsPDF from "jspdf";
+import { Calendar } from "primereact/calendar";
+import { Chart } from "primereact/chart";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactApexChart from "react-apexcharts";
 import { Link } from "react-router-dom";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import { all_routes } from "../../router/all_routes";
-import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
-import { Chart } from "primereact/chart";
-import { Calendar } from "primereact/calendar";
+import "slick-carousel/slick/slick.css";
+import { Socket } from "socket.io-client";
+import * as XLSX from "xlsx";
+import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import Footer from "../../../core/common/footer";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import RequestModals from "../../../core/modals/requestModal";
 import TodoModal from "../../../core/modals/todoModal";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import { useUser } from "@clerk/clerk-react";
+import { useAdminDashboardREST } from "../../../hooks/useAdminDashboardREST";
 import { useSocket } from "../../../SocketContext";
-import { Socket } from "socket.io-client";
-import jsPDF from "jspdf";
-import * as XLSX from "xlsx";
-import Footer from "../../../core/common/footer";
+import { all_routes } from "../../router/all_routes";
 interface DashboardData {
   pendingItems?: {
     approvals: number;
@@ -47,7 +48,7 @@ interface DashboardData {
   employeeStatus?: {
     total: number;
     distribution: Record<string, number>;
-    topPerformer: {
+    topPerformer?: {
       name: string;
       position: string;
       performance: number;
@@ -60,7 +61,7 @@ interface DashboardData {
     late: number;
     permission: number;
     absent: number;
-    absentees: Array<{
+    absentees?: Array<{
       _id: string;
       name: string;
       avatar: string;
@@ -98,9 +99,10 @@ interface DashboardData {
     department: string;
     avatar: string;
   }>;
+  // Match hook's JobApplicants type with optional properties
   jobApplicants?: {
-    openings: Array<{ _id: string; count: number }>;
-    applicants: Array<{
+    openings?: Array<{ _id: string; count: number }>;
+    applicants?: Array<{
       _id: string;
       name: string;
       position: string;
@@ -117,22 +119,29 @@ interface DashboardData {
     employeeName: string;
     employeeAvatar: string;
   }>;
+  // Match hook's Birthdays type with optional properties
   birthdays?: {
-    today: Array<{ name: string; position: string; avatar: string }>;
-    tomorrow: Array<{ name: string; position: string; avatar: string }>;
-    upcoming: Array<{
+    today?: Array<{ name: string; position: string; avatar: string }>;
+    tomorrow?: Array<{ name: string; position: string; avatar: string }>;
+    upcoming?: Array<{
       name: string;
       position: string;
       avatar: string;
       date: string;
     }>;
   };
+  // Match hook's TodoItem type with extended properties
   todos?: Array<{
     _id: string;
     title: string;
     completed: boolean;
     userId: string;
     createdAt: string;
+    description?: string;
+    tag?: string;
+    priority?: 'Low' | 'Medium' | 'High';
+    dueDate?: string;
+    assignedTo?: string;
   }>;
   projectsData?: Array<{
     id: string;
@@ -165,6 +174,24 @@ const AdminDashboard = () => {
   const routes = all_routes;
   const { user, isLoaded, isSignedIn } = useUser();
   const socket = useSocket() as Socket | null;
+
+  // REST API Hook for Admin Dashboard - data fetching via REST
+  const {
+    dashboardData: restDashboardData,
+    loading: restLoading,
+    error: restError,
+    fetchAllDashboardData,
+    fetchEmployeeStatus,
+    fetchAttendanceOverview,
+    fetchClockInOutData,
+    fetchSalesOverview,
+    fetchRecentInvoices,
+    fetchProjectsData,
+    fetchTaskStatistics,
+    fetchEmployeesByDepartment,
+  } = useAdminDashboardREST();
+
+  // Local state (synced with REST data)
   const [dashboardData, setDashboardData] = useState<DashboardData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +199,16 @@ const AdminDashboard = () => {
   const [todoFilter, setTodoFilter] = useState("all");
 
   // Filter states for different cards
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<{
+    employeeStatus: "all" | "today" | "week" | "month";
+    attendanceOverview: "all" | "today" | "week" | "month";
+    clockInOut: "all" | "today" | "week" | "month";
+    invoices: "all" | "today" | "week" | "month";
+    projects: "all" | "today" | "week" | "month";
+    taskStatistics: "all" | "today" | "week" | "month";
+    salesOverview: "all" | "today" | "week" | "month";
+    employeesByDepartment: "all" | "today" | "week" | "month" | "year";
+  }>({
     employeeStatus: "all",
     attendanceOverview: "all",
     clockInOut: "all",
@@ -189,16 +225,15 @@ const AdminDashboard = () => {
     salesOverview: "All Departments",
   });
 
-  const [invoiceFilter, setInvoiceFilter] = useState("all");
+  const [invoiceFilter, setInvoiceFilter] = useState<"all" | "paid" | "pending" | "overdue" | "unpaid">("all");
 
-  const handleYearChange = (newDate: Date) => {
+  const handleYearChange = async (newDate: Date) => {
     console.log(`[YEAR FILTER] Year changed to: ${newDate.getFullYear()}`);
     setDate(newDate);
 
-    if (socket) {
-      const year = newDate.getFullYear();
-      socket.emit("admin/dashboard/get-all-data", { year });
-    }
+    // Fetch data via REST API with new year
+    const year = newDate.getFullYear();
+    await fetchAllDashboardData({ year });
   };
 
   const getUserName = () => {
@@ -279,256 +314,77 @@ const AdminDashboard = () => {
     [todoFilter]
   );
 
+  // REST API data loading effect - fetch dashboard data on mount
   useEffect(() => {
     let isMounted = true;
 
-    const initDashboard = () => {
-      if (!socket) {
-        console.log("Socket not available yet, waiting...");
-        return;
-      }
+    const loadDashboardData = async () => {
+      if (!isMounted) return;
 
-      console.log("Socket available, initializing dashboard...");
+      console.log("[ADMIN DASHBOARD] Loading data via REST API...");
       setLoading(true);
-
-      const timeoutId = setTimeout(() => {
-        if (loading && isMounted) {
-          console.warn("Dashboard loading timeout - showing fallback");
-          setError("Dashboard loading timed out. Please refresh the page.");
-          setLoading(false);
-        }
-      }, 30000); // 30 second timeout
+      setError(null);
 
       const currentYear = date.getFullYear();
-      console.log(`[INITIAL LOAD] Sending year: ${currentYear}`);
-      socket.emit("admin/dashboard/get-all-data", { year: currentYear });
+      const data = await fetchAllDashboardData({ year: currentYear });
 
-      // Set up event listeners
-      const handleDashboardResponse = (response: any) => {
-        console.log("Received dashboard data response:", response);
-        clearTimeout(timeoutId);
-        if (!isMounted) return;
-
-        if (response.done) {
-          console.log("Dashboard data loaded successfully");
-          console.log(response.data);
-          setDashboardData(response.data);
-          setLoading(false);
-        } else {
-          console.error("Dashboard data error:", response.error);
-          setError(response.error || "Failed to fetch dashboard data");
-          setLoading(false);
-        }
-      };
-
-      const handleTodosResponse = (response: any) => {
-        console.log(`[TODO BROADCAST] Received todos broadcast:`, response);
-        if (!isMounted) return;
-
-        if (response.done) {
-          console.log(`[TODO BROADCAST] Setting todos:`, response.data);
-          setDashboardData((prev) => ({
-            ...prev,
-            todos: response.data,
-          }));
-        }
-      };
-
-      const handleUpdateTodoResponse = (response: any) => {
-        if (!isMounted) return;
-
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            todos: prev.todos?.map((todo) =>
-              todo._id === response.data._id ? response.data : todo
-            ),
-          }));
-        }
-      };
-
-      const handleEmployeeStatusResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            employeeStatus: response.data,
-          }));
-        }
-      };
-
-      const handleAttendanceOverviewResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            attendanceOverview: response.data,
-          }));
-        }
-      };
-
-      const handleClockInOutResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            clockInOutData: response.data,
-          }));
-        }
-      };
-
-      const handleRecentInvoicesResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            recentInvoices: response.data,
-          }));
-        }
-      };
-
-      const handleProjectsDataResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            projectsData: response.data,
-          }));
-        }
-      };
-
-      const handleTaskStatisticsResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            taskStatistics: response.data,
-          }));
-        }
-      };
-
-      const handleSalesOverviewResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            salesOverview: response.data,
-          }));
-        }
-      };
-
-      const handleEmployeesByDepartmentResponse = (response: any) => {
-        if (!isMounted) return;
-        if (response.done) {
-          setDashboardData((prev) => ({
-            ...prev,
-            employeesByDepartment: response.data,
-          }));
-        }
-      };
-
-      // Add all event listeners
-      socket.on(
-        "admin/dashboard/get-all-data-response",
-        handleDashboardResponse
-      );
-      socket.on("admin/dashboard/get-todos-response", handleTodosResponse);
-      socket.on(
-        "admin/dashboard/update-todo-response",
-        handleUpdateTodoResponse
-      );
-      socket.on(
-        "admin/dashboard/get-employee-status-response",
-        handleEmployeeStatusResponse
-      );
-      socket.on(
-        "admin/dashboard/get-attendance-overview-response",
-        handleAttendanceOverviewResponse
-      );
-      socket.on(
-        "admin/dashboard/get-clock-inout-data-response",
-        handleClockInOutResponse
-      );
-      socket.on(
-        "admin/dashboard/get-recent-invoices-response",
-        handleRecentInvoicesResponse
-      );
-      socket.on(
-        "admin/dashboard/get-projects-data-response",
-        handleProjectsDataResponse
-      );
-      socket.on(
-        "admin/dashboard/get-task-statistics-response",
-        handleTaskStatisticsResponse
-      );
-      socket.on(
-        "admin/dashboard/get-sales-overview-response",
-        handleSalesOverviewResponse
-      );
-      socket.on(
-        "admin/dashboard/get-employees-by-department-response",
-        handleEmployeesByDepartmentResponse
-      );
-
-      // Cleanup function
-      return () => {
-        clearTimeout(timeoutId);
-        if (socket) {
-          socket.off(
-            "admin/dashboard/get-all-data-response",
-            handleDashboardResponse
-          );
-          socket.off("admin/dashboard/get-todos-response", handleTodosResponse);
-          socket.off(
-            "admin/dashboard/update-todo-response",
-            handleUpdateTodoResponse
-          );
-          socket.off(
-            "admin/dashboard/get-employee-status-response",
-            handleEmployeeStatusResponse
-          );
-          socket.off(
-            "admin/dashboard/get-attendance-overview-response",
-            handleAttendanceOverviewResponse
-          );
-          socket.off(
-            "admin/dashboard/get-clock-inout-data-response",
-            handleClockInOutResponse
-          );
-          socket.off(
-            "admin/dashboard/get-recent-invoices-response",
-            handleRecentInvoicesResponse
-          );
-          socket.off(
-            "admin/dashboard/get-projects-data-response",
-            handleProjectsDataResponse
-          );
-          socket.off(
-            "admin/dashboard/get-task-statistics-response",
-            handleTaskStatisticsResponse
-          );
-          socket.off(
-            "admin/dashboard/get-sales-overview-response",
-            handleSalesOverviewResponse
-          );
-          socket.off(
-            "admin/dashboard/get-employees-by-department-response",
-            handleEmployeesByDepartmentResponse
-          );
-        }
-      };
+      if (isMounted && data) {
+        console.log("[ADMIN DASHBOARD] Data loaded successfully via REST API");
+        setDashboardData(data);
+        setLoading(false);
+      } else if (isMounted) {
+        console.error("[ADMIN DASHBOARD] Failed to load data");
+        setLoading(false);
+      }
     };
 
-    if (socket) {
-      const cleanup = initDashboard();
-      return cleanup;
-    }
+    loadDashboardData();
 
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, date]);
+  }, [date.getFullYear()]); // Re-fetch when year changes
+
+  // Socket.IO effect - real-time broadcasts only (no initial data fetch)
+  // Data is loaded via REST API in the effect above
+  useEffect(() => {
+    if (!socket) return;
+
+    console.log("[ADMIN DASHBOARD] Setting up Socket.IO listeners for real-time broadcasts...");
+
+    // Handle real-time todo broadcasts (for multi-user sync)
+    const handleTodosResponse = (response: any) => {
+      console.log(`[TODO BROADCAST] Received todos broadcast:`, response);
+      if (response.done) {
+        console.log(`[TODO BROADCAST] Setting todos:`, response.data);
+        setDashboardData((prev) => ({
+          ...prev,
+          todos: response.data,
+        }));
+      }
+    };
+
+    const handleUpdateTodoResponse = (response: any) => {
+      if (response.done) {
+        setDashboardData((prev) => ({
+          ...prev,
+          todos: prev.todos?.map((todo) =>
+            todo._id === response.data._id ? response.data : todo
+          ),
+        }));
+      }
+    };
+
+    // Subscribe to real-time broadcasts for data updates
+    socket.on("admin/dashboard/get-todos-response", handleTodosResponse);
+    socket.on("admin/dashboard/update-todo-response", handleUpdateTodoResponse);
+
+    // Cleanup function
+    return () => {
+      socket.off("admin/dashboard/get-todos-response", handleTodosResponse);
+      socket.off("admin/dashboard/update-todo-response", handleUpdateTodoResponse);
+    };
+  }, [socket]);
 
   // Chart configurations
   const empDepartmentOptions = {
@@ -883,49 +739,72 @@ const AdminDashboard = () => {
   };
 
   // Handle filter changes for different cards
-  const handleFilterChange = (cardType: string, filter: string) => {
+  const handleFilterChange = async (cardType: string, filter: "all" | "today" | "week" | "month" | "year") => {
     console.log(`[FILTER CHANGE] ${cardType}: ${filter}`);
     setFilters((prev) => ({
       ...prev,
       [cardType]: filter,
     }));
 
-    // Emit socket event for the specific card with current year
-    if (socket) {
-      const year = date.getFullYear();
-      const eventData = { filter, year };
+    // Fetch data via REST API for the specific card with current year
+    const year = date.getFullYear();
+    // Map "year" to "all" for API calls since year is passed as a separate parameter
+    const apiFilter: "all" | "today" | "week" | "month" = filter === "year" ? "all" : filter;
 
-      switch (cardType) {
-        case "employeeStatus":
-          socket.emit("admin/dashboard/get-employee-status", eventData);
-          break;
-        case "attendanceOverview":
-          socket.emit("admin/dashboard/get-attendance-overview", eventData);
-          break;
-        case "clockInOut":
-          socket.emit("admin/dashboard/get-clock-inout-data", eventData);
-          break;
-        case "invoices":
-          socket.emit("admin/dashboard/get-recent-invoices", eventData);
-          break;
-        case "projects":
-          socket.emit("admin/dashboard/get-projects-data", eventData);
-          break;
-        case "taskStatistics":
-          socket.emit("admin/dashboard/get-task-statistics", eventData);
-          break;
-        case "salesOverview":
-          socket.emit("admin/dashboard/get-sales-overview", eventData);
-          break;
-        case "employeesByDepartment":
-          socket.emit("admin/dashboard/get-employees-by-department", eventData);
-          break;
-      }
+    switch (cardType) {
+      case "employeeStatus":
+        const statusData = await fetchEmployeeStatus({ filter: apiFilter, year });
+        if (statusData) {
+          setDashboardData((prev) => ({ ...prev, employeeStatus: statusData }));
+        }
+        break;
+      case "attendanceOverview":
+        const attendanceData = await fetchAttendanceOverview({ filter: apiFilter, year });
+        if (attendanceData) {
+          setDashboardData((prev) => ({ ...prev, attendanceOverview: attendanceData }));
+        }
+        break;
+      case "clockInOut":
+        const clockData = await fetchClockInOutData({ filter: apiFilter, year });
+        if (clockData) {
+          setDashboardData((prev) => ({ ...prev, clockInOutData: clockData }));
+        }
+        break;
+      case "invoices":
+        const invoicesData = await fetchRecentInvoices({ filter: apiFilter, year, invoiceType: invoiceFilter });
+        if (invoicesData) {
+          setDashboardData((prev) => ({ ...prev, recentInvoices: invoicesData }));
+        }
+        break;
+      case "projects":
+        const projectsData = await fetchProjectsData({ filter: apiFilter, year });
+        if (projectsData) {
+          setDashboardData((prev) => ({ ...prev, projectsData }));
+        }
+        break;
+      case "taskStatistics":
+        const taskStatsData = await fetchTaskStatistics({ filter: apiFilter, year });
+        if (taskStatsData) {
+          setDashboardData((prev) => ({ ...prev, taskStatistics: taskStatsData }));
+        }
+        break;
+      case "salesOverview":
+        const salesData = await fetchSalesOverview({ filter: apiFilter, year });
+        if (salesData) {
+          setDashboardData((prev) => ({ ...prev, salesOverview: salesData }));
+        }
+        break;
+      case "employeesByDepartment":
+        const deptData = await fetchEmployeesByDepartment({ filter: apiFilter, year });
+        if (deptData) {
+          setDashboardData((prev) => ({ ...prev, employeesByDepartment: deptData }));
+        }
+        break;
     }
   };
 
   // Handle department filter changes
-  const handleDepartmentFilterChange = (
+  const handleDepartmentFilterChange = async (
     cardType: string,
     department: string
   ) => {
@@ -935,43 +814,41 @@ const AdminDashboard = () => {
       [cardType]: department,
     }));
 
-    // Emit socket event for the specific card with current filters
-    if (socket) {
-      const year = date.getFullYear();
-      const eventData = {
-        filter:
-          cardType === "clockInOut"
-            ? filters.clockInOut
-            : filters.salesOverview,
-        department: department === "All Departments" ? null : department,
-        year,
-      };
+    // Fetch data via REST API for the specific card with current filters
+    const year = date.getFullYear();
+    const filterValue = cardType === "clockInOut" ? filters.clockInOut : filters.salesOverview;
+    const departmentValue = department === "All Departments" ? undefined : department;
 
-      switch (cardType) {
-        case "clockInOut":
-          socket.emit("admin/dashboard/get-clock-inout-data", eventData);
-          break;
-        case "salesOverview":
-          socket.emit("admin/dashboard/get-sales-overview", eventData);
-          break;
-      }
+    switch (cardType) {
+      case "clockInOut":
+        const clockData = await fetchClockInOutData({ filter: filterValue, year, department: departmentValue });
+        if (clockData) {
+          setDashboardData((prev) => ({ ...prev, clockInOutData: clockData }));
+        }
+        break;
+      case "salesOverview":
+        const salesData = await fetchSalesOverview({ filter: filterValue, year, department: departmentValue });
+        if (salesData) {
+          setDashboardData((prev) => ({ ...prev, salesOverview: salesData }));
+        }
+        break;
     }
   };
 
   // Handle invoice filter changes
-  const handleInvoiceFilterChange = (filter: string) => {
+  const handleInvoiceFilterChange = async (filter: "all" | "paid" | "pending" | "overdue" | "unpaid") => {
     console.log(`[INVOICE FILTER] ${filter}`);
     setInvoiceFilter(filter);
 
-    // Emit socket event for invoices with current time filter
-    if (socket) {
-      const year = date.getFullYear();
-      const eventData = {
-        filter: filters.invoices,
-        invoiceType: filter,
-        year,
-      };
-      socket.emit("admin/dashboard/get-recent-invoices", eventData);
+    // Fetch data via REST API for invoices with current time filter
+    const year = date.getFullYear();
+    const invoicesData = await fetchRecentInvoices({
+      filter: filters.invoices,
+      invoiceType: filter,
+      year,
+    });
+    if (invoicesData) {
+      setDashboardData((prev) => ({ ...prev, recentInvoices: invoicesData }));
     }
   };
 
@@ -1435,6 +1312,23 @@ const AdminDashboard = () => {
           <div className="alert alert-danger" role="alert">
             <h4 className="alert-heading">Error!</h4>
             <p>{error}</p>
+            {!socket && (
+              <div className="mt-3">
+                <strong>Troubleshooting:</strong>
+                <ul className="mb-0 mt-2">
+                  <li>Check that your backend server is running on port 5000</li>
+                  <li>Verify Socket.IO is properly configured</li>
+                  <li>Ensure your Clerk user has proper metadata (role, companyId)</li>
+                  <li>Check browser console for detailed connection errors</li>
+                </ul>
+              </div>
+            )}
+            <button
+              className="btn btn-primary mt-3"
+              onClick={() => window.location.reload()}
+            >
+              Refresh Page
+            </button>
           </div>
         </div>
       </div>
@@ -3991,20 +3885,16 @@ const AdminDashboard = () => {
       {/* /Page Wrapper */}
 
       <RequestModals
-        onLeaveRequestCreated={() => {
-          if (socket) {
-            const currentYear = date.getFullYear();
-            socket.emit("admin/dashboard/get-all-data", { year: currentYear });
-          }
+        onLeaveRequestCreated={async () => {
+          // Refresh dashboard data via REST API when leave request is created
+          await fetchAllDashboardData({ year: date.getFullYear() });
         }}
         mode="admin"
       />
       <TodoModal
-        onTodoAdded={() => {
-          if (socket) {
-            const currentYear = date.getFullYear();
-            socket.emit("admin/dashboard/get-all-data", { year: currentYear });
-          }
+        onTodoAdded={async () => {
+          // Refresh dashboard data via REST API when todo is added
+          await fetchAllDashboardData({ year: date.getFullYear() });
         }}
       />
     </>

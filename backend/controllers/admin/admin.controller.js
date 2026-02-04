@@ -440,81 +440,105 @@ const adminController = (socket, io) => {
     }
   });
   // Get all dashboard data at once
+  // FIXED: Added individual error handling for each service call to prevent timeout
+  // when any single service fails. Returns partial data with error information.
   socket.on("admin/dashboard/get-all-data", async (data = {}) => {
-    try {
-      const companyId = validateCompanyAccess(socket);
-      const userId = socket.user.sub;
+    const startTime = Date.now();
+    const companyId = validateCompanyAccess(socket);
+    const userId = socket.user.sub;
+    const year = data.year || new Date().getFullYear();
 
-      // Extract year from data, default to current year if not provided
-      const year = data.year || new Date().getFullYear();
-      console.log(`[ADMIN DASHBOARD] Getting all data for year: ${year}`);
+    console.log(`[ADMIN DASHBOARD] Getting all data for year: ${year}, companyId: ${companyId}`);
 
-      const [
-        pendingItems,
-        employeeGrowth,
-        stats,
-        employeesByDepartment,
-        employeeStatus,
-        attendanceOverview,
-        clockInOutData,
-        salesOverview,
-        recentInvoices,
-        employeesList,
-        jobApplicants,
-        recentActivities,
-        birthdays,
-        todos,
-        projectsData,
-        taskStatistics,
-        schedules,
-      ] = await Promise.all([
-        adminService.getPendingItems(companyId, userId, year),
-        adminService.getEmployeeGrowth(companyId, year),
-        adminService.getDashboardStats(companyId, year),
-        adminService.getEmployeesByDepartment(companyId, "all", year),
-        adminService.getEmployeeStatus(companyId, "all", year),
-        adminService.getAttendanceOverview(companyId, "all", year),
-        adminService.getClockInOutData(companyId, "all", year, null),
-        adminService.getSalesOverview(companyId, "all", year, null),
-        adminService.getRecentInvoices(companyId, "all", year, "all"),
-        adminService.getEmployeesList(companyId, year),
-        adminService.getJobApplicants(companyId, year),
-        adminService.getRecentActivities(companyId, year),
-        adminService.getBirthdays(companyId, year),
-        adminService.getTodos(companyId, userId, "all", year),
-        adminService.getProjectsData(companyId, "all", year),
-        adminService.getTaskStatistics(companyId, "all", year),
-        adminService.getSchedules(companyId, year),
-      ]);
+    // Helper to wrap service calls with individual error handling
+    const safeServiceCall = async (serviceName, serviceCall) => {
+      try {
+        const result = await serviceCall;
+        const elapsed = Date.now() - startTime;
+        console.log(`[ADMIN DASHBOARD] ✓ ${serviceName} loaded in ${elapsed}ms`);
+        return { success: true, data: result.data };
+      } catch (error) {
+        const elapsed = Date.now() - startTime;
+        console.error(`[ADMIN DASHBOARD] ✗ ${serviceName} failed after ${elapsed}ms:`, error.message);
+        return { success: false, error: error.message, data: null };
+      }
+    };
 
-      socket.emit("admin/dashboard/get-all-data-response", {
-        done: true,
-        data: {
-          pendingItems: pendingItems.data,
-          employeeGrowth: employeeGrowth.data,
-          stats: stats.data,
-          employeesByDepartment: employeesByDepartment.data,
-          employeeStatus: employeeStatus.data,
-          attendanceOverview: attendanceOverview.data,
-          clockInOutData: clockInOutData.data,
-          salesOverview: salesOverview.data,
-          recentInvoices: recentInvoices.data,
-          employeesList: employeesList.data,
-          jobApplicants: jobApplicants.data,
-          recentActivities: recentActivities.data,
-          birthdays: birthdays.data,
-          todos: todos.data,
-          projectsData: projectsData.data,
-          taskStatistics: taskStatistics.data,
-          schedules: schedules.data,
-        },
-      });
-    } catch (error) {
-      socket.emit("admin/dashboard/get-all-data-response", {
-        done: false,
-        error: error.message,
-      });
+    // Execute all service calls in parallel but with individual error handling
+    const results = await Promise.all([
+      safeServiceCall('pendingItems', adminService.getPendingItems(companyId, userId, year)),
+      safeServiceCall('employeeGrowth', adminService.getEmployeeGrowth(companyId, year)),
+      safeServiceCall('stats', adminService.getDashboardStats(companyId, year)),
+      safeServiceCall('employeesByDepartment', adminService.getEmployeesByDepartment(companyId, "all", year)),
+      safeServiceCall('employeeStatus', adminService.getEmployeeStatus(companyId, "all", year)),
+      safeServiceCall('attendanceOverview', adminService.getAttendanceOverview(companyId, "all", year)),
+      safeServiceCall('clockInOutData', adminService.getClockInOutData(companyId, "all", year, null)),
+      safeServiceCall('salesOverview', adminService.getSalesOverview(companyId, "all", year, null)),
+      safeServiceCall('recentInvoices', adminService.getRecentInvoices(companyId, "all", year, "all")),
+      safeServiceCall('employeesList', adminService.getEmployeesList(companyId, year)),
+      safeServiceCall('jobApplicants', adminService.getJobApplicants(companyId, year)),
+      safeServiceCall('recentActivities', adminService.getRecentActivities(companyId, year)),
+      safeServiceCall('birthdays', adminService.getBirthdays(companyId, year)),
+      safeServiceCall('todos', adminService.getTodos(companyId, userId, "all", year)),
+      safeServiceCall('projectsData', adminService.getProjectsData(companyId, "all", year)),
+      safeServiceCall('taskStatistics', adminService.getTaskStatistics(companyId, "all", year)),
+      safeServiceCall('schedules', adminService.getSchedules(companyId, year)),
+    ]);
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[ADMIN DASHBOARD] Total load time: ${totalTime}ms`);
+
+    // Check which services failed
+    const failedServices = results.filter(r => !r.success);
+    if (failedServices.length > 0) {
+      console.warn(`[ADMIN DASHBOARD] ${failedServices.length} services failed:`, failedServices.map(f => f.error));
     }
+
+    // Build response with partial data even if some services failed
+    const [
+      pendingItems,
+      employeeGrowth,
+      stats,
+      employeesByDepartment,
+      employeeStatus,
+      attendanceOverview,
+      clockInOutData,
+      salesOverview,
+      recentInvoices,
+      employeesList,
+      jobApplicants,
+      recentActivities,
+      birthdays,
+      todos,
+      projectsData,
+      taskStatistics,
+      schedules,
+    ] = results;
+
+    socket.emit("admin/dashboard/get-all-data-response", {
+      done: true,
+      data: {
+        pendingItems: pendingItems.data,
+        employeeGrowth: employeeGrowth.data,
+        stats: stats.data,
+        employeesByDepartment: employeesByDepartment.data,
+        employeeStatus: employeeStatus.data,
+        attendanceOverview: attendanceOverview.data,
+        clockInOutData: clockInOutData.data,
+        salesOverview: salesOverview.data,
+        recentInvoices: recentInvoices.data,
+        employeesList: employeesList.data,
+        jobApplicants: jobApplicants.data,
+        recentActivities: recentActivities.data,
+        birthdays: birthdays.data,
+        todos: todos.data,
+        projectsData: projectsData.data,
+        taskStatistics: taskStatistics.data,
+        schedules: schedules.data,
+      },
+      partialData: failedServices.length > 0,
+      failedServices: failedServices.length > 0 ? failedServices.map(f => f.error) : undefined,
+    });
   });
 
   // Add todo

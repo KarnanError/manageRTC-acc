@@ -10,6 +10,7 @@ import {
 } from "../../data/redux/sidebarSlice";
 import { all_routes } from "../../../feature-module/router/all_routes";
 import { HorizontalSidebarData } from "../../data/json/horizontalSidebar";
+import { useUserProfileREST } from "../../../hooks/useUserProfileREST";
 import "./customclerk.css";
 
 const Header = (): JSX.Element => {
@@ -21,6 +22,9 @@ const Header = (): JSX.Element => {
   // Clerk authentication hooks
   const { user, isLoaded, isSignedIn } = useUser();
   const { signOut } = useClerk();
+
+  // User profile REST hook for role-based data
+  const { profile, loading: profileLoading, isAdmin, isHR, isEmployee } = useUserProfileREST();
 
   const [subOpen, setSubopen] = useState<any>("");
   const [subsidebar, setSubsidebar] = useState("");
@@ -663,21 +667,73 @@ const Header = (): JSX.Element => {
                     data-bs-toggle="dropdown"
                   >
                     <span className="avatar avatar-sm online">
-                      {/* {isSignedIn && user ? (
-											<img
-												src={getUserImage()}
-												alt="Profile"
-												className="img-fluid rounded-circle"
-												onError={(e) => {
-													// Fallback to default image if user image fails to load
-													(e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
-												}}
-											/>
-										) : (
-											<ImageWithBasePath src="assets/img/profiles/avatar-12.jpg" alt="Img" className="img-fluid rounded-circle"/>
-										)} */}
-
-            
+                      {profileLoading ? (
+                        // Loading spinner
+                        <div className="spinner-border spinner-border-sm" role="status">
+                          <span className="sr-only">Loading...</span>
+                        </div>
+                      ) : isAdmin && profile ? (
+                        // Admin: Show company logo or fallback
+                        (profile as any).companyLogo ? (
+                          <img
+                            src={(profile as any).companyLogo}
+                            alt="Company"
+                            className="img-fluid rounded-circle"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                            }}
+                          />
+                        ) : (
+                          <ImageWithBasePath
+                            src="assets/img/profiles/avatar-12.jpg"
+                            alt="Company"
+                            className="img-fluid rounded-circle"
+                          />
+                        )
+                      ) : (isHR || isEmployee) && profile ? (
+                        // HR/Employee: Show profile image or fallback
+                        (profile as any).profileImage ? (
+                          <img
+                            src={(profile as any).profileImage}
+                            alt="Profile"
+                            className="img-fluid rounded-circle"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                            }}
+                          />
+                        ) : isSignedIn && user?.imageUrl ? (
+                          <img
+                            src={getUserImage()}
+                            alt="Profile"
+                            className="img-fluid rounded-circle"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                            }}
+                          />
+                        ) : (
+                          <ImageWithBasePath
+                            src="assets/img/profiles/avatar-12.jpg"
+                            alt="Profile"
+                            className="img-fluid rounded-circle"
+                          />
+                        )
+                      ) : isSignedIn && user?.imageUrl ? (
+                        // Fallback: Show Clerk user image
+                        <img
+                          src={getUserImage()}
+                          alt="Profile"
+                          className="img-fluid rounded-circle"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                          }}
+                        />
+                      ) : (
+                        <ImageWithBasePath
+                          src="assets/img/profiles/avatar-12.jpg"
+                          alt="Profile"
+                          className="img-fluid rounded-circle"
+                        />
+                      )}
                     </span>
                   </Link>
                   <div className="dropdown-menu shadow-none">
@@ -685,38 +741,126 @@ const Header = (): JSX.Element => {
                       <div className="card-header">
                         <div className="d-flex align-items-center">
                           <span className="avatar avatar-lg me-2 avatar-rounded">
-                            {isSignedIn && user ? (
+                            {profileLoading ? (
+                              // Loading spinner
+                              <div className="spinner-border spinner-border-sm" role="status">
+                                <span className="sr-only">Loading...</span>
+                              </div>
+                            ) : isAdmin && profile ? (
+                              // Admin: Show company logo or fallback
+                              (profile as any).companyLogo ? (
+                                <img
+                                  src={(profile as any).companyLogo}
+                                  alt="Company Logo"
+                                  className="img-fluid rounded-circle"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                                  }}
+                                />
+                              ) : (
+                                <ImageWithBasePath
+                                  src="assets/img/profiles/avatar-12.jpg"
+                                  alt="Company"
+                                  className="img-fluid rounded-circle"
+                                />
+                              )
+                            ) : (isHR || isEmployee) && profile ? (
+                              // HR/Employee: Show profile image or fallback
+                              (profile as any).profileImage ? (
+                                <img
+                                  src={(profile as any).profileImage}
+                                  alt="Profile"
+                                  className="img-fluid rounded-circle"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                                  }}
+                                />
+                              ) : isSignedIn && user?.imageUrl ? (
+                                <img
+                                  src={getUserImage()}
+                                  alt="Profile"
+                                  className="img-fluid rounded-circle"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
+                                  }}
+                                />
+                              ) : (
+                                <ImageWithBasePath
+                                  src="assets/img/profiles/avatar-12.jpg"
+                                  alt="Profile"
+                                  className="img-fluid rounded-circle"
+                                />
+                              )
+                            ) : isSignedIn && user ? (
+                              // Fallback: Show Clerk user image
                               <img
                                 src={getUserImage()}
                                 alt="Profile"
                                 onError={(e) => {
-                                  // Fallback to default image if user image fails to load
-                                  (e.target as HTMLImageElement).src =
-                                    "assets/img/profiles/avatar-12.jpg";
+                                  (e.target as HTMLImageElement).src = "assets/img/profiles/avatar-12.jpg";
                                 }}
                               />
                             ) : (
                               <ImageWithBasePath
                                 src="assets/img/profiles/avatar-12.jpg"
-                                alt="img"
+                                alt="Profile"
+                                className="img-fluid rounded-circle"
                               />
                             )}
                           </span>
                           <div>
-                            <h5 className="mb-0">{getUserName()}</h5>
-                            <p className="fs-12 fw-medium mb-0">
-                              {getUserEmail()}
-                            </p>
-                            {isSignedIn && user ? (
+                            {profileLoading ? (
                               <>
+                                <h5 className="mb-0">Loading...</h5>
+                                <p className="fs-12 fw-medium mb-0">Please wait</p>
+                              </>
+                            ) : isAdmin && profile ? (
+                              // Admin: Display company information
+                              <>
+                                <h5 className="mb-0">{(profile as any).companyName || 'Company'}</h5>
+                                <p className="fs-12 fw-medium mb-0">
+                                  {(profile as any).email || 'No email'}
+                                </p>
                                 <p className="fs-10 text-muted mb-0">
-                                  Role: {getUserRole()}
+                                  Role: Admin
                                 </p>
                                 <p className="fs-10 text-muted mt-0 mb-0">
-                                  CId: {getCompanyId()}
+                                  CId: {(profile as any).companyId || 'N/A'}
                                 </p>
                               </>
-                            ) : null}
+                            ) : (isHR || isEmployee) && profile ? (
+                              // HR/Employee: Display employee information
+                              <>
+                                <h5 className="mb-0">{(profile as any).firstName || ''} {(profile as any).lastName || ''}</h5>
+                                <p className="fs-12 fw-medium mb-0">
+                                  {(profile as any).email || 'No email'}
+                                </p>
+                                <p className="fs-10 text-muted mb-0">
+                                  Role: {isHR ? 'HR' : 'Employee'}
+                                </p>
+                                <p className="fs-10 text-muted mt-0 mb-0">
+                                  Emp ID: {(profile as any).employeeId || 'N/A'}
+                                </p>
+                              </>
+                            ) : (
+                              // Fallback: Display Clerk user data
+                              <>
+                                <h5 className="mb-0">{getUserName()}</h5>
+                                <p className="fs-12 fw-medium mb-0">
+                                  {getUserEmail()}
+                                </p>
+                                {isSignedIn && user ? (
+                                  <>
+                                    <p className="fs-10 text-muted mb-0">
+                                      Role: {getUserRole()}
+                                    </p>
+                                    <p className="fs-10 text-muted mt-0 mb-0">
+                                      {getUserRole() === 'admin' ? `CId: ${getCompanyId()}` : `Emp ID: N/A`}
+                                    </p>
+                                  </>
+                                ) : null}
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

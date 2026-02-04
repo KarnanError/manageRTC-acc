@@ -68,6 +68,7 @@ interface Employee {
   companyName: string;
   departmentId: string;
   designationId: string;
+  employmentType?: "Full-time" | "Part-time" | "Contract" | "Intern";
   status:
     | "Active"
     | "Inactive"
@@ -272,9 +273,10 @@ const EmployeeList = () => {
 
   const genderOptions = [
     { value: "", label: "Select Gender" },
-    { value: "male", label: "Male" },
-    { value: "female", label: "Female" },
-    { value: "other", label: "Other" },
+    { value: "Male", label: "Male" },
+    { value: "Female", label: "Female" },
+    { value: "Other", label: "Other" },
+    { value: "Prefer not to say", label: "Prefer not to say" },
   ];
 
   // const {  isLoaded } = useUser();
@@ -336,6 +338,13 @@ const EmployeeList = () => {
   // View state - 'list' or 'grid'
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
+  // Username validation state
+  const [usernameValidation, setUsernameValidation] = useState({
+    checking: false,
+    available: false,
+    error: ''
+  });
+
   // REST API Hooks for HRM operations
   const {
     employees: restEmployees,
@@ -349,6 +358,7 @@ const EmployeeList = () => {
     updatePermissions,
     updatePersonalInfo,
     checkDuplicates: checkDuplicatesREST,
+    checkUsernameAvailability: checkUsernameAvailabilityREST,
     checkLifecycleStatus: checkLifecycleStatusREST
   } = useEmployeesREST();
 
@@ -383,6 +393,7 @@ const EmployeeList = () => {
     companyName: "",
     designationId: "",
     departmentId: "",
+    employmentType: "Full-time" as "Full-time" | "Part-time" | "Contract" | "Intern",
     about: "",
     status: "Active" as
       | "Active"
@@ -472,6 +483,70 @@ const EmployeeList = () => {
       setError(restError);
     }
   }, [restError]);
+
+  // Username availability check with debounce
+  useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      const userName = formData.account.userName;
+
+      // Reset validation if username is empty or too short
+      if (!userName || userName.length < 3) {
+        setUsernameValidation({
+          checking: false,
+          available: false,
+          error: ''
+        });
+        return;
+      }
+
+      // Only check if username is valid format
+      if (!/^[a-zA-Z0-9_]+$/.test(userName)) {
+        setUsernameValidation({
+          checking: false,
+          available: false,
+          error: 'Username can only contain letters, numbers, and underscores'
+        });
+        return;
+      }
+
+      // Start checking
+      setUsernameValidation({
+        checking: true,
+        available: false,
+        error: ''
+      });
+
+      try {
+        const isAvailable = await checkUsernameAvailabilityREST(userName);
+
+        if (isAvailable) {
+          setUsernameValidation({
+            checking: false,
+            available: true,
+            error: ''
+          });
+          console.log('[EmployeeList] Username is available:', userName);
+        } else {
+          setUsernameValidation({
+            checking: false,
+            available: false,
+            error: 'Username is already taken'
+          });
+          console.log('[EmployeeList] Username is taken:', userName);
+        }
+      } catch (err) {
+        console.error('[EmployeeList] Username check failed:', err);
+        // Don't show error to user, just mark as not checking
+        setUsernameValidation({
+          checking: false,
+          available: false,
+          error: ''
+        });
+      }
+    }, 800); // 800ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.account.userName, checkUsernameAvailabilityREST]);
 
   // Socket.IO listeners for real-time broadcast notifications only
   useEffect(() => {
@@ -1408,55 +1483,86 @@ const EmployeeList = () => {
 
   // Validate form before submission - matches backend validation
   const validateForm = (): boolean => {
+    console.log("=== Frontend Validation Starting ===");
+    console.log("Form Data:", formData);
+
     const errors: Record<string, string> = {};
 
     // Required fields (must match backend requiredStringFields)
     if (!formData.firstName || !formData.firstName.trim()) {
       errors.firstName = "First name is required";
+      console.error("Validation Error - firstName:", errors.firstName);
     }
 
     if (!formData.lastName || !formData.lastName.trim()) {
       errors.lastName = "Last name is required";
+      console.error("Validation Error - lastName:", errors.lastName);
+    } else if (formData.lastName.trim().length < 1) {
+      errors.lastName = "Last name must be at least 1 character";
+      console.error("Validation Error - lastName:", errors.lastName);
     }
 
     if (!formData.departmentId || !formData.departmentId.trim()) {
       errors.departmentId = "Department is required";
+      console.error("Validation Error - departmentId:", errors.departmentId);
     }
 
     if (!formData.designationId || !formData.designationId.trim()) {
       errors.designationId = "Designation is required";
+      console.error("Validation Error - designationId:", errors.designationId);
     }
 
     // Contact fields (required by backend)
     if (!formData.contact.email || !formData.contact.email.trim()) {
       errors.email = "Email is required";
+      console.error("Validation Error - email:", errors.email);
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(formData.contact.email)) {
         errors.email = "Enter a valid email";
+        console.error("Validation Error - email:", errors.email);
       }
     }
 
     if (!formData.account.userName || !formData.account.userName.trim()) {
       errors.userName = "Username is required";
+      console.error("Validation Error - userName:", errors.userName);
     } else if (formData.account.userName.length < 3) {
       errors.userName = "Username must be at least 3 characters";
+      console.error("Validation Error - userName:", errors.userName);
     } else if (!/^[a-zA-Z0-9_]+$/.test(formData.account.userName)) {
       errors.userName =
         "Username can only contain letters, numbers, and underscores";
+      console.error("Validation Error - userName:", errors.userName);
+    } else if (!usernameValidation.available && usernameValidation.error) {
+      // Username availability check result
+      errors.userName = usernameValidation.error;
+      console.error("Validation Error - userName (availability):", errors.userName);
+    } else if (usernameValidation.checking) {
+      // Still checking username availability - don't block submission but show warning
+      console.warn("Username availability check is still in progress, allowing submission");
     }
 
     if (!formData.contact.phone || !formData.contact.phone.trim()) {
       errors.phone = "Phone number is required";
+      console.error("Validation Error - phone:", errors.phone);
     } else if (
       !/^\d{10,15}$/.test(formData.contact.phone.replace(/[\s\-\(\)]/g, ""))
     ) {
       errors.phone = "Enter a valid phone number";
+      console.error("Validation Error - phone:", errors.phone);
     }
 
     // Date of joining (required by backend)
     if (!formData.dateOfJoining) {
       errors.dateOfJoining = "Joining date is required";
+      console.error("Validation Error - dateOfJoining:", errors.dateOfJoining);
+    }
+
+    // Employment type (required by backend)
+    if (!formData.employmentType || !formData.employmentType.trim()) {
+      errors.employmentType = "Employment type is required";
+      console.error("Validation Error - employmentType:", errors.employmentType);
     }
 
     // Optional frontend validations (nice to have but not backend required)
@@ -1467,6 +1573,10 @@ const EmployeeList = () => {
 
     // If there are errors, scroll to first error field
     if (Object.keys(errors).length > 0) {
+      console.error("=== Validation Failed ===");
+      console.error("Total Errors Found:", Object.keys(errors).length);
+      console.error("Errors:", errors);
+
       setActiveTab("basic-info");
 
       // Scroll to first error field after a short delay to allow tab switch
@@ -1485,6 +1595,7 @@ const EmployeeList = () => {
       return false;
     }
 
+    console.log("=== Frontend Validation Passed ===");
     return true;
   };
 
@@ -1568,17 +1679,26 @@ const EmployeeList = () => {
   const handleNext = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log("=== Handle Next Clicked ===");
+
     // Clear previous errors
     setFieldErrors({});
     setError(null);
 
     // First run frontend validation (fast, synchronous)
+    console.log("Running frontend validation...");
     if (!validateForm()) {
+      console.error("Frontend validation failed - not proceeding to next step");
+      toast.error("Please fix the validation errors before proceeding", {
+        position: "top-right",
+        autoClose: 5000,
+      });
       return;
     }
 
     // Show validating state
     setIsValidating(true);
+    console.log("Frontend validation passed. Checking for duplicates with backend...");
 
     // Check for duplicate email, phone, and username with backend
     try {
@@ -1674,6 +1794,7 @@ const EmployeeList = () => {
         companyName,
         departmentId,
         designationId,
+        employmentType,
         about,
         status,
       } = formData;
@@ -1707,6 +1828,7 @@ const EmployeeList = () => {
         companyName,
         departmentId,
         designationId,
+        employmentType: formData.employmentType || "Full-time",
         about,
         status: normalizeStatus(status),
       };
@@ -1748,47 +1870,145 @@ const EmployeeList = () => {
         handleResetFormData();
       } else {
         // Parse error and set inline field error
-        const errorInfo = parseBackendError(
-          result.error?.message || "Failed to add employee"
-        );
-        if (errorInfo) {
-          setFieldErrors({ [errorInfo.field]: errorInfo.message });
+        console.error("[handleSubmit] Employee creation failed:", result.error);
+        console.error("[handleSubmit] Full error object:", JSON.stringify(result.error, null, 2));
 
-          // If error is for a basic field, switch to basic info tab, reset validation, and scroll
-          const basicFields = [
-            "firstName",
-            "lastName",
-            "email",
-            "role",
-            "phone",
-            "departmentId",
-            "designationId",
-            "dateOfJoining",
-          ];
-          if (
-            basicFields.includes(errorInfo.field) ||
-            errorInfo.field === "general"
-          ) {
-            setActiveTab("basic-info");
-            setIsBasicInfoValidated(false); // Reset validation flag
-            setTimeout(() => {
-              const errorElement =
-                document.querySelector(`[name="${errorInfo.field}"]`) ||
-                document.querySelector(`#${errorInfo.field}`) ||
-                document.querySelector(".is-invalid");
-              if (errorElement) {
-                errorElement.scrollIntoView({
-                  behavior: "smooth",
-                  block: "center",
-                });
-                (errorElement as HTMLElement).focus?.();
-              }
-            }, 100);
+        let hasFieldErrors = false;
+        const backendErrors: Record<string, string> = {};
+
+        // Handle single field-specific error (new format)
+        if (result.error?.field) {
+          const field = result.error.field;
+          const message = result.error.message || 'Validation failed';
+          const code = result.error.code;
+
+          console.error(`[handleSubmit] Field error for "${field}":`, message, `code: ${code}`);
+
+          // Map backend field names to form field names
+          let mappedField = field;
+          if (field === 'userName' || field === 'username') {
+            mappedField = 'userName';
+          } else if (field === 'email') {
+            mappedField = 'email';
+          } else if (field === 'phone') {
+            mappedField = 'phone';
           }
-        } else {
-          setFieldErrors({
-            general: result.error?.message || "Failed to add employee",
+
+          backendErrors[mappedField] = message;
+          hasFieldErrors = true;
+
+          // Special handling for username taken error - update validation state
+          if (code === 'USERNAME_TAKEN' && field === 'userName') {
+            setUsernameValidation({
+              checking: false,
+              available: false,
+              error: message
+            });
+          }
+        }
+
+        // Handle array of validation errors (old format for backward compatibility)
+        if (result.error?.details && Array.isArray(result.error.details)) {
+          result.error.details.forEach((detail: any) => {
+            const field = detail.field || 'general';
+            const message = detail.message || 'Validation failed';
+
+            console.error(`[handleSubmit] Validation error for field "${field}":`, message);
+
+            // Map nested field names to form field names
+            let mappedField = field;
+            if (field.includes('personal.gender') || field === 'gender') {
+              mappedField = 'gender';
+            } else if (field.includes('contact.email') || field === 'email') {
+              mappedField = 'email';
+            } else if (field.includes('contact.phone') || field === 'phone') {
+              mappedField = 'phone';
+            } else if (field.includes('account.userName') || field === 'userName') {
+              mappedField = 'userName';
+            }
+
+            backendErrors[mappedField] = message;
+            hasFieldErrors = true;
           });
+        }
+
+        if (hasFieldErrors) {
+          setFieldErrors(backendErrors);
+
+          // Switch to basic info tab if errors exist
+          setActiveTab("basic-info");
+          setIsBasicInfoValidated(false);
+
+          // Scroll to first error
+          setTimeout(() => {
+            const firstField = Object.keys(backendErrors)[0];
+            console.log(`[handleSubmit] Scrolling to first error field: ${firstField}`);
+            const errorElement =
+              document.querySelector(`[name="${firstField}"]`) ||
+              document.querySelector(`#${firstField}`) ||
+              document.querySelector(".is-invalid");
+            if (errorElement) {
+              errorElement.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+              (errorElement as HTMLElement).focus?.();
+            }
+          }, 100);
+
+          // Show error toast
+          toast.error(`Validation failed: ${result.error.details.length} error(s) found`, {
+            position: "top-right",
+            autoClose: 5000,
+          });
+
+        } else {
+          // Single error or general error
+          const errorInfo = parseBackendError(
+            result.error?.message || "Failed to add employee"
+          );
+
+          if (errorInfo) {
+            console.error(`Field error for "${errorInfo.field}":`, errorInfo.message);
+            setFieldErrors({ [errorInfo.field]: errorInfo.message });
+
+            // If error is for a basic field, switch to basic info tab, reset validation, and scroll
+            const basicFields = [
+              "firstName",
+              "lastName",
+              "email",
+              "role",
+              "phone",
+              "departmentId",
+              "designationId",
+              "dateOfJoining",
+              "employmentType",
+            ];
+            if (
+              basicFields.includes(errorInfo.field) ||
+              errorInfo.field === "general"
+            ) {
+              setActiveTab("basic-info");
+              setIsBasicInfoValidated(false); // Reset validation flag
+              setTimeout(() => {
+                const errorElement =
+                  document.querySelector(`[name="${errorInfo.field}"]`) ||
+                  document.querySelector(`#${errorInfo.field}`) ||
+                  document.querySelector(".is-invalid");
+                if (errorElement) {
+                  errorElement.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  });
+                  (errorElement as HTMLElement).focus?.();
+                }
+              }, 100);
+            }
+          } else {
+            setFieldErrors({
+              general: result.error?.message || "Failed to add employee",
+            });
+          }
         }
 
         setError(result.error?.message || "Failed to add employee");
@@ -1971,6 +2191,7 @@ const EmployeeList = () => {
       companyName: "",
       departmentId: "",
       designationId: "",
+      employmentType: "Full-time" as "Full-time" | "Part-time" | "Contract" | "Intern",
       about: "",
       status: "Active" as
         | "Active"
@@ -2991,20 +3212,48 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Username <span className="text-danger"> *</span>
                           </label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.userName ? "is-invalid" : ""}`}
-                            name="userName"
-                            value={formData.account.userName || ""}
-                            onChange={handleChange}
-                            onFocus={() => clearFieldError("userName")}
-                            onBlur={(e) =>
-                              handleFieldBlur("userName", e.target.value)
-                            }
-                          />
+                          <div className="position-relative">
+                            <input
+                              type="text"
+                              className={`form-control ${fieldErrors.userName ? "is-invalid" : ""} ${usernameValidation.available ? "is-valid" : ""}`}
+                              name="userName"
+                              value={formData.account.userName || ""}
+                              onChange={handleChange}
+                              onFocus={() => {
+                                clearFieldError("userName");
+                                setUsernameValidation({ checking: false, available: false, error: '' });
+                              }}
+                              onBlur={(e) =>
+                                handleFieldBlur("userName", e.target.value)
+                              }
+                            />
+                            {/* Username availability status indicator */}
+                            {formData.account.userName && formData.account.userName.length >= 3 && (
+                              <div className="position-absolute" style={{ right: '35px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
+                                {usernameValidation.checking && (
+                                  <span className="spinner-border spinner-border-sm text-muted" role="status" aria-hidden="true"></span>
+                                )}
+                                {!usernameValidation.checking && usernameValidation.available && (
+                                  <i className="fas fa-check-circle text-success" title="Username available"></i>
+                                )}
+                                {!usernameValidation.checking && !usernameValidation.available && usernameValidation.error && (
+                                  <i className="fas fa-times-circle text-danger" title={usernameValidation.error}></i>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {/* Field error message */}
                           {fieldErrors.userName && (
                             <div className="invalid-feedback d-block">
                               {fieldErrors.userName}
+                            </div>
+                          )}
+                          {/* Username availability message (when no field error but validation state exists) */}
+                          {!fieldErrors.userName && formData.account.userName && formData.account.userName.length >= 3 && (
+                            <div className={`form-text ${usernameValidation.available ? 'text-success' : usernameValidation.error ? 'text-danger' : 'text-muted'}`}>
+                              {usernameValidation.checking && 'Checking username availability...'}
+                              {!usernameValidation.checking && usernameValidation.available && 'Username is available'}
+                              {!usernameValidation.checking && !usernameValidation.available && usernameValidation.error}
                             </div>
                           )}
                         </div>
@@ -3376,6 +3625,34 @@ const EmployeeList = () => {
                               </label>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Employment Type <span className="text-danger">*</span>
+                          </label>
+                          <CommonSelect
+                            className={`select ${fieldErrors.employmentType ? "is-invalid" : ""}`}
+                            options={[
+                              { value: "Full-time", label: "Full-time" },
+                              { value: "Part-time", label: "Part-time" },
+                              { value: "Contract", label: "Contract" },
+                              { value: "Intern", label: "Intern" }
+                            ]}
+                            defaultValue={{ value: formData.employmentType, label: formData.employmentType }}
+                            onChange={(option) => {
+                              if (option && option.value) {
+                                handleSelectChange("employmentType", option.value);
+                                clearFieldError("employmentType");
+                              }
+                            }}
+                          />
+                          {fieldErrors.employmentType && (
+                            <div className="invalid-feedback d-block">
+                              {fieldErrors.employmentType}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-12">

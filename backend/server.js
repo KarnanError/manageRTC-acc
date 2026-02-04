@@ -29,6 +29,7 @@ import performanceReviewRoutes from './routes/performance/performanceReview.rout
 // REST API Routes (Socket.IO to REST Migration)
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import activityRoutes from "./routes/api/activities.js";
+import adminDashboardRoutes from "./routes/api/admin-dashboard.js";
 import assetRoutes from "./routes/api/assets.js";
 import attendanceRoutes from "./routes/api/attendance.js";
 import clientRoutes from "./routes/api/clients.js";
@@ -48,6 +49,7 @@ import resignationRoutes from "./routes/api/resignations.js";
 import taskRoutes from "./routes/api/tasks.js";
 import terminationRoutes from "./routes/api/terminations.js";
 import trainingRoutes from "./routes/api/training.js";
+import userProfileRoutes from "./routes/api/user-profile.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +167,8 @@ const initializeServer = async () => {
     app.use("/api/terminations", terminationRoutes);
     app.use("/api/holidays", holidayRoutes);
     app.use("/api/hr-dashboard", hrDashboardRoutes);
+    app.use("/api/admin-dashboard", adminDashboardRoutes);
+    app.use("/api/user-profile", userProfileRoutes);
 
     // API Documentation (Swagger)
     app.use(

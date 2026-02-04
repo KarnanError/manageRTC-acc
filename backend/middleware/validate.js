@@ -127,8 +127,8 @@ export const employeeSchemas = {
       'any.required': 'First name is required',
     }),
 
-    lastName: Joi.string().min(2).max(50).trim().required().messages({
-      'string.min': 'Last name must be at least 2 characters',
+    lastName: Joi.string().min(1).max(50).trim().required().messages({
+      'string.min': 'Last name must be at least 1 character',
       'string.max': 'Last name cannot exceed 50 characters',
       'any.required': 'Last name is required',
     }),
@@ -137,9 +137,12 @@ export const employeeSchemas = {
 
     phone: commonSchemas.phone.optional(),
 
+    // Support both flat and nested structures
     dateOfBirth: commonSchemas.isoDate.max('now').optional().messages({
       'date.max': 'Date of birth cannot be in the future',
     }),
+
+    dateOfJoining: commonSchemas.isoDate.optional(),
 
     gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say').optional(),
 
@@ -149,6 +152,7 @@ export const employeeSchemas = {
       state: Joi.string().max(100).allow('').optional(),
       country: Joi.string().max(100).allow('').optional(),
       postalCode: Joi.string().max(20).allow('').optional(),
+      zipCode: Joi.string().max(20).allow('').optional(), // Support both naming conventions
     }).optional(),
 
     departmentId: commonSchemas.objectId.required().messages({
@@ -169,24 +173,58 @@ export const employeeSchemas = {
       }),
 
     salary: Joi.object({
-      basic: Joi.number().min(0).required(),
+      basic: Joi.number().min(0).optional(),
       hra: Joi.number().min(0).optional().default(0),
       allowances: Joi.number().min(0).optional().default(0),
       currency: Joi.string().valid('USD', 'EUR', 'GBP', 'INR').default('USD'),
     }).optional(),
-  }).custom((value, helpers) => {
-    // Validate employeeCode is unique if provided
-    if (value.employeeCode) {
-      // This would be checked in the controller against database
-      return value;
-    }
-    return value;
-  }),
+
+    // Support nested personal object structure
+    personal: Joi.object({
+      gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say', 'male', 'female', 'other', '').optional().allow(''),
+      birthday: Joi.date().optional().allow(null),
+      address: Joi.object({
+        street: Joi.string().allow('').optional(),
+        city: Joi.string().allow('').optional(),
+        state: Joi.string().allow('').optional(),
+        postalCode: Joi.string().allow('').optional(),
+        country: Joi.string().allow('').optional(),
+      }).optional(),
+    }).optional(),
+
+    // Support nested account object structure
+    account: Joi.object({
+      role: Joi.string().optional(),
+      userName: Joi.string().optional(),
+    }).optional(),
+
+    // Support contact object from frontend
+    contact: Joi.object({
+      email: Joi.string().email().optional(),
+      phone: commonSchemas.phone.optional(),
+    }).optional(),
+
+    // Other fields from frontend
+    employeeId: Joi.string().optional(),
+    avatarUrl: Joi.string().uri().allow('').optional(),
+    companyName: Joi.string().allow('').optional(),
+    about: Joi.string().max(1000).allow('').optional(),
+    status: Joi.string()
+      .valid('Active', 'Inactive', 'On Notice', 'Resigned', 'Terminated', 'On Leave')
+      .optional(),
+
+    // Permissions data from frontend
+    permissionsData: Joi.object({
+      employeeId: Joi.string().optional(),
+      permissions: Joi.object().optional(),
+      enabledModules: Joi.object().optional(),
+    }).optional(),
+  }).options({ allowUnknown: false }),
 
   // Update employee
   update: Joi.object({
-    firstName: Joi.string().min(2).max(50).trim().optional(),
-    lastName: Joi.string().min(2).max(50).trim().optional(),
+    firstName: Joi.string().min(1).max(50).trim().optional(),
+    lastName: Joi.string().min(1).max(50).trim().optional(),
     email: commonSchemas.email.optional(),
     phone: commonSchemas.phone.optional(),
     dateOfBirth: commonSchemas.isoDate.max('now').optional(),
