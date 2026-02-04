@@ -3,8 +3,8 @@
  * Run with: node scripts/cleanup-duplicate-employee.js <email>
  */
 
-import { connectDB, getTenantCollections } from '../config/db.js';
 import dotenv from 'dotenv';
+import { connectDB, getTenantCollections } from '../config/db.js';
 
 dotenv.config();
 
@@ -39,7 +39,7 @@ const cleanupEmployeeByEmail = async (email) => {
 
       if (employees.length > 0) {
         console.log(`  Found ${employees.length} employee record(s):`);
-        
+
         for (const emp of employees) {
           console.log(`    - ID: ${emp._id}`);
           console.log(`      Name: ${emp.firstName} ${emp.lastName}`);

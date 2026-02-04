@@ -1,6 +1,6 @@
+import { useAuth } from "@clerk/clerk-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
-import { useAuth } from "@clerk/clerk-react";
 
 const SocketContext = createContext(null);
 
@@ -34,7 +34,7 @@ export const SocketProvider = ({ children }) => {
         const backend_url =
           process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
         console.log("[Socket] Connecting to:", backend_url);
-        
+
         const newSocket = io(backend_url, {
           auth: { token },
           timeout: 20000,
@@ -61,7 +61,7 @@ export const SocketProvider = ({ children }) => {
         newSocket.on("connect_error", (error) => {
           console.error("[Socket] ❌ Connection error:", error.message);
           setConnectionAttempts(prev => prev + 1);
-          
+
           if (error.message.includes("Authentication error")) {
             console.error("[Socket] Authentication failed - check user metadata (role, companyId)");
           }

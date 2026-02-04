@@ -4,10 +4,10 @@
  * Real-time updates still use Socket.IO listeners for broadcasts
  */
 
-import { useState, useCallback, useEffect } from 'react';
-import { useSocket } from '../SocketContext';
 import { message } from 'antd';
-import { get, post, put, del, patch, buildParams, ApiResponse, getAuthToken } from '../services/api';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiResponse, buildParams, del, get, getAuthToken, post, put } from '../services/api';
+import { useSocket } from '../SocketContext';
 
 // Permission Module Types
 export type PermissionModule =
@@ -389,6 +389,30 @@ export const useEmployeesREST = () => {
   }, []);
 
   /**
+   * Check username availability
+   * REST API: POST /api/employees/check-duplicates
+   */
+  const checkUsernameAvailability = useCallback(async (userName: string): Promise<boolean> => {
+    try {
+      const response: ApiResponse = await post('/employees/check-duplicates', { userName });
+
+      // If response is successful and data.done is true, username is available
+      return response.success && response.data?.done === true;
+    } catch (err: any) {
+      const errorResponse = err.response?.data;
+
+      // 409 Conflict means username is taken
+      if (err.response?.status === 409 && errorResponse?.field === 'userName') {
+        return false;
+      }
+
+      // For other errors, log but return true (don't block form submission)
+      console.error('[useEmployeesREST] Username check error:', err);
+      return true;
+    }
+  }, []);
+
+  /**
    * Create new employee
    * REST API: POST /api/employees
    */
@@ -415,11 +439,65 @@ export const useEmployeesREST = () => {
       throw new Error(response.error?.message || 'Failed to create employee');
     } catch (err: any) {
       const errorResponse = err.response?.data;
-      const errorMessage = errorResponse?.error?.message || err.message || 'Failed to create employee';
+
+      // Enhanced error handling with field-specific errors
+      let errorMessage = errorResponse?.error?.message || err.message || 'Failed to create employee';
+      let field = errorResponse?.error?.field;
+      let errorCode = errorResponse?.error?.code;
+
+      // Log detailed error for developers
+      console.error('[useEmployeesREST] Employee creation error:', {
+        errorCode,
+        field,
+        message: errorMessage,
+        details: errorResponse?.error?.details,
+        requestId: errorResponse?.error?.requestId,
+        clerkTraceId: errorResponse?.error?.clerkTraceId,
+        fullError: err
+      });
+
+      // User-friendly error messages based on error code
+      if (errorCode === 'USERNAME_TAKEN') {
+        errorMessage = 'Username is already taken. Please choose another.';
+        message.error({
+          content: errorMessage,
+          key: 'username-error',
+          duration: 5
+        });
+      } else if (errorCode === 'EMAIL_EXISTS_IN_CLERK') {
+        errorMessage = 'This email is already registered in the system.';
+        message.error({
+          content: errorMessage,
+          key: 'email-error',
+          duration: 5
+        });
+      } else if (errorCode === 'PASSWORD_TOO_WEAK') {
+        errorMessage = 'Password is too weak. The system will generate a secure password.';
+        message.warning({
+          content: errorMessage,
+          key: 'password-warning',
+          duration: 5
+        });
+      } else {
+        message.error({
+          content: errorMessage,
+          key: 'general-error',
+          duration: 5
+        });
+      }
 
       setError(errorMessage);
-      message.error(errorMessage);
-      return { success: false, error: errorResponse?.error || errorMessage };
+
+      // Return detailed error for form field highlighting
+      return {
+        success: false,
+        error: {
+          ...errorResponse?.error,
+          field,
+          code: errorCode,
+          message: errorMessage
+        }
+      };
     } finally {
       setLoading(false);
     }
@@ -766,7 +844,7 @@ export const useEmployeesREST = () => {
   }, []);
 
   /**
-   * Check for duplicate email/phone
+   * Check for duplicate email/phone/username
    * REST API: POST /api/employees/check-duplicates
    */
   const checkDuplicates = useCallback(async (
@@ -784,7 +862,19 @@ export const useEmployeesREST = () => {
 
       return response.data || { done: true };
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to check duplicates';
+      const errorResponse = err.response?.data;
+
+      // Handle 409 Conflict (duplicate found)
+      if (err.response?.status === 409) {
+        return {
+          done: false,
+          exists: true,
+          error: errorResponse?.error?.message || 'Duplicate found',
+          field: errorResponse?.error?.field
+        };
+      }
+
+      const errorMessage = errorResponse?.error?.message || err.message || 'Failed to check duplicates';
       return {
         done: false,
         error: errorMessage
@@ -884,6 +974,7 @@ export const useEmployeesREST = () => {
     searchEmployees,
     getDepartmentStats,
     checkDuplicates,
+    checkUsernameAvailability,
     checkLifecycleStatus
   };
 };

@@ -5,29 +5,29 @@
 
 import express from 'express';
 import {
-  getEmployees,
-  getEmployeeById,
-  createEmployee,
-  updateEmployee,
-  deleteEmployee,
-  getMyProfile,
-  updateMyProfile,
-  getEmployeeReportees,
-  getEmployeeStatsByDepartment,
-  searchEmployees,
-  checkDuplicates,
-  bulkUploadEmployees
+    bulkUploadEmployees,
+    checkDuplicates,
+    createEmployee,
+    deleteEmployee,
+    getEmployeeById,
+    getEmployeeReportees,
+    getEmployees,
+    getEmployeeStatsByDepartment,
+    getMyProfile,
+    searchEmployees,
+    updateEmployee,
+    updateMyProfile
 } from '../../controllers/rest/employee.controller.js';
 import {
-  authenticate,
-  requireRole,
-  requireCompany,
-  attachRequestId
+    attachRequestId,
+    authenticate,
+    requireCompany,
+    requireRole
 } from '../../middleware/auth.js';
 import {
-  validateBody,
-  validateQuery,
-  employeeSchemas
+    employeeSchemas,
+    validateBody,
+    validateQuery
 } from '../../middleware/validate.js';
 
 const router = express.Router();

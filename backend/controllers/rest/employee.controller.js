@@ -4,26 +4,24 @@
  * Uses multi-tenant database architecture with getTenantCollections()
  */
 
-import { ObjectId } from 'mongodb';
 import { clerkClient } from '@clerk/clerk-sdk-node';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  buildValidationError,
-  asyncHandler
+    asyncHandler,
+    buildConflictError,
+    buildNotFoundError,
+    buildValidationError
 } from '../../middleware/errorHandler.js';
 import {
-  sendSuccess,
-  sendCreated,
-  buildPagination,
-  buildSearchFilter,
-  extractUser,
-  buildAuditFields,
-  getRequestId
+    buildPagination,
+    extractUser,
+    getRequestId,
+    sendCreated,
+    sendSuccess
 } from '../../utils/apiResponse.js';
-import { getSocketIO, broadcastEmployeeEvents } from '../../utils/socketBroadcaster.js';
-import { getTenantCollections } from '../../config/db.js';
 import { sendEmployeeCredentialsEmail } from '../../utils/emailer.js';
+import { broadcastEmployeeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
 
 /**
  * Generate secure random password for new employees
