@@ -1118,6 +1118,7 @@ export const useEmployeesREST = () => {
     getDepartmentStats,
     checkDuplicates,
     checkUsernameAvailability,
+    checkEmailAvailability,
     checkLifecycleStatus,
     uploadProfileImage,
     deleteProfileImage
