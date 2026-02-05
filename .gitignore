@@ -9,6 +9,8 @@ build/
 *.js.map
 OLD/
 .env
+.env.*
+!.env.example
 logs/
 # TypeScript compiled files in src
 **/src/**/dist/
