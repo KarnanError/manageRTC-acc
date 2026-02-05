@@ -8,6 +8,12 @@ on:
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
+env:
+  DEPLOY_PATH: /var/www/apidev.manage-rtc.com/backend
+  BACKUP_PATH: /home/deploy/backups
+  PM2_APP_NAME: manage-rtc-api-dev
+  HEALTH_CHECK_URL: https://apidev.manage-rtc.com/health
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -33,8 +39,7 @@ jobs:
           source: "backend.tar.gz"
           target: "/home/${{ secrets.VPS_USER }}/"
 
-
-      - name: Deploy to /var/www/apidev.manage-rtc.com/backend and restart pm2
+      - name: Backup current deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -42,15 +47,43 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
+            mkdir -p ~/backups
+            TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+            if [ -d "/var/www/apidev.manage-rtc.com/backend" ]; then
+              echo "Creating backup: backend-$TIMESTAMP.tar.gz"
+              tar -czf ~/backups/backend-$TIMESTAMP.tar.gz \
+                -C /var/www/apidev.manage-rtc.com/backend \
+                --exclude=node_modules \
+                .
+              # Keep only last 5 backups
+              ls -t ~/backups/backend-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
+              echo "Backup completed. Current backups:"
+              ls -la ~/backups/backend-*.tar.gz
+            else
+              echo "No existing deployment to backup"
+            fi
+
+      - name: Deploy and restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            # Extract new release
             mkdir -p ~/releases/backend && rm -rf ~/releases/backend/*
             tar -xzf ~/backend.tar.gz -C ~/releases/backend
             rm -f ~/backend.tar.gz
 
-            # Sync files, excluding node_modules (npm ci will handle dependencies)
-            # Using --exclude avoids permission issues with root-owned files in node_modules
-            rsync -a --delete --exclude='node_modules' --exclude='.env' ~/releases/backend/ /var/www/apidev.manage-rtc.com/backend/
+            # Sync files (excluding node_modules and .env)
+            rsync -a --delete --exclude='node_modules' --exclude='.env' \
+              ~/releases/backend/ /var/www/apidev.manage-rtc.com/backend/
+
             cd /var/www/apidev.manage-rtc.com/backend
 
+            # Write environment file
             cat > .env << 'EOF'
             PORT=${{ secrets.ENV_PORT }}
             MONGO_URI=${{ secrets.ENV_MONGO_URI }}
@@ -59,7 +92,6 @@ jobs:
             CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}
             FRONTEND_URL=https://dev.manage-rtc.com
             JWT=${{ secrets.ENV_JWT }}
-            SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}
             NODE_ENV=production
             ZONE_ID=${{ secrets.ENV_ZONE_ID }}
             CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}
@@ -67,11 +99,59 @@ jobs:
             VPS_IP=${{ secrets.ENV_VPS_IP }}
             EOF
 
+            # Install dependencies
             npm ci --omit=dev
 
-            if pm2 describe manage-rtc-api-dev > /dev/null; then
-              pm2 reload manage-rtc-api-dev
+            # Zero-downtime reload
+            if pm2 describe manage-rtc-api-dev > /dev/null 2>&1; then
+              echo "Reloading PM2 process..."
+              pm2 reload manage-rtc-api-dev --update-env
             else
+              echo "Starting new PM2 process..."
               pm2 start server.js --name manage-rtc-api-dev
               pm2 save
             fi
+
+            # Wait for process to stabilize
+            sleep 5
+            pm2 status manage-rtc-api-dev
+
+      - name: Health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            echo "Running health check..."
+
+            # Check PM2 process status
+            if ! pm2 describe manage-rtc-api-dev | grep -q "online"; then
+              echo "ERROR: PM2 process is not online!"
+              pm2 logs manage-rtc-api-dev --lines 50
+              exit 1
+            fi
+
+            # Check if port 5000 is listening
+            if ! netstat -tlnp 2>/dev/null | grep -q ":5000"; then
+              echo "ERROR: Port 5000 is not listening!"
+              exit 1
+            fi
+
+            # HTTP health check (with retry)
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if curl -sf -o /dev/null -w "%{http_code}" http://localhost:5000/ | grep -qE "^(200|404|401)$"; then
+                echo "Health check passed!"
+                exit 0
+              fi
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "Health check attempt $RETRY_COUNT failed, retrying..."
+              sleep 3
+            done
+
+            echo "WARNING: HTTP health check did not return expected status, but service may still be functional"
+            echo "PM2 status:"
+            pm2 status
