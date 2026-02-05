@@ -4,21 +4,21 @@
  * Uses the same token verification approach as Socket.IO
  */
 
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
 dotenv.config();
 
-import { clerkClient, verifyToken } from "@clerk/express";
+import { clerkClient, verifyToken } from '@clerk/express';
 
 // ⚠️ SECURITY WARNING: Development mode is hardcoded to true!
 // This is a DEVELOPMENT workaround that MUST be removed before production deployment.
-const isDevelopment = process.env.NODE_ENV === "development" || process.env.DEV_MODE === "true";
+const isDevelopment = process.env.NODE_ENV === 'development' || process.env.DEV_MODE === 'true';
 
 // Authorized parties for JWT verification
 const authorizedParties = [
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "https://dev.manage-rtc.com",
-  "https://apidev.manage-rtc.com",
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://dev.manage-rtc.com',
+  'https://apidev.manage-rtc.com',
 ];
 
 /**
@@ -30,7 +30,7 @@ export const authenticate = async (req, res, next) => {
   console.log('[Auth Middleware] Starting authentication...', {
     hasAuthHeader: !!req.headers.authorization,
     authHeaderPrefix: req.headers.authorization?.substring(0, 10),
-    requestId: req.id
+    requestId: req.id,
   });
 
   try {
@@ -43,8 +43,8 @@ export const authenticate = async (req, res, next) => {
         error: {
           code: 'UNAUTHORIZED',
           message: 'Authentication required - no token provided',
-          requestId: req.id || 'no-id'
-        }
+          requestId: req.id || 'no-id',
+        },
       });
     }
 
@@ -57,20 +57,22 @@ export const authenticate = async (req, res, next) => {
     });
 
     if (!verifiedToken || !verifiedToken.sub) {
-      console.error('[Auth Middleware] Token verification failed - no sub claim', { requestId: req.id });
+      console.error('[Auth Middleware] Token verification failed - no sub claim', {
+        requestId: req.id,
+      });
       return res.status(401).json({
         success: false,
         error: {
           code: 'UNAUTHORIZED',
           message: 'Authentication required - invalid token',
-          requestId: req.id || 'no-id'
-        }
+          requestId: req.id || 'no-id',
+        },
       });
     }
 
     console.log('[Auth Middleware] Token verified', {
       userId: verifiedToken.sub,
-      requestId: req.id
+      requestId: req.id,
     });
 
     // Fetch user from Clerk to get metadata (same as Socket.IO)
@@ -81,15 +83,15 @@ export const authenticate = async (req, res, next) => {
       console.error('[Auth Middleware] Failed to fetch user from Clerk:', {
         error: clerkError.message,
         userId: verifiedToken.sub,
-        requestId: req.id
+        requestId: req.id,
       });
       return res.status(401).json({
         success: false,
         error: {
           code: 'UNAUTHORIZED',
           message: 'Authentication error: Failed to fetch user data',
-          requestId: req.id || 'no-id'
-        }
+          requestId: req.id || 'no-id',
+        },
       });
     }
 
@@ -97,13 +99,15 @@ export const authenticate = async (req, res, next) => {
     let role = user.publicMetadata?.role || 'public';
     // Check for both 'companyId' and 'company' field names in metadata
     let companyId = user.publicMetadata?.companyId || user.publicMetadata?.company || null;
+    let employeeId = user.publicMetadata?.employeeId || null;
 
     console.log('[Auth Middleware] User metadata:', {
       userId: user.id,
       role,
       companyId,
+      employeeId,
       publicMetadata: user.publicMetadata,
-      requestId: req.id
+      requestId: req.id,
     });
 
     // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
@@ -139,9 +143,10 @@ export const authenticate = async (req, res, next) => {
     req.user = {
       userId: verifiedToken.sub,
       companyId: companyId,
+      employeeId: employeeId,
       role: role,
       email: user.primaryEmailAddress?.emailAddress,
-      publicMetadata: user.publicMetadata
+      publicMetadata: user.publicMetadata,
     };
 
     // Also attach auth object for compatibility with any code that uses req.auth
@@ -149,23 +154,22 @@ export const authenticate = async (req, res, next) => {
       userId: verifiedToken.sub,
       sub: verifiedToken.sub,
       publicMetadata: user.publicMetadata,
-      primaryEmailAddress: user.primaryEmailAddress
+      primaryEmailAddress: user.primaryEmailAddress,
     };
 
     console.log('[Auth Success]', {
       userId: req.user.userId,
       role: req.user.role,
       companyId: req.user.companyId,
-      requestId: req.id
+      requestId: req.id,
     });
 
     next();
-
   } catch (error) {
     console.error('[Auth Middleware Error]', {
       error: error.message,
       stack: error.stack,
-      requestId: req.id
+      requestId: req.id,
     });
 
     return res.status(401).json({
@@ -173,8 +177,8 @@ export const authenticate = async (req, res, next) => {
       error: {
         code: 'UNAUTHORIZED',
         message: error.message || 'Authentication required',
-        requestId: req.id || 'no-id'
-      }
+        requestId: req.id || 'no-id',
+      },
     });
   }
 };
@@ -206,7 +210,7 @@ export const requireRole = (...roles) => {
         userId: req.user.userId,
         userRole: req.user.role,
         requiredRoles: roles,
-        requestId: req.id
+        requestId: req.id,
       });
 
       return res.status(403).json({
@@ -224,7 +228,7 @@ export const requireRole = (...roles) => {
       userId: req.user.userId,
       role: req.user.role,
       companyId: req.user.companyId,
-      requestId: req.id
+      requestId: req.id,
     });
 
     next();
@@ -241,7 +245,7 @@ export const requireCompany = (req, res, next) => {
     userId: req.user?.userId,
     role: req.user?.role,
     companyId: req.user?.companyId,
-    requestId: req.id
+    requestId: req.id,
   });
 
   // Superadmin doesn't need company
@@ -256,7 +260,7 @@ export const requireCompany = (req, res, next) => {
       role: req.user?.role,
       hasCompanyId: !!req.user?.companyId,
       companyId: req.user?.companyId,
-      requestId: req.id
+      requestId: req.id,
     });
 
     return res.status(403).json({
@@ -298,13 +302,13 @@ export const optionalAuth = async (req, res, next) => {
           // Check for both 'companyId' and 'company' field names in metadata
           companyId: user.publicMetadata?.companyId || user.publicMetadata?.company || null,
           role: user.publicMetadata?.role || 'public',
-          email: user.primaryEmailAddress?.emailAddress
+          email: user.primaryEmailAddress?.emailAddress,
         };
 
         req.auth = {
           userId: verifiedToken.sub,
           sub: verifiedToken.sub,
-          publicMetadata: user.publicMetadata
+          publicMetadata: user.publicMetadata,
         };
       }
     }

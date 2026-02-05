@@ -7,7 +7,6 @@ import CollapseHeader from '../../../core/common/collapse-header/collapse-header
 import CommonSelect from '../../../core/common/commonSelect';
 import Footer from "../../../core/common/footer";
 import ImageWithBasePath from '../../../core/common/imageWithBasePath';
-import { employeereportDetails } from '../../../core/data/json/employeereportDetails';
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
@@ -20,11 +19,6 @@ import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
 
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
-
-// Declare Bootstrap type for modal
-declare const bootstrap: any;
-
-type PasswordField = "password" | "confirmPassword";
 
 type PermissionAction = "read" | "write" | "create" | "delete" | "import" | "export";
 type PermissionModule = "holidays" | "leaves" | "clients" | "projects" | "tasks" | "chats" | "assets" | "timingSheets";
@@ -225,6 +219,7 @@ export interface Employee {
     updatedBy: string;
     designationId: string;
     avatarUrl: string;
+    profileImage?: string;
     clientId: string;
     shiftId?: string;
     shiftName?: string;
@@ -327,9 +322,7 @@ const EmployeeDetails = () => {
     const [permissions, setPermissions] = useState<PermissionsState>(initialPermissionsState);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [imageUpload, setImageUpload] = useState(false);
-    const [currentTab, setCurrentTab] = useState<'info' | 'permissions'>('info');
     const editEmployeeModalRef = useRef<HTMLButtonElement>(null);
-    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
     const [editFormData, setEditFormData] = useState<Partial<Employee>>({});
     // const [maritalStatus, setMaritalStatus] = useState<string>("");
     const [bankFormData, setBankFormData] = useState({
@@ -387,7 +380,6 @@ const EmployeeDetails = () => {
             if (addressTab) {
                 addressTab.click();
             }
-            setCurrentTab('permissions');
         });
     };
 
@@ -406,7 +398,7 @@ const EmployeeDetails = () => {
             if (success) {
                 toast.success("Permissions updated successfully!");
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -419,62 +411,53 @@ const EmployeeDetails = () => {
         }
     };
 
-    // Handle file upload
-    const uploadImage = async (file: File) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", "amasqis");
-
-        const res = await fetch(
-            "https://api.cloudinary.com/v1_1/dwc3b5zfe/image/upload",
-            {
-                method: "POST",
-                body: formData,
-            }
-        );
-
-        const data = await res.json();
-        return data.secure_url;
-    };
-
     const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
 
-        const maxSize = 4 * 1024 * 1024; // 4MB
-        if (file.size > maxSize) {
-            toast.error("File size must be less than 4MB.", { position: "top-right", autoClose: 3000 });
+        // Validate file type
+        const allowedFormats = ['image/jpeg', 'image/png', 'image/jpg'];
+        if (!allowedFormats.includes(file.type)) {
+            toast.error("Please upload image file only (JPG, JPEG, PNG).", { position: "top-right", autoClose: 3000 });
             event.target.value = "";
             return;
         }
 
-        if (["image/jpeg", "image/png", "image/jpg", "image/ico"].includes(file.type)) {
-            setImageUpload(true);
-            try {
-                const formData = new FormData();
-                formData.append("file", file);
-                formData.append("upload_preset", "amasqis");
-                const res = await fetch(
-                    "https://api.cloudinary.com/v1_1/dwc3b5zfe/image/upload",
-                    { method: "POST", body: formData }
-                );
-                const data = await res.json();
-                setEditFormData(prev => ({ ...prev, avatarUrl: data.secure_url }));
-                setImageUpload(false);
-                toast.success("Image uploaded successfully!", { position: "top-right", autoClose: 3000 });
-            } catch (error) {
-                setImageUpload(false);
-                toast.error("Failed to upload image. Please try again.", { position: "top-right", autoClose: 3000 });
-                event.target.value = "";
+        // Validate file size - max 2MB
+        const maxSize = 2 * 1024 * 1024; // 2MB
+        if (file.size > maxSize) {
+            toast.error("File size must be less than 2MB.", { position: "top-right", autoClose: 3000 });
+            event.target.value = "";
+            return;
+        }
+
+        setImageUpload(true);
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("upload_preset", "amasqis");
+            const res = await fetch(
+                "https://api.cloudinary.com/v1_1/dwc3b5zfe/image/upload",
+                { method: "POST", body: formData }
+            );
+
+            if (!res.ok) {
+                throw new Error('Image upload failed');
             }
-        } else {
-            toast.error("Please upload image file only.", { position: "top-right", autoClose: 3000 });
+
+            const data = await res.json();
+            setEditFormData(prev => ({ ...prev, avatarUrl: data.secure_url, profileImage: data.secure_url }));
+            setImageUpload(false);
+            toast.success("Image uploaded successfully!", { position: "top-right", autoClose: 3000 });
+        } catch (error) {
+            setImageUpload(false);
+            toast.error("Failed to upload image. Please try again.", { position: "top-right", autoClose: 3000 });
             event.target.value = "";
         }
     };
 
     const removeLogo = () => {
-        setEditFormData(prev => ({ ...prev, avatarUrl: "" }));
+        setEditFormData(prev => ({ ...prev, avatarUrl: "", profileImage: "" }));
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
@@ -516,7 +499,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -574,7 +557,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -633,7 +616,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -701,7 +684,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -771,7 +754,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -825,7 +808,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -876,7 +859,7 @@ const EmployeeDetails = () => {
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -910,31 +893,6 @@ const EmployeeDetails = () => {
                 [module]: !prev.enabledModules[module],
             },
         }));
-    };
-
-    const toggleSelectAllForModule = (module: PermissionModule) => {
-        setPermissions((prev) => {
-            const newSelectAllState = !prev.selectAll[module];
-            const newPermissionsForModule: PermissionSet = ACTIONS.reduce(
-                (acc, action) => {
-                    acc[action] = newSelectAllState;
-                    return acc;
-                },
-                {} as PermissionSet
-            );
-
-            return {
-                ...prev,
-                permissions: {
-                    ...prev.permissions,
-                    [module]: newPermissionsForModule,
-                },
-                selectAll: {
-                    ...prev.selectAll,
-                    [module]: newSelectAllState,
-                },
-            };
-        });
     };
 
     const toggleAllModules = (enable: boolean) => {
@@ -1028,34 +986,32 @@ const EmployeeDetails = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [employee, setEmployee] = useState<Employee | null>(null);
-    const socket = useSocket() as Socket | null;
 
     // REST API Hooks for HRM operations
     const employeesREST = useEmployeesREST();
-    const departmentsREST = useDepartmentsREST();
-    const designationsREST = useDesignationsREST();
+    const { getEmployeeDetails } = employeesREST;
+    const { fetchDepartments, departments } = useDepartmentsREST();
+    const { fetchDesignations, designations } = useDesignationsREST();
+    const socket = useSocket() as Socket | null;
 
-    const [passwordVisibility, setPasswordVisibility] = useState({
-        password: false,
-        confirmPassword: false,
-    });
+    const socketInitRef = useRef(false);
+    const employeesRESTRef = useRef(employeesREST);
+    const employeeIdRef = useRef(employeeId);
+    employeesRESTRef.current = employeesREST;
+    employeeIdRef.current = employeeId;
+
     const [policies, setPolicies] = useState<Policy[]>([]);
     const [policiesLoading, setPoliciesLoading] = useState(false);
     const [viewingPolicy, setViewingPolicy] = useState<Policy | null>(null);
     const [department, setDepartment] = useState<Option[]>([]);
     const [designation, setDesignation] = useState<Option[]>([]);
     const [promotions, setPromotions] = useState<Promotion[]>([]);
-    const [promotionsLoading, setPromotionsLoading] = useState(false);
     const [resignations, setResignations] = useState<Resignation[]>([]);
-    const [resignationsLoading, setResignationsLoading] = useState(false);
     const [terminations, setTerminations] = useState<Termination[]>([]);
-    const [terminationsLoading, setTerminationsLoading] = useState(false);
 
     // Initialize edit form data when employee data is loaded
     useEffect(() => {
         if (employee) {
-            setEditingEmployee(employee);
-
             setEditFormData({
                 ...employee,
                 dateOfJoining: employee.dateOfJoining || "",
@@ -1209,7 +1165,8 @@ const EmployeeDetails = () => {
             designationId: editFormData.designationId || "",
             dateOfJoining: editFormData.dateOfJoining || null,
             about: editFormData.about || "",
-            avatarUrl: editFormData.avatarUrl || "",
+            // Use profileImage for backend (or avatarUrl if provided)
+            profileImage: editFormData.avatarUrl || editFormData.profileImage || "",
         };
 
         // Only include status if it's NOT a lifecycle status
@@ -1219,14 +1176,15 @@ const EmployeeDetails = () => {
         }
 
         try {
-            const success = await employeesREST.updateEmployee(payload.employeeId, payload);
+            const employeeObjectId = editFormData._id || payload.employeeId;
+            const success = await employeesREST.updateEmployee(employeeObjectId, payload);
             if (success) {
                 toast.success("Employee updated successfully!", {
                     position: "top-right",
                     autoClose: 3000,
                 });
                 // Refresh employee details
-                const updatedEmployee = await employeesREST.getEmployeeDetails(payload.employeeId);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employeeObjectId);
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
@@ -1243,10 +1201,11 @@ const EmployeeDetails = () => {
         if (!employeeId) return;
 
         let isMounted = true;
+        let didFinish = false;
         setLoading(true);
 
         const timeoutId = setTimeout(() => {
-            if (loading && isMounted) {
+            if (!didFinish && isMounted) {
                 console.warn("Employees loading timeout - showing fallback");
                 setError("Employees loading timed out. Please refresh the page.");
                 setLoading(false);
@@ -1257,71 +1216,69 @@ const EmployeeDetails = () => {
         const fetchEmployeeDetails = async () => {
             if (!employeeId) return;
             try {
-                const data = await employeesREST.getEmployeeDetails(employeeId);
-                if (data && isMounted) {
+                const data = await getEmployeeDetails(employeeId);
+                if (!isMounted) return;
+                didFinish = true;
+                if (data) {
                     setEmployee(data as any);
                     setError(null);
-                    setLoading(false);
-                } else if (isMounted) {
+                } else {
                     setError("Failed to fetch employee details");
-                    setLoading(false);
                 }
+                setLoading(false);
             } catch (err: any) {
-                if (isMounted) {
-                    console.error("Error fetching employee details:", err);
-                    setError(err.message || "Failed to fetch details");
-                    setLoading(false);
-                }
+                if (!isMounted) return;
+                didFinish = true;
+                console.error("Error fetching employee details:", err);
+                setError(err.message || "Failed to fetch details");
+                setLoading(false);
             }
         };
 
-        // Fetch departments using REST API
-        const fetchDepartments = async () => {
+        fetchEmployeeDetails();
+
+        return () => {
+            isMounted = false;
+            clearTimeout(timeoutId);
+        };
+
+    }, [employeeId, getEmployeeDetails]);
+
+    useEffect(() => {
+        const loadDepartments = async () => {
             try {
-                await departmentsREST.fetchDepartments();
+                await fetchDepartments();
             } catch (err) {
                 console.error("Error fetching departments:", err);
             }
         };
 
-        // Fetch designations using REST API
-        const fetchDesignations = async () => {
-            try {
-                // Fetch all designations initially - they will be filtered when department is selected
-                await designationsREST.fetchDesignations();
-            } catch (err) {
-                console.error("Error fetching designations:", err);
-            }
-        };
+        loadDepartments();
+    }, [fetchDepartments]);
 
-        fetchEmployeeDetails();
-        fetchDepartments();
-        fetchDesignations();
+    useEffect(() => {
+        if (!socket || socketInitRef.current) return;
+        socketInitRef.current = true;
 
-        // Fetch policies (still using Socket.IO)
-        if (socket) {
-            setPoliciesLoading(true);
-            socket.emit("hr/policy/get");
+        let isMounted = true;
 
-            // Fetch promotions for this employee (still using Socket.IO)
-            setPromotionsLoading(true);
-            console.log('[EmployeeDetails] Emitting promotion:getAll');
-            socket.emit("promotion:getAll", {});
+        setPoliciesLoading(true);
 
-            // Fetch resignations for this employee (still using Socket.IO)
-            setResignationsLoading(true);
-            console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
-            socket.emit("hr/resignation/resignationlist", { type: "alltime" });
+        console.log('[EmployeeDetails] Emitting hr/policy/get');
+        socket.emit("hr/policy/get");
 
-            // Fetch terminations for this employee (still using Socket.IO)
-            setTerminationsLoading(true);
-            console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
-            socket.emit("hr/termination/terminationlist", { type: "alltime" });
-        }
+        console.log('[EmployeeDetails] Emitting promotion:getAll');
+        socket.emit("promotion:getAll", {});
+
+        console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
+        socket.emit("hr/resignation/resignationlist", { type: "alltime" });
+
+        console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
+        socket.emit("hr/termination/terminationlist", { type: "alltime" });
 
         const handleGetPolicyResponse = (response: any) => {
-            setPoliciesLoading(false);
             if (!isMounted) return;
+            setPoliciesLoading(false);
 
             if (response.done) {
                 setPolicies(response.data || []);
@@ -1333,7 +1290,6 @@ const EmployeeDetails = () => {
 
         const handleGetPromotionsResponse = (response: any) => {
             console.log('[EmployeeDetails] Received promotions response:', response);
-            setPromotionsLoading(false);
             if (!isMounted) return;
 
             if (response.done) {
@@ -1346,16 +1302,17 @@ const EmployeeDetails = () => {
             }
         };
 
-        // Handle promotion create/update to refresh the list automatically
         const handlePromotionCreateResponse = async (response: any) => {
             if (!isMounted) return;
 
             if (response.done) {
-                // Refresh promotions list to show the new promotion
                 socket.emit("promotion:getAll", {});
-                // Also refresh employee details as they might have changed
-                if (employeeId) {
-                    const updatedEmployee = await employeesREST.getEmployeeDetails(employeeId);
+
+                const latestEmployeeId = employeeIdRef.current;
+                const restApi = employeesRESTRef.current;
+
+                if (latestEmployeeId && restApi) {
+                    const updatedEmployee = await restApi.getEmployeeDetails(latestEmployeeId);
                     if (updatedEmployee && isMounted) {
                         setEmployee(updatedEmployee as any);
                     }
@@ -1367,11 +1324,13 @@ const EmployeeDetails = () => {
             if (!isMounted) return;
 
             if (response.done) {
-                // Refresh promotions list to show updated promotion
                 socket.emit("promotion:getAll", {});
-                // Also refresh employee details as they might have changed
-                if (employeeId) {
-                    const updatedEmployee = await employeesREST.getEmployeeDetails(employeeId);
+
+                const latestEmployeeId = employeeIdRef.current;
+                const restApi = employeesRESTRef.current;
+
+                if (latestEmployeeId && restApi) {
+                    const updatedEmployee = await restApi.getEmployeeDetails(latestEmployeeId);
                     if (updatedEmployee && isMounted) {
                         setEmployee(updatedEmployee as any);
                     }
@@ -1381,7 +1340,6 @@ const EmployeeDetails = () => {
 
         const handleGetResignationsResponse = (response: any) => {
             console.log('[EmployeeDetails] Received resignations response:', response);
-            setResignationsLoading(false);
             if (!isMounted) return;
 
             if (response.done) {
@@ -1396,7 +1354,6 @@ const EmployeeDetails = () => {
 
         const handleGetTerminationsResponse = (response: any) => {
             console.log('[EmployeeDetails] Received terminations response:', response);
-            setTerminationsLoading(false);
             if (!isMounted) return;
 
             if (response.done) {
@@ -1417,39 +1374,38 @@ const EmployeeDetails = () => {
         socket.on("hr/termination/terminationlist-response", handleGetTerminationsResponse);
 
         return () => {
+            isMounted = false;
             socket.off("hr/policy/get-response", handleGetPolicyResponse);
             socket.off("promotion:getAll:response", handleGetPromotionsResponse);
             socket.off("promotion:create:response", handlePromotionCreateResponse);
             socket.off("promotion:update:response", handlePromotionUpdateResponse);
             socket.off("hr/resignation/resignationlist-response", handleGetResignationsResponse);
             socket.off("hr/termination/terminationlist-response", handleGetTerminationsResponse);
-            isMounted = false;
-            clearTimeout(timeoutId);
+            socketInitRef.current = false;
         };
-
-    }, [socket, employeeId, employeesREST, departmentsREST, designationsREST]);
+    }, [socket]);
 
     // Sync departments from REST hook to local state
     useEffect(() => {
-        if (departmentsREST.departments.length > 0) {
-            const mappedDepartments = departmentsREST.departments.map((d: any) => ({
+        if (departments.length > 0) {
+            const mappedDepartments = departments.map((d: any) => ({
                 value: d._id,
                 label: d.department,
             }));
             setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
         }
-    }, [departmentsREST.departments]);
+    }, [departments]);
 
     // Sync designations from REST hook to local state
     useEffect(() => {
-        if (designationsREST.designations.length > 0) {
-            const mappedDesignations = designationsREST.designations.map((d: any) => ({
+        if (designations.length > 0) {
+            const mappedDesignations = designations.map((d: any) => ({
                 value: d._id,
                 label: d.designation,
             }));
             setDesignation([{ value: "", label: "Select" }, ...mappedDesignations]);
         }
-    }, [designationsREST.designations]);
+    }, [designations]);
 
     // Filter policies that apply to the current employee
     const getApplicablePolicies = (): Policy[] => {
@@ -1474,6 +1430,26 @@ const EmployeeDetails = () => {
     };
 
     const applicablePolicies = getApplicablePolicies();
+
+    const getDepartmentLabel = (dept: Employee["department"]) => {
+        if (!dept) return '—';
+        if (typeof dept === 'string') return dept;
+        if (typeof dept === 'object') {
+            const label = (dept as any).department || (dept as any).name;
+            return typeof label === 'string' && label.trim() ? label : '—';
+        }
+        return '—';
+    };
+
+    const getDesignationLabel = (desg: Employee["designation"]) => {
+        if (!desg) return '—';
+        if (typeof desg === 'string') return desg;
+        if (typeof desg === 'object') {
+            const label = (desg as any).designation || (desg as any).name;
+            return typeof label === 'string' && label.trim() ? label : '—';
+        }
+        return '—';
+    };
 
     // Get employee's most recent promotion (if any)
     const getEmployeePromotion = (): Promotion | null => {
@@ -1667,13 +1643,6 @@ const EmployeeDetails = () => {
         )
     }
 
-    const togglePasswordVisibility = (field: PasswordField) => {
-        setPasswordVisibility((prevState) => ({
-            ...prevState,
-            [field]: !prevState[field],
-        }));
-    };
-
     const getModalContainer = () => {
         const activeModal = document.querySelector('.modal.show');
         if (activeModal instanceof HTMLElement) {
@@ -1683,62 +1652,6 @@ const EmployeeDetails = () => {
         const fallbackModal = document.getElementById('modal-datepicker');
         return fallbackModal || document.body;
     };
-
-    const getModalContainer2 = () => {
-        const activeModal = document.querySelector('.modal.show');
-        if (activeModal instanceof HTMLElement) {
-            return activeModal;
-        }
-
-        const fallbackModal = document.getElementById('modal_datepicker');
-        return fallbackModal || document.body;
-    };
-
-    const data = employeereportDetails;
-    const columns = [
-        {
-            title: "Name",
-            dataIndex: "Name",
-            render: (text: String, record: any) => (
-                <Link to={all_routes.employeedetails} className="link-default">Emp-001</Link>
-
-            ),
-            sorter: (a: any, b: any) => a.Name.length - b.Name.length,
-        },
-        {
-            title: "Email",
-            dataIndex: "Email",
-            sorter: (a: any, b: any) => a.Email.length - b.Email.length,
-        },
-        {
-            title: "Created Date",
-            dataIndex: "CreatedDate",
-            sorter: (a: any, b: any) => a.CreatedDate.length - b.CreatedDate.length,
-        },
-        {
-            title: "Role",
-            dataIndex: "Role",
-            render: (text: String, record: any) => (
-                <span className={`badge d-inline-flex align-items-center badge-xs ${text === 'Employee' ? 'badge-pink-transparent' : 'badge-soft-purple'}`}>
-                    {text}
-                </span>
-
-            ),
-            sorter: (a: any, b: any) => a.Role.length - b.Role.length,
-        },
-        {
-            title: "Status",
-            dataIndex: "Status",
-            render: (text: String, record: any) => (
-                <span className={`badge d-inline-flex align-items-center badge-xs ${text === 'Active' ? 'badge-success' : 'badge-danger'}`}>
-                    <i className="ti ti-point-filled me-1" />
-                    {text}
-                </span>
-
-            ),
-            sorter: (a: any, b: any) => a.Status.length - b.Status.length,
-        },
-    ]
 
     interface Option {
         value: string;
@@ -1835,9 +1748,9 @@ const EmployeeDetails = () => {
                             <div className="card card-bg-1">
                                 <div className="card-body p-0">
                                     <span className="avatar avatar-xl avatar-rounded border border-2 border-white m-auto d-flex mb-2">
-                                        {employee?.avatarUrl ? (
+                                        {employee?.avatarUrl || employee?.profileImage ? (
                                             <img
-                                                src={employee.avatarUrl}
+                                                src={employee.avatarUrl || employee.profileImage}
                                                 alt="Profile"
                                                 className="w-100 h-100 object-fit-cover"
                                             />
@@ -1904,14 +1817,14 @@ const EmployeeDetails = () => {
                                                     <i className="ti ti-building me-2" />
                                                     Department
                                                 </span>
-                                                <p className="text-dark">{employee?.department || '—'}</p>
+                                                <p className="text-dark">{getDepartmentLabel(employee?.department)}</p>
                                             </div>
                                             <div className="d-flex align-items-center justify-content-between mt-2">
                                                 <span className="d-inline-flex align-items-center">
                                                     <i className="ti ti-briefcase me-2" />
                                                     Designation
                                                 </span>
-                                                <p className="text-dark">{employee?.designation || '—'}</p>
+                                                <p className="text-dark">{getDesignationLabel(employee?.designation)}</p>
                                             </div>
                                             {(employee?.batchId || employee?.batchName || employee?.shiftId || employee?.shiftName) && (
                                                 <div className="d-flex align-items-center justify-content-between mt-2">
@@ -3041,9 +2954,15 @@ const EmployeeDetails = () => {
 
                                                 <div className="col-md-12">
                                                     <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                                                        {editFormData.avatarUrl ? (
+                                                        {editFormData.avatarUrl || editFormData.profileImage ? (
                                                             <img
-                                                                src={editFormData.avatarUrl}
+                                                                src={editFormData.avatarUrl || editFormData.profileImage}
+                                                                alt="Profile"
+                                                                className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
+                                                            />
+                                                        ) : employee?.avatarUrl || employee?.profileImage ? (
+                                                            <img
+                                                                src={employee.avatarUrl || employee.profileImage}
                                                                 alt="Profile"
                                                                 className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
                                                             />
@@ -3055,20 +2974,20 @@ const EmployeeDetails = () => {
                                                         <div className="profile-upload">
                                                             <div className="mb-2">
                                                                 <h6 className="mb-1">Edit Profile Image</h6>
-                                                                <p className="fs-12">Image should be below 4 mb</p>
+                                                                <p className="fs-12 text-muted mb-0">JPG, JPEG, PNG • Max 2MB</p>
                                                             </div>
                                                             <div className="profile-uploader d-flex align-items-center">
                                                                 <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-                                                                    {loading ? "Uploading..." : "Upload"}
+                                                                    {imageUpload ? "Uploading..." : "Upload"}
                                                                     <input
                                                                         type="file"
                                                                         className="form-control image-sign"
-                                                                        accept=".png,.jpeg,.jpg,.ico"
+                                                                        accept=".png,.jpeg,.jpg"
                                                                         ref={fileInputRef}
                                                                         onChange={handleImageUpload}
-                                                                        disabled={loading}
+                                                                        disabled={imageUpload}
                                                                         style={{
-                                                                            cursor: loading ? "not-allowed" : "pointer",
+                                                                            cursor: imageUpload ? "not-allowed" : "pointer",
                                                                             opacity: 0,
                                                                             position: "absolute",
                                                                             top: 0,
@@ -3082,9 +3001,9 @@ const EmployeeDetails = () => {
                                                                     type="button"
                                                                     className="btn btn-light btn-sm"
                                                                     onClick={removeLogo}
-                                                                    disabled={loading}
+                                                                    disabled={imageUpload}
                                                                 >
-                                                                    Cancel
+                                                                    Remove
                                                                 </button>
                                                             </div>
                                                         </div>
@@ -3351,7 +3270,7 @@ const EmployeeDetails = () => {
                                                                     setDesignation([{ value: "", label: "Select Designation" }]);
                                                                     if (option.value) {
                                                                         // Fetch designations for the selected department using REST API
-                                                                        designationsREST.fetchDesignations({ departmentId: option.value });
+                                                                        fetchDesignations({ departmentId: option.value });
                                                                     }
                                                                 } else {
                                                                     // Clear both department and designation when department is cleared

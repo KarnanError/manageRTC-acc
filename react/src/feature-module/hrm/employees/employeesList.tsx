@@ -69,6 +69,7 @@ interface Employee {
   firstName: string;
   lastName: string;
   avatarUrl: string;
+  profileImage?: string;
   account?: {
     role: string;
     userName?: string;
@@ -322,6 +323,8 @@ const EmployeeList = () => {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(
     null,
   );
+  const [reassignEmployeeId, setReassignEmployeeId] = useState('');
+  const [reassignError, setReassignError] = useState('');
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newlyAddedEmployee, setNewlyAddedEmployee] = useState<Employee | null>(
     null,
@@ -363,6 +366,13 @@ const EmployeeList = () => {
     error: ''
   });
 
+  // Email validation state
+  const [emailValidation, setEmailValidation] = useState({
+    checking: false,
+    available: false,
+    error: ''
+  });
+
   // REST API Hooks for HRM operations
   const {
     employees: restEmployees,
@@ -373,10 +383,12 @@ const EmployeeList = () => {
     createEmployee,
     updateEmployee,
     deleteEmployee: deleteEmployeeREST,
+    reassignAndDeleteEmployee,
     updatePermissions,
     updatePersonalInfo,
     checkDuplicates: checkDuplicatesREST,
     checkUsernameAvailability: checkUsernameAvailabilityREST,
+    checkEmailAvailability: checkEmailAvailabilityREST,
     checkLifecycleStatus: checkLifecycleStatusREST
   } = useEmployeesREST();
 
@@ -607,7 +619,7 @@ const EmployeeList = () => {
           setUsernameValidation({
             checking: false,
             available: false,
-            error: 'Username is already taken'
+            error: 'Username already registered'
           });
           console.log('[EmployeeList] Username is taken:', userName);
         }
@@ -624,6 +636,71 @@ const EmployeeList = () => {
 
     return () => clearTimeout(timeoutId);
   }, [formData.account.userName, checkUsernameAvailabilityREST]);
+
+  // Email availability check with debounce
+  useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      const email = formData.contact.email;
+
+      // Reset validation if email is empty
+      if (!email || !email.trim()) {
+        setEmailValidation({
+          checking: false,
+          available: false,
+          error: ''
+        });
+        return;
+      }
+
+      // Only check if email is valid format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setEmailValidation({
+          checking: false,
+          available: false,
+          error: 'Enter a valid email'
+        });
+        return;
+      }
+
+      // Start checking
+      setEmailValidation({
+        checking: true,
+        available: false,
+        error: ''
+      });
+
+      try {
+        const isAvailable = await checkEmailAvailabilityREST(email);
+
+        if (isAvailable) {
+          setEmailValidation({
+            checking: false,
+            available: true,
+            error: ''
+          });
+          console.log('[EmployeeList] Email is available:', email);
+        } else {
+          setEmailValidation({
+            checking: false,
+            available: false,
+            error: 'Email already registered'
+          });
+          console.log('[EmployeeList] Email is taken:', email);
+        }
+      } catch (err) {
+        console.error('[EmployeeList] Email check failed:', err);
+        // Don't show error to user, just mark as not checking
+        setEmailValidation({
+          checking: false,
+          available: false,
+          error: ''
+        });
+      }
+    }, 800); // 800ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.contact.email, checkEmailAvailabilityREST]);
 
   // Socket.IO listeners for real-time broadcast notifications only
   useEffect(() => {
@@ -1207,34 +1284,81 @@ const EmployeeList = () => {
     setEmployees(sortedData);
   };
 
-  const handleDeleteEmployee = async (id: string) => {
+  // Get eligible employees for reassignment (same department and designation)
+  const getEligibleEmployees = () => {
+    if (!employeeToDelete) return [];
+
+    return employees.filter(emp =>
+      emp.status === 'Active' &&
+      emp._id !== employeeToDelete._id &&
+      emp.departmentId === employeeToDelete.departmentId &&
+      emp.designationId === employeeToDelete.designationId
+    );
+  };
+
+  // Delete with reassignment
+  const deleteEmployee = async (id: string, reassignedTo: string): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
 
-      if (!id) {
-        setError("Employee ID is required");
+      if (!id || !reassignedTo) {
+        setReassignError("Employee ID and reassignment employee are required");
         setLoading(false);
-        return;
+        return false;
       }
 
-      const success = await deleteEmployeeREST(id);
-      if (success) {
-        toast.success("Employee deleted successfully!", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        // The REST hook will refresh the employee list automatically
+      // Use REST API to reassign and delete employee
+      const success = await reassignAndDeleteEmployee(id, reassignedTo, { showMessage: false });
+      if (!success) {
+        setReassignError("Failed to delete employee");
+        return false;
       }
-    } catch (error) {
-      console.error("Delete error:", error);
-      setError("Failed to delete employee");
-      toast.error("Failed to delete employee", {
+
+      toast.success("Employee deleted successfully!", {
         position: "top-right",
         autoClose: 3000,
       });
+      return true;
+    } catch (error) {
+      console.error("Delete error:", error);
+      setReassignError("Failed to delete employee");
+      setLoading(false);
+      return false;
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle confirm delete with validation
+  const handleConfirmDelete = async () => {
+    if (!employeeToDelete) return;
+
+    const eligibleEmployees = getEligibleEmployees();
+
+    if (eligibleEmployees.length === 0) {
+      setReassignError('No employee available with the same designation in this department for reassignment.');
+      return;
+    }
+
+    if (!reassignEmployeeId) {
+      setReassignError('Please select an employee to reassign data to.');
+      return;
+    }
+
+    if (reassignEmployeeId === employeeToDelete._id) {
+      setReassignError('You cannot reassign data to the same employee being deleted.');
+      return;
+    }
+
+    setReassignError('');
+    const success = await deleteEmployee(employeeToDelete._id, reassignEmployeeId);
+
+    if (success) {
+      const closeButton = document.querySelector('#delete_modal [data-bs-dismiss="modal"]') as HTMLButtonElement | null;
+      if (closeButton) closeButton.click();
+      setEmployeeToDelete(null);
+      setReassignEmployeeId('');
     }
   };
 
@@ -1519,9 +1643,13 @@ const EmployeeList = () => {
         if (!emailRegex.test(value)) return "Enter a valid email";
         break;
       case "role":
-        if (!value || !value.trim()) return "role is required";
+        if (!value || !value.trim()) return "Role is required";
         break;
-
+      case "userName":
+        if (!value || !value.trim()) return "Username is required";
+        if (value.length < 3) return "Username must be at least 3 characters";
+        if (!/^[a-zA-Z0-9_]+$/.test(value)) return "Username can only contain letters, numbers, and underscores";
+        break;
       case "phone":
         if (!value || !value.trim()) return "Phone number is required";
         if (!/^\d{10,15}$/.test(value.replace(/[\s\-\(\)]/g, "")))
@@ -1535,6 +1663,15 @@ const EmployeeList = () => {
         break;
       case "dateOfJoining":
         if (!value) return "Joining date is required";
+        break;
+      case "departmentId":
+        if (!value || !value.trim()) return "Department is required";
+        break;
+      case "designationId":
+        if (!value || !value.trim()) return "Designation is required";
+        break;
+      case "employmentType":
+        if (!value || !value.trim()) return "Employment type is required";
         break;
     }
     return "";
@@ -1642,8 +1779,17 @@ const EmployeeList = () => {
       console.error("Validation Error - employmentType:", errors.employmentType);
     }
 
-    // Optional frontend validations (nice to have but not backend required)
-    // Gender and Birthday are optional in backend but good UX to require
+    // Gender (required field)
+    if (!formData.personal?.gender || !formData.personal.gender.trim()) {
+      errors.gender = "Gender is required";
+      console.error("Validation Error - gender:", errors.gender);
+    }
+
+    // Birthday (required field)
+    if (!formData.personal?.birthday) {
+      errors.birthday = "Birthday is required";
+      console.error("Validation Error - birthday:", errors.birthday);
+    }
 
     // Set errors in state
     setFieldErrors(errors);
@@ -1730,6 +1876,26 @@ const EmployeeList = () => {
       errors.dateOfJoining = "Joining date is required";
     }
 
+    // Role (required field)
+    if (!editingEmployee.account?.role || !editingEmployee.account.role.trim()) {
+      errors.role = "Role is required";
+    }
+
+    // Employment type (required field)
+    if (!editingEmployee.employmentType || !editingEmployee.employmentType.trim()) {
+      errors.employmentType = "Employment type is required";
+    }
+
+    // Gender (required field)
+    if (!editingEmployee.personal?.gender || !editingEmployee.personal.gender.trim()) {
+      errors.gender = "Gender is required";
+    }
+
+    // Birthday (required field)
+    if (!editingEmployee.personal?.birthday) {
+      errors.birthday = "Birthday is required";
+    }
+
     // Set errors in state
     setFieldErrors(errors);
 
@@ -1762,14 +1928,26 @@ const EmployeeList = () => {
     setFieldErrors({});
     setError(null);
 
+    // Check if email or username validation is in progress or has errors
+    if (emailValidation.checking || usernameValidation.checking) {
+      setFieldErrors({ general: "Please wait for validation to complete" });
+      return;
+    }
+
+    if (emailValidation.error) {
+      setFieldErrors({ email: emailValidation.error });
+      return;
+    }
+
+    if (usernameValidation.error) {
+      setFieldErrors({ userName: usernameValidation.error });
+      return;
+    }
+
     // First run frontend validation (fast, synchronous)
     console.log("Running frontend validation...");
     if (!validateForm()) {
       console.error("Frontend validation failed - not proceeding to next step");
-      toast.error("Please fix the validation errors before proceeding", {
-        position: "top-right",
-        autoClose: 5000,
-      });
       return;
     }
 
@@ -1806,12 +1984,6 @@ const EmployeeList = () => {
             [errorInfo.field]: errorInfo.message
           }));
 
-          // Also show toast as backup
-          toast.error(errorInfo.message, {
-            position: "top-right",
-            autoClose: 5000,
-          });
-
           // Scroll to error field
           setTimeout(() => {
             const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) ||
@@ -1825,10 +1997,6 @@ const EmployeeList = () => {
         } else {
           // General error
           setFieldErrors({ general: errorMessage });
-          toast.error(errorMessage, {
-            position: "top-right",
-            autoClose: 5000,
-          });
         }
 
         return; // Don't proceed to next tab
@@ -1842,10 +2010,6 @@ const EmployeeList = () => {
       setIsValidating(false);
       const errorMsg = "Unable to validate. Please try again.";
       setFieldErrors({ general: errorMsg });
-      toast.error(errorMsg, {
-        position: "top-right",
-        autoClose: 5000,
-      });
     }
   };
 
@@ -1853,6 +2017,18 @@ const EmployeeList = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     console.log("Submitting form and permissions");
     e.preventDefault();
+
+    // Double check email and username validation before final submission
+    if (emailValidation.error || usernameValidation.error) {
+      setFieldErrors({
+        ...(emailValidation.error ? { email: emailValidation.error } : {}),
+        ...(usernameValidation.error ? { userName: usernameValidation.error } : {})
+      });
+      setActiveTab("basic-info");
+      setIsBasicInfoValidated(false);
+      setLoading(false);
+      return;
+    }
 
     try {
       setError(null);
@@ -2037,11 +2213,7 @@ const EmployeeList = () => {
             }
           }, 100);
 
-          // Show error toast
-          toast.error(`Validation failed: ${result.error.details.length} error(s) found`, {
-            position: "top-right",
-            autoClose: 5000,
-          });
+          // Validation errors are shown inline - no toast needed
 
         } else {
           // Single error or general error
@@ -2097,10 +2269,7 @@ const EmployeeList = () => {
     } catch (error: any) {
       console.error("Error submitting form and permissions:", error);
       setError("An error occurred while submitting data.");
-      toast.error("An error occurred while submitting data.", {
-        position: "top-right",
-        autoClose: 3000,
-      });
+      setFieldErrors({ general: "An error occurred while submitting data." });
     } finally {
       setLoading(false);
     }
@@ -2159,6 +2328,7 @@ const EmployeeList = () => {
       dateOfJoining: editingEmployee.dateOfJoining || null,
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
+      profileImage: editingEmployee.avatarUrl || editingEmployee.profileImage || "",
     };
 
     // Only include status if it's NOT a lifecycle status
@@ -2171,7 +2341,7 @@ const EmployeeList = () => {
 
     try {
       setLoading(true);
-      const success = await updateEmployee(editingEmployee.employeeId || "", updateData);
+      const success = await updateEmployee(editingEmployee._id || "", updateData);
 
       if (success) {
         // Close the modal
@@ -3102,12 +3272,6 @@ const EmployeeList = () => {
                   tabIndex={0}
                 >
                   <div className="modal-body pb-0 ">
-                    {/* General error display */}
-                    {fieldErrors.general && (
-                      <div className="alert alert-danger mb-3" role="alert">
-                        {fieldErrors.general}
-                      </div>
-                    )}
                     <div className="row">
                       <div className="col-md-12">
                         <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
@@ -3349,20 +3513,48 @@ const EmployeeList = () => {
                           <label className="form-label">
                             Email <span className="text-danger"> *</span>
                           </label>
-                          <input
-                            type="email"
-                            className={`form-control ${fieldErrors.email ? "is-invalid" : ""}`}
-                            name="email"
-                            value={formData.contact.email}
-                            onChange={handleChange}
-                            onFocus={() => clearFieldError("email")}
-                            onBlur={(e) =>
-                              handleFieldBlur("email", e.target.value)
-                            }
-                          />
+                          <div className="position-relative">
+                            <input
+                              type="email"
+                              className={`form-control ${fieldErrors.email || emailValidation.error ? "is-invalid" : ""} ${emailValidation.available ? "is-valid" : ""}`}
+                              name="email"
+                              value={formData.contact.email}
+                              onChange={handleChange}
+                              onFocus={() => {
+                                clearFieldError("email");
+                                setEmailValidation({ checking: false, available: false, error: '' });
+                              }}
+                              onBlur={(e) =>
+                                handleFieldBlur("email", e.target.value)
+                              }
+                            />
+                            {/* Email availability status indicator */}
+                            {formData.contact.email && formData.contact.email.trim() && (
+                              <div className="position-absolute" style={{ right: '35px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
+                                {emailValidation.checking && (
+                                  <span className="spinner-border spinner-border-sm text-muted" role="status" aria-hidden="true"></span>
+                                )}
+                                {!emailValidation.checking && emailValidation.available && (
+                                  <i className="fas fa-check-circle text-success" title="Email available"></i>
+                                )}
+                                {!emailValidation.checking && !emailValidation.available && emailValidation.error && (
+                                  <i className="fas fa-times-circle text-danger" title={emailValidation.error}></i>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {/* Field error message */}
                           {fieldErrors.email && (
                             <div className="invalid-feedback d-block">
                               {fieldErrors.email}
+                            </div>
+                          )}
+                          {/* Email availability message (when no field error but validation state exists) */}
+                          {!fieldErrors.email && formData.contact.email && formData.contact.email.trim() && (
+                            <div className={`form-text ${emailValidation.available ? 'text-success' : emailValidation.error ? 'text-danger' : 'text-muted'}`}>
+                              {emailValidation.checking && 'Checking email availability...'}
+                              {!emailValidation.checking && emailValidation.available && 'Email is available'}
+                              {!emailValidation.checking && !emailValidation.available && emailValidation.error}
                             </div>
                           )}
                         </div>
@@ -5221,18 +5413,58 @@ const EmployeeList = () => {
                 <i className="ti ti-trash-x fs-36" />
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
+              <p className="mb-1 text-warning fw-medium">
+                This employee has associated records. Please reassign them before deletion.
+              </p>
               <p className="mb-3">
                 {employeeToDelete
                   ? `Are you sure you want to delete employee "${employeeToDelete?.firstName}"? This cannot be undone.`
                   : "You want to delete all the marked items, this can't be undone once you delete."}
               </p>
+              <div className="text-start mb-3">
+                <label className="form-label">Reassign employee data to <span className="text-danger">*</span></label>
+                {(() => {
+                  const eligibleEmployees = getEligibleEmployees();
+
+                  if (eligibleEmployees.length === 0) {
+                    return (
+                      <div className="alert alert-warning py-2 mb-2">
+                        <i className="ti ti-alert-circle me-1"></i>
+                        No employee available with the same designation in this department for reassignment.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <select
+                      className="form-select"
+                      value={reassignEmployeeId}
+                      onChange={(e) => {
+                        setReassignEmployeeId(e.target.value);
+                        setReassignError('');
+                      }}
+                    >
+                      <option value="">Select an employee</option>
+                      {eligibleEmployees.map(emp => (
+                        <option key={emp._id} value={emp._id}>
+                          {emp.firstName} {emp.lastName} ({emp.designationId})
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+                {reassignError && (
+                  <div className="text-danger mt-1">{reassignError}</div>
+                )}
+              </div>
               <div className="d-flex justify-content-center">
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
                   onClick={() => {
                     setEmployeeToDelete(null);
-                    setTimeout(() => closeModal(), 100);
+                    setReassignEmployeeId('');
+                    setReassignError('');
                   }}
                   disabled={loading}
                 >
@@ -5240,17 +5472,10 @@ const EmployeeList = () => {
                 </button>
                 <button
                   className="btn btn-danger"
-                  data-bs-dismiss="modal"
-                  onClick={() => {
-                    if (employeeToDelete) {
-                      handleDeleteEmployee(employeeToDelete._id);
-                    }
-                    setEmployeeToDelete(null);
-                    setTimeout(() => closeModal(), 100);
-                  }}
-                  disabled={loading}
+                  onClick={handleConfirmDelete}
+                  disabled={loading || getEligibleEmployees().length === 0}
                 >
-                  {loading ? "Deleting..." : "Yes, Delete"}
+                  {loading ? 'Deleting...' : 'Yes, Delete'}
                 </button>
               </div>
             </div>

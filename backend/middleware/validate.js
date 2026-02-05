@@ -181,7 +181,10 @@ export const employeeSchemas = {
 
     // Support nested personal object structure
     personal: Joi.object({
-      gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say', 'male', 'female', 'other', '').optional().allow(''),
+      gender: Joi.string()
+        .valid('Male', 'Female', 'Other', 'Prefer not to say', 'male', 'female', 'other', '')
+        .optional()
+        .allow(''),
       birthday: Joi.date().optional().allow(null),
       address: Joi.object({
         street: Joi.string().allow('').optional(),
@@ -194,8 +197,8 @@ export const employeeSchemas = {
 
     // Support nested account object structure
     account: Joi.object({
-      role: Joi.string().optional(),
-      userName: Joi.string().optional(),
+      role: Joi.string().allow('').optional(),
+      userName: Joi.string().allow('').optional(),
     }).optional(),
 
     // Support contact object from frontend
@@ -249,9 +252,72 @@ export const employeeSchemas = {
       allowances: Joi.number().min(0).optional(),
       currency: Joi.string().valid('USD', 'EUR', 'GBP', 'INR').optional(),
     }).optional(),
+    // Profile image fields
+    profileImage: Joi.string().uri().allow('').optional(),
+    avatarUrl: Joi.string().uri().allow('').optional(),
+    // Contact information
+    contact: Joi.object({
+      email: commonSchemas.email.optional(),
+      phone: commonSchemas.phone.optional(),
+    }).optional(),
+    // Personal information
+    personal: Joi.object({
+      gender: Joi.string().optional(),
+      birthday: commonSchemas.isoDate.optional(),
+      maritalStatus: Joi.string().optional(),
+      religion: Joi.string().optional(),
+      employmentOfSpouse: Joi.boolean().optional(),
+      noOfChildren: Joi.number().min(0).optional(),
+      passport: Joi.object({
+        number: Joi.string().optional(),
+        issueDate: commonSchemas.isoDate.optional(),
+        expiryDate: commonSchemas.isoDate.optional(),
+        country: Joi.string().optional(),
+      }).optional(),
+      address: Joi.object({
+        street: Joi.string().optional(),
+        city: Joi.string().optional(),
+        state: Joi.string().optional(),
+        postalCode: Joi.string().optional(),
+        country: Joi.string().optional(),
+      }).optional(),
+    }).optional(),
+    // Account information
+    account: Joi.object({
+      role: Joi.string().allow('').optional(),
+      userName: Joi.string().allow('').optional(),
+    }).optional(),
+    // Additional employee fields
+    about: Joi.string().max(2000).allow('').optional(),
+    dateOfJoining: commonSchemas.isoDate.optional(),
+    notes: Joi.string().max(2000).allow('').optional(),
+    // Permissions
+    enabledModules: Joi.object().pattern(Joi.string(), Joi.boolean()).optional(),
+    permissions: Joi.object().pattern(
+      Joi.string(),
+      Joi.object({
+        read: Joi.boolean().optional(),
+        write: Joi.boolean().optional(),
+        create: Joi.boolean().optional(),
+        delete: Joi.boolean().optional(),
+        import: Joi.boolean().optional(),
+        export: Joi.boolean().optional(),
+      })
+    ).optional(),
   })
     .min(1)
-    .message('At least one field must be provided for update'),
+    .messages({
+      'object.min': 'At least one field must be provided for update'
+    })
+    .unknown(true),
+
+  // Reassign and delete employee
+  reassignDelete: Joi.object({
+    reassignTo: commonSchemas.objectId.required().messages({
+      'any.required': 'Reassignment employee is required',
+      'string.pattern.name': 'Invalid reassignment employee ID format'
+    })
+  }).required(),
 
   // List employees (query params)
   list: Joi.object({
@@ -362,12 +428,12 @@ export const taskSchemas = {
       'any.required': 'Project is required',
     }),
 
-    assignedTo: Joi.array().items(commonSchemas.objectId).min(1).required().messages({
+    assignee: Joi.array().items(commonSchemas.objectId).min(1).required().messages({
       'any.required': 'At least one assignee is required',
       'array.min': 'At least one assignee is required',
     }),
 
-    status: Joi.string().valid('Pending', 'Inprogress', 'Completed', 'Onhold').default('Pending'),
+    status: Joi.string().trim().optional(), // Dynamic statuses from taskstatus collection
 
     priority: Joi.string().valid('High', 'Medium', 'Low').default('Medium'),
 
@@ -380,7 +446,7 @@ export const taskSchemas = {
   update: Joi.object({
     title: Joi.string().min(3).max(200).trim().optional(),
     description: Joi.string().max(1000).allow('').optional(),
-    assignedTo: Joi.array().items(commonSchemas.objectId).min(1).optional(),
+    assignee: Joi.array().items(commonSchemas.objectId).min(1).optional(),
     status: Joi.string().valid('To Do', 'In Progress', 'Review', 'Completed').optional(),
     priority: Joi.string().valid('High', 'Medium', 'Low').optional(),
     startDate: commonSchemas.isoDate.optional(),
