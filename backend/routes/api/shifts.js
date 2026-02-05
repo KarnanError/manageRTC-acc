@@ -5,12 +5,16 @@
 
 import express from 'express';
 import {
+  assignShiftToEmployee,
+  bulkAssignShifts,
   createShift,
   deleteShift,
   getActiveShifts,
   getDefaultShift,
+  getEmployeeShift,
   getShiftById,
   getShifts,
+  removeShiftAssignment,
   setDefaultShift,
   updateShift
 } from '../../controllers/rest/shift.controller.js';
@@ -54,6 +58,15 @@ router.get(
   getShiftById
 );
 
+// Get employee's current shift assignment
+router.get(
+  '/employee/:employeeId',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  getEmployeeShift
+);
+
 /**
  * Admin/HR Routes (Restricted access)
  */
@@ -92,6 +105,33 @@ router.put(
   requireCompany,
   requireRole('admin', 'hr', 'superadmin'),
   setDefaultShift
+);
+
+// Assign shift to employee
+router.post(
+  '/assign',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  assignShiftToEmployee
+);
+
+// Bulk assign shifts to employees
+router.post(
+  '/bulk-assign',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  bulkAssignShifts
+);
+
+// Remove shift assignment from employee
+router.delete(
+  '/employee/:employeeId',
+  authenticate,
+  requireCompany,
+  requireRole('admin', 'hr', 'superadmin'),
+  removeShiftAssignment
 );
 
 // Delete shift (soft delete)

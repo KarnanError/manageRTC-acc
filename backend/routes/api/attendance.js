@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { authenticate } from '../../middleware/auth.js';
+import { authenticate, requireRole } from '../../middleware/auth.js';
 import attendanceController from '../../controllers/rest/attendance.controller.js';
 
 const router = express.Router();
@@ -17,7 +17,7 @@ router.use(authenticate);
  * @desc    Get all attendance records with pagination and filtering
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/', attendanceController.getAttendances);
+router.get('/', requireRole('admin', 'hr', 'superadmin'), attendanceController.getAttendances);
 
 /**
  * @route   GET /api/attendance/my
@@ -31,28 +31,28 @@ router.get('/my', attendanceController.getMyAttendance);
  * @desc    Get attendance by date range
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/daterange', attendanceController.getAttendanceByDateRange);
+router.get('/daterange', requireRole('admin', 'hr', 'superadmin'), attendanceController.getAttendanceByDateRange);
 
 /**
  * @route   GET /api/attendance/stats
  * @desc    Get attendance statistics
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/stats', attendanceController.getAttendanceStats);
+router.get('/stats', requireRole('admin', 'hr', 'superadmin'), attendanceController.getAttendanceStats);
 
 /**
- * @route   GET /api/attendance/bulk
+ * @route   POST /api/attendance/bulk
  * @desc    Bulk attendance actions
  * @access  Private (Admin, HR, Superadmin)
  */
-router.post('/bulk', attendanceController.bulkAttendanceAction);
+router.post('/bulk', requireRole('admin', 'hr', 'superadmin'), attendanceController.bulkAttendanceAction);
 
 /**
  * @route   GET /api/attendance/employee/:employeeId
  * @desc    Get attendance by employee
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/employee/:employeeId', attendanceController.getAttendanceByEmployee);
+router.get('/employee/:employeeId', requireRole('admin', 'hr', 'superadmin'), attendanceController.getAttendanceByEmployee);
 
 /**
  * @route   GET /api/attendance/:id
@@ -80,7 +80,7 @@ router.put('/:id', attendanceController.updateAttendance);
  * @desc    Delete attendance record (soft delete)
  * @access  Private (Admin, Superadmin)
  */
-router.delete('/:id', attendanceController.deleteAttendance);
+router.delete('/:id', requireRole('admin', 'superadmin'), attendanceController.deleteAttendance);
 
 /**
  * @route   POST /api/attendance/:id/request-regularization
@@ -94,41 +94,41 @@ router.post('/:id/request-regularization', attendanceController.requestRegulariz
  * @desc    Approve attendance regularization
  * @access  Private (Admin, HR, Manager)
  */
-router.post('/:id/approve-regularization', attendanceController.approveRegularization);
+router.post('/:id/approve-regularization', requireRole('admin', 'hr', 'manager', 'superadmin'), attendanceController.approveRegularization);
 
 /**
  * @route   POST /api/attendance/:id/reject-regularization
  * @desc    Reject attendance regularization
  * @access  Private (Admin, HR, Manager)
  */
-router.post('/:id/reject-regularization', attendanceController.rejectRegularization);
+router.post('/:id/reject-regularization', requireRole('admin', 'hr', 'manager', 'superadmin'), attendanceController.rejectRegularization);
 
 /**
  * @route   GET /api/attendance/regularization/pending
  * @desc    Get pending regularization requests
  * @access  Private (Admin, HR, Manager)
  */
-router.get('/regularization/pending', attendanceController.getPendingRegularizations);
+router.get('/regularization/pending', requireRole('admin', 'hr', 'manager', 'superadmin'), attendanceController.getPendingRegularizations);
 
 /**
  * @route   POST /api/attendance/report
  * @desc    Generate attendance report
  * @access  Private (Admin, HR, Superadmin)
  */
-router.post('/report', attendanceController.generateReport);
+router.post('/report', requireRole('admin', 'hr', 'superadmin'), attendanceController.generateReport);
 
 /**
  * @route   POST /api/attendance/report/employee/:employeeId
  * @desc    Generate employee attendance report
  * @access  Private (Admin, HR, Superadmin, Employee for own)
  */
-router.post('/report/employee/:employeeId', attendanceController.generateEmployeeReport);
+router.post('/report/employee/:employeeId', requireRole('admin', 'hr', 'superadmin'), attendanceController.generateEmployeeReport);
 
 /**
  * @route   GET /api/attendance/export
  * @desc    Export attendance data
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/export', attendanceController.exportAttendance);
+router.get('/export', requireRole('admin', 'hr', 'superadmin'), attendanceController.exportAttendance);
 
 export default router;

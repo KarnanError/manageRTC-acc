@@ -24,7 +24,8 @@ const AttendanceAdmin = () => {
     fetchAttendance,
     fetchStats,
     deleteAttendance,
-    bulkAction
+    bulkAction,
+    updateAttendance
   } = useAttendanceREST();
 
   // Socket.IO Hook - Real-time attendance updates
@@ -97,6 +98,18 @@ const AttendanceAdmin = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedDateRange, setSelectedDateRange] = useState<string>('');
+
+  // Edit form state
+  const [editFormData, setEditFormData] = useState<{
+    _id: string;
+    date: any;
+    clockIn: any;
+    clockOut: any;
+    breakDuration: number;
+    lateMinutes: number;
+    hoursWorked: number;
+    status: string;
+  } | null>(null);
 
   // Fetch data on mount and when filters change
   useEffect(() => {
@@ -261,8 +274,54 @@ const AttendanceAdmin = () => {
   };
 
   const handleEdit = (attendance: any) => {
-    // TODO: Populate edit modal with attendance data
-    console.log('Edit attendance:', attendance);
+    setEditFormData({
+      _id: attendance._id,
+      date: attendance.date ? attendance.date : null,
+      clockIn: attendance.clockIn?.time ? attendance.clockIn.time : null,
+      clockOut: attendance.clockOut?.time ? attendance.clockOut.time : null,
+      breakDuration: attendance.breakDuration || 0,
+      lateMinutes: attendance.lateMinutes || 0,
+      hoursWorked: attendance.hoursWorked || 0,
+      status: attendance.status || 'present',
+    });
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editFormData) return;
+
+    const payload: any = {
+      date: editFormData.date?.format ? editFormData.date.format('YYYY-MM-DD') : editFormData.date,
+      status: editFormData.status,
+      breakDuration: editFormData.breakDuration,
+      lateMinutes: editFormData.lateMinutes,
+    };
+
+    if (editFormData.clockIn) {
+      payload.clockIn = {
+        time: editFormData.clockIn?.format ? editFormData.clockIn.format('HH:mm:ss') : editFormData.clockIn,
+      };
+    }
+
+    if (editFormData.clockOut) {
+      payload.clockOut = {
+        time: editFormData.clockOut?.format ? editFormData.clockOut.format('HH:mm:ss') : editFormData.clockOut,
+      };
+    }
+
+    const success = await updateAttendance(editFormData._id, payload);
+
+    if (success) {
+      setEditFormData(null);
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('edit_attendance');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchAttendance(filters);
+      fetchStats();
+    }
   };
 
   const handleDelete = async (attendanceId: string) => {
@@ -574,6 +633,7 @@ const AttendanceAdmin = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setEditFormData(null)}
               >
                 <i className="ti ti-x" />
               </button>
@@ -593,6 +653,8 @@ const AttendanceAdmin = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.date}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar" />
@@ -610,6 +672,8 @@ const AttendanceAdmin = () => {
                           placeholder="Choose"
                           format="h:mm A"
                           className="form-control timepicker"
+                          value={editFormData?.clockIn}
+                          onChange={(time) => editFormData && setEditFormData({ ...editFormData, clockIn: time })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-clock-hour-3" />
@@ -627,6 +691,8 @@ const AttendanceAdmin = () => {
                           placeholder="Choose"
                           format="h:mm A"
                           className="form-control timepicker"
+                          value={editFormData?.clockOut}
+                          onChange={(time) => editFormData && setEditFormData({ ...editFormData, clockOut: time })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-clock-hour-3" />
@@ -636,39 +702,24 @@ const AttendanceAdmin = () => {
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Break</label>
+                      <label className="form-label">Break (minutes)</label>
                       <input
-                        type="text"
+                        type="number"
                         className="form-control"
-                        defaultValue="30 Min"
+                        value={editFormData?.breakDuration || 0}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, breakDuration: parseInt(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Late</label>
+                      <label className="form-label">Late (minutes)</label>
                       <input
-                        type="text"
+                        type="number"
                         className="form-control"
-                        defaultValue="0 Min"
+                        value={editFormData?.lateMinutes || 0}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, lateMinutes: parseInt(e.target.value) || 0 })}
                       />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Production Hours</label>
-                      <div className="input-icon input-icon-new position-relative w-100">
-                        <TimePicker
-                          getPopupContainer={getModalContainer2}
-                          use12Hours
-                          placeholder="Choose"
-                          format="h:mm A"
-                          className="form-control timepicker"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-clock-hour-3" />
-                        </span>
-                      </div>
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -677,7 +728,8 @@ const AttendanceAdmin = () => {
                       <CommonSelect
                         className="select"
                         options={statusChoose}
-                        defaultValue={statusChoose[0]}
+                        defaultValue={editFormData ? statusChoose.find(s => s.value === editFormData.status) || statusChoose[0] : statusChoose[0]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, status: option.value })}
                       />
                     </div>
                   </div>
@@ -688,13 +740,15 @@ const AttendanceAdmin = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setEditFormData(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleEditSubmit}
+                  disabled={!editFormData}
                 >
                   Save Changes
                 </button>

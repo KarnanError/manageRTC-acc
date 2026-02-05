@@ -350,6 +350,8 @@ export const all_routes = {
   attendanceemployee: "/attendance-employee",
   timesheet: "/timesheets",
   scheduletiming: "/schedule-timing",
+  shiftsManagement: "/shifts-management",
+  batchesManagement: "/batches-management",
   overtime: "/overtime",
   promotion: "/promotion",
   resignation: "/resignation",

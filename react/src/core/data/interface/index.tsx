@@ -305,6 +305,7 @@ export interface DatatableProps {
   Selection?: boolean;
   rowId?: string;
   onChange?: (selectedRowKeys: any[]) => void;
+  loading?: boolean;
 }
 
 export interface CountriesData {

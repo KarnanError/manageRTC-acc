@@ -54,18 +54,10 @@ export const useDesignationsREST = () => {
   /**
    * Fetch all designations with optional filters
    * REST API: GET /api/designations
+   * Note: Company ID is extracted server-side from the token's public metadata
+   * The API interceptor handles token refresh automatically
    */
   const fetchDesignations = useCallback(async (filters: DesignationFilters = {}) => {
-    // Guard: Check for auth token before making request
-    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[useDesignationsREST] Cannot fetch - missing auth token', { hasToken: !!token });
-      setError('Authentication required. Please ensure you are logged in.');
-      return [];
-    }
-
     setLoading(true);
     setError(null);
     try {

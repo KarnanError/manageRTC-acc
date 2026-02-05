@@ -279,6 +279,8 @@ import LeaveSettings from '../hrm/attendance/leaves/leavesettings';
 import OverTime from '../hrm/attendance/overtime';
 import ScheduleTiming from '../hrm/attendance/scheduletiming';
 import TimeSheet from '../hrm/attendance/timesheet';
+import ShiftsList from '../hrm/attendance/shiftsList';
+import BatchesList from '../hrm/attendance/batchesList';
 import Promotion from '../hrm/promotion';
 import Resignation from '../hrm/resignation';
 import Termination from '../hrm/termination';
@@ -1819,6 +1821,18 @@ export const publicRoutes = [
   {
     path: routes.overtime,
     element: <OverTime />,
+    route: Route,
+    roles: ['public'],
+  },
+  {
+    path: routes.shiftsManagement,
+    element: <ShiftsList />,
+    route: Route,
+    roles: ['public'],
+  },
+  {
+    path: routes.batchesManagement,
+    element: <BatchesList />,
     route: Route,
     roles: ['public'],
   },

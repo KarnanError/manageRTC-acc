@@ -42,6 +42,13 @@ router.get('/status/:status', leaveController.getLeavesByStatus);
 router.get('/balance', leaveController.getLeaveBalance);
 
 /**
+ * @route   GET /api/leaves/team
+ * @desc    Get team leave requests (for managers)
+ * @access  Private (Manager, Admin, HR, Superadmin)
+ */
+router.get('/team', leaveController.getTeamLeaves);
+
+/**
  * @route   GET /api/leaves/:id
  * @desc    Get single leave request by ID
  * @access  Private (All authenticated users)

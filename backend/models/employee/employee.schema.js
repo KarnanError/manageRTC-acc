@@ -98,27 +98,44 @@ const documentSchema = new mongoose.Schema({
 
 /**
  * Leave Balance Sub-schema
+ * Structure: Array of leave type balances with total, used, and remaining
+ * This matches the leave controller's expected format
  */
+const leaveBalanceItemSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['casual', 'sick', 'earned', 'compensatory', 'maternity', 'paternity', 'bereavement', 'unpaid', 'special'],
+    required: true
+  },
+  total: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  used: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  balance: {
+    type: Number,
+    default: 0,
+    min: 0
+  }
+}, { _id: false });
+
 const leaveBalanceSchema = new mongoose.Schema({
-  casual: {
-    type: Number,
-    default: 10,
-    min: 0
-  },
-  sick: {
-    type: Number,
-    default: 10,
-    min: 0
-  },
-  earned: {
-    type: Number,
-    default: 15,
-    min: 0
-  },
-  compOff: {
-    type: Number,
-    default: 2,
-    min: 0
+  balances: {
+    type: [leaveBalanceItemSchema],
+    default: function() {
+      // Initialize with default leave balances
+      return [
+        { type: 'casual', total: 10, used: 0, balance: 10 },
+        { type: 'sick', total: 10, used: 0, balance: 10 },
+        { type: 'earned', total: 15, used: 0, balance: 15 },
+        { type: 'compensatory', total: 2, used: 0, balance: 2 }
+      ];
+    }
   }
 }, { _id: false });
 
@@ -243,6 +260,16 @@ const employeeSchema = new mongoose.Schema({
   workLocationDetails: {
     type: String,
     trim: true
+  },
+
+  // Shift Assignment
+  shiftId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shift',
+    index: true
+  },
+  shiftEffectiveDate: {
+    type: Date
   },
 
   // Salary Information
@@ -561,8 +588,13 @@ employeeSchema.methods.restore = function() {
 
 // Update leave balance
 employeeSchema.methods.updateLeaveBalance = function(type, days) {
-  if (this.leaveBalance && this.leaveBalance[type] !== undefined) {
-    this.leaveBalance[type] += days;
+  if (!this.leaveBalance || !this.leaveBalance.balances) {
+    this.leaveBalance = { balances: [] };
+  }
+
+  const balanceItem = this.leaveBalance.balances.find(b => b.type === type);
+  if (balanceItem) {
+    balanceItem.balance += days;
     return this.save();
   }
   throw new Error(`Invalid leave type: ${type}`);

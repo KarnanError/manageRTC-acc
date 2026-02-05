@@ -4,6 +4,7 @@
  * Uses multi-tenant database architecture with getTenantCollections()
  */
 
+import { ObjectId } from 'mongodb';
 import { getTenantCollections } from '../../config/db.js';
 import {
   asyncHandler,
@@ -100,7 +101,7 @@ export const getShiftById = asyncHandler(async (req, res) => {
 
   // Find shift
   const shift = await collections.shifts.findOne({
-    _id: { $oid: id },
+    _id: new ObjectId(id),
     companyId: user.companyId,
     isDeleted: { $ne: true }
   });
@@ -135,13 +136,17 @@ export const getDefaultShift = asyncHandler(async (req, res) => {
 
   if (!shift) {
     // If no default shift, return the first active shift
-    const firstShift = await collections.shifts.findOne({
+    const firstShift = await collections.shifts.find({
       companyId: user.companyId,
       isActive: true,
       isDeleted: { $ne: true }
-    }).sort({ name: 1 });
+    })
+      .sort({ name: 1 })
+      .limit(1)
+      .toArray();
 
-    return sendSuccess(res, firstShift, 'No default shift found, returning first active shift');
+    const result = firstShift.length > 0 ? firstShift[0] : null;
+    return sendSuccess(res, result, result ? 'No default shift found, returning first active shift' : 'No shifts configured for company');
   }
 
   return sendSuccess(res, shift);
@@ -259,7 +264,7 @@ export const updateShift = asyncHandler(async (req, res) => {
 
   // Find shift
   const shift = await collections.shifts.findOne({
-    _id: { $oid: id },
+    _id: new ObjectId(id),
     companyId: user.companyId,
     isDeleted: { $ne: true }
   });
@@ -273,7 +278,7 @@ export const updateShift = asyncHandler(async (req, res) => {
     const existingCode = await collections.shifts.findOne({
       code: updateData.code.toUpperCase(),
       companyId: user.companyId,
-      _id: { $ne: { $oid: id } },
+      _id: { $ne: new ObjectId(id) },
       isDeleted: { $ne: true }
     });
 
@@ -289,7 +294,7 @@ export const updateShift = asyncHandler(async (req, res) => {
       {
         companyId: user.companyId,
         isDefault: true,
-        _id: { $ne: { $oid: id } },
+        _id: { $ne: new ObjectId(id) },
         isDeleted: { $ne: true }
       },
       { $set: { isDefault: false } }
@@ -305,7 +310,7 @@ export const updateShift = asyncHandler(async (req, res) => {
 
   // Update shift
   const result = await collections.shifts.updateOne(
-    { _id: { $oid: id } },
+    { _id: new ObjectId(id) },
     { $set: updateData }
   );
 
@@ -314,7 +319,7 @@ export const updateShift = asyncHandler(async (req, res) => {
   }
 
   // Get updated shift
-  const updatedShift = await collections.shifts.findOne({ _id: { $oid: id } });
+  const updatedShift = await collections.shifts.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -341,7 +346,7 @@ export const deleteShift = asyncHandler(async (req, res) => {
 
   // Find shift
   const shift = await collections.shifts.findOne({
-    _id: { $oid: id },
+    _id: new ObjectId(id),
     companyId: user.companyId,
     isDeleted: { $ne: true }
   });
@@ -363,7 +368,7 @@ export const deleteShift = asyncHandler(async (req, res) => {
 
   // Soft delete - set isDeleted flag
   const result = await collections.shifts.updateOne(
-    { _id: { $oid: id } },
+    { _id: new ObjectId(id) },
     {
       $set: {
         isDeleted: true,
@@ -393,6 +398,304 @@ export const deleteShift = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Assign shift to employee
+ * @route   POST /api/shifts/assign
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const assignShiftToEmployee = asyncHandler(async (req, res) => {
+  const { employeeId, shiftId, effectiveDate } = req.body;
+  const user = extractUser(req);
+
+  console.log('[Shift Controller] assignShiftToEmployee - companyId:', user.companyId);
+
+  // Validate required fields
+  if (!employeeId) {
+    throw buildValidationError('employeeId', 'Employee ID is required');
+  }
+  if (!shiftId) {
+    throw buildValidationError('shiftId', 'Shift ID is required');
+  }
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Verify shift exists
+  const shift = await collections.shifts.findOne({
+    _id: { $oid: shiftId },
+    companyId: user.companyId,
+    isActive: true,
+    isDeleted: { $ne: true }
+  });
+
+  if (!shift) {
+    throw buildNotFoundError('Shift', shiftId);
+  }
+
+  // Verify employee exists
+  const employee = await collections.employees.findOne({
+    employeeId: employeeId,
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  });
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', employeeId);
+  }
+
+  // Update employee with shift assignment
+  const updateObj = {
+    shiftId: new ObjectId(shiftId),
+    shiftEffectiveDate: effectiveDate ? new Date(effectiveDate) : new Date(),
+    updatedAt: new Date(),
+    updatedBy: user.userId
+  };
+
+  const result = await collections.employees.updateOne(
+    { employeeId: employeeId, companyId: user.companyId },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Employee', employeeId);
+  }
+
+  // Get updated employee
+  const updatedEmployee = await collections.employees.findOne({
+    employeeId: employeeId,
+    companyId: user.companyId
+  });
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastShiftEvents.assigned(io, user.companyId, {
+      employeeId: employeeId,
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      shiftId: shiftId,
+      shiftName: shift.name,
+      effectiveDate: updateObj.shiftEffectiveDate
+    });
+  }
+
+  return sendSuccess(res, {
+    employeeId: employeeId,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    shiftId: shiftId,
+    shiftName: shift.name,
+    shiftCode: shift.code,
+    effectiveDate: updateObj.shiftEffectiveDate
+  }, 'Shift assigned to employee successfully');
+});
+
+/**
+ * @desc    Bulk assign shifts to employees
+ * @route   POST /api/shifts/bulk-assign
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const bulkAssignShifts = asyncHandler(async (req, res) => {
+  const { employeeIds, shiftId, effectiveDate } = req.body;
+  const user = extractUser(req);
+
+  console.log('[Shift Controller] bulkAssignShifts - companyId:', user.companyId);
+
+  // Validate required fields
+  if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+    throw buildValidationError('employeeIds', 'Employee IDs array is required');
+  }
+  if (!shiftId) {
+    throw buildValidationError('shiftId', 'Shift ID is required');
+  }
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Verify shift exists
+  const shift = await collections.shifts.findOne({
+    _id: { $oid: shiftId },
+    companyId: user.companyId,
+    isActive: true,
+    isDeleted: { $ne: true }
+  });
+
+  if (!shift) {
+    throw buildNotFoundError('Shift', shiftId);
+  }
+
+  const effectiveShiftDate = effectiveDate ? new Date(effectiveDate) : new Date();
+  const updateObj = {
+    shiftId: new ObjectId(shiftId),
+    shiftEffectiveDate: effectiveShiftDate,
+    updatedAt: new Date(),
+    updatedBy: user.userId
+  };
+
+  // Bulk update employees
+  const result = await collections.employees.updateMany(
+    {
+      employeeId: { $in: employeeIds },
+      companyId: user.companyId,
+      isDeleted: { $ne: true }
+    },
+    { $set: updateObj }
+  );
+
+  // Get updated employees for response
+  const updatedEmployees = await collections.employees.find({
+    employeeId: { $in: employeeIds },
+    companyId: user.companyId
+  }).toArray();
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastShiftEvents.bulkAssigned(io, user.companyId, {
+      shiftId: shiftId,
+      shiftName: shift.name,
+      employeeCount: result.modifiedCount,
+      effectiveDate: effectiveShiftDate
+    });
+  }
+
+  return sendSuccess(res, {
+    shiftId: shiftId,
+    shiftName: shift.name,
+    shiftCode: shift.code,
+    effectiveDate: effectiveShiftDate,
+    requested: employeeIds.length,
+    updated: result.modifiedCount,
+    employees: updatedEmployees.map(emp => ({
+      employeeId: emp.employeeId,
+      employeeName: `${emp.firstName} ${emp.lastName}`
+    }))
+  }, `Shift assigned to ${result.modifiedCount} employee(s) successfully`);
+});
+
+/**
+ * @desc    Get employee's current shift assignment
+ * @route   GET /api/shifts/employee/:employeeId
+ * @access  Private (Admin, HR, Superadmin, Employee for own)
+ */
+export const getEmployeeShift = asyncHandler(async (req, res) => {
+  const { employeeId } = req.params;
+  const user = extractUser(req);
+
+  console.log('[Shift Controller] getEmployeeShift - employeeId:', employeeId, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Verify employee exists
+  const employee = await collections.employees.findOne({
+    employeeId: employeeId,
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  });
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', employeeId);
+  }
+
+  // If employee has no shift assigned, return default shift
+  if (!employee.shiftId) {
+    const defaultShift = await collections.shifts.findOne({
+      companyId: user.companyId,
+      isDefault: true,
+      isActive: true,
+      isDeleted: { $ne: true }
+    });
+
+    return sendSuccess(res, {
+      employeeId: employeeId,
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      assignedShift: null,
+      defaultShift: defaultShift || null,
+      effectiveDate: null
+    }, 'No shift assigned to employee, returning default shift');
+  }
+
+  // Get assigned shift details
+  const assignedShift = await collections.shifts.findOne({
+    _id: employee.shiftId,
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  });
+
+  return sendSuccess(res, {
+    employeeId: employeeId,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    assignedShift: assignedShift ? {
+      _id: assignedShift._id,
+      shiftId: assignedShift.shiftId,
+      name: assignedShift.name,
+      code: assignedShift.code,
+      startTime: assignedShift.startTime,
+      endTime: assignedShift.endTime,
+      duration: assignedShift.duration,
+      timezone: assignedShift.timezone
+    } : null,
+    effectiveDate: employee.shiftEffectiveDate
+  });
+});
+
+/**
+ * @desc    Remove shift assignment from employee
+ * @route   DELETE /api/shifts/employee/:employeeId
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const removeShiftAssignment = asyncHandler(async (req, res) => {
+  const { employeeId } = req.params;
+  const user = extractUser(req);
+
+  console.log('[Shift Controller] removeShiftAssignment - employeeId:', employeeId, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Verify employee exists
+  const employee = await collections.employees.findOne({
+    employeeId: employeeId,
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  });
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', employeeId);
+  }
+
+  if (!employee.shiftId) {
+    throw buildConflictError('Employee does not have a shift assigned');
+  }
+
+  // Remove shift assignment
+  const result = await collections.employees.updateOne(
+    { employeeId: employeeId, companyId: user.companyId },
+    {
+      $unset: { shiftId: '', shiftEffectiveDate: '' },
+      $set: { updatedAt: new Date(), updatedBy: user.userId }
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Employee', employeeId);
+  }
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastShiftEvents.unassigned(io, user.companyId, {
+      employeeId: employeeId,
+      employeeName: `${employee.firstName} ${employee.lastName}`
+    });
+  }
+
+  return sendSuccess(res, {
+    employeeId: employeeId,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    unassignedAt: new Date()
+  }, 'Shift assignment removed successfully');
+});
+
+/**
  * @desc    Set shift as default
  * @route   PUT /api/shifts/:id/set-default
  * @access  Private (Admin, HR, Superadmin)
@@ -406,16 +709,23 @@ export const setDefaultShift = asyncHandler(async (req, res) => {
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
-  // Find shift
-  const shift = await collections.shifts.findOne({
-    _id: { $oid: id },
+  // Find the new default shift
+  const newDefaultShift = await collections.shifts.findOne({
+    _id: new ObjectId(id),
     companyId: user.companyId,
     isDeleted: { $ne: true }
   });
 
-  if (!shift) {
+  if (!newDefaultShift) {
     throw buildNotFoundError('Shift', id);
   }
+
+  // Find the old default shift before removing it
+  const oldDefaultShift = await collections.shifts.findOne({
+    companyId: user.companyId,
+    isDefault: true,
+    isDeleted: { $ne: true }
+  });
 
   // Remove default from all shifts
   await collections.shifts.updateMany(
@@ -429,7 +739,7 @@ export const setDefaultShift = asyncHandler(async (req, res) => {
 
   // Set this shift as default
   await collections.shifts.updateOne(
-    { _id: { $oid: id } },
+    { _id: new ObjectId(id) },
     {
       $set: {
         isDefault: true,
@@ -439,8 +749,37 @@ export const setDefaultShift = asyncHandler(async (req, res) => {
     }
   );
 
+  // Update all employees who were assigned to the old default shift
+  let updatedEmployeesCount = 0;
+  if (oldDefaultShift && oldDefaultShift._id.toString() !== id) {
+    const oldDefaultShiftId = oldDefaultShift._id.toString();
+    const newDefaultShiftId = id;
+
+    // Find and update employees assigned to the old default shift
+    // Only update employees who have shiftId matching the old default shift
+    const updateResult = await collections.employees.updateMany(
+      {
+        companyId: user.companyId,
+        shiftId: new ObjectId(oldDefaultShiftId),
+        isDeleted: { $ne: true }
+      },
+      {
+        $set: {
+          shiftId: new ObjectId(newDefaultShiftId),
+          shiftEffectiveDate: new Date(),
+          updatedAt: new Date(),
+          updatedBy: user.userId
+        }
+      }
+    );
+
+    updatedEmployeesCount = updateResult.modifiedCount;
+
+    console.log(`[Shift Controller] Updated ${updatedEmployeesCount} employees from old default shift to new default shift`);
+  }
+
   // Get updated shift
-  const updatedShift = await collections.shifts.findOne({ _id: { $oid: id } });
+  const updatedShift = await collections.shifts.findOne({ _id: new ObjectId(id) });
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -448,7 +787,14 @@ export const setDefaultShift = asyncHandler(async (req, res) => {
     broadcastShiftEvents.updated(io, user.companyId, updatedShift);
   }
 
-  return sendSuccess(res, updatedShift, 'Default shift updated successfully');
+  const message = updatedEmployeesCount > 0
+    ? `Default shift updated successfully. ${updatedEmployeesCount} employee(s) reassigned to new default shift.`
+    : 'Default shift updated successfully.';
+
+  return sendSuccess(res, {
+    ...updatedShift,
+    updatedEmployeesCount
+  }, message);
 });
 
 export default {
@@ -459,5 +805,9 @@ export default {
   createShift,
   updateShift,
   deleteShift,
-  setDefaultShift
+  setDefaultShift,
+  assignShiftToEmployee,
+  bulkAssignShifts,
+  getEmployeeShift,
+  removeShiftAssignment
 };

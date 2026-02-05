@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/clerk-react";
-import { DatePicker } from "antd";
+import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -19,6 +19,8 @@ import { all_routes } from "../../router/all_routes";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+import { useBatchesREST, Batch } from "../../../hooks/useBatchesREST";
+import { useShiftsREST } from "../../../hooks/useShiftsREST";
 
 interface Department {
   _id: string;
@@ -29,6 +31,17 @@ interface Designation {
   _id: string;
   departmentId: string;
   designation: string;
+}
+
+interface BatchOption {
+  _id: string;
+  batchId?: string;
+  name: string;
+  code?: string;
+  shiftName?: string;
+  shiftTiming?: string;
+  shiftColor?: string;
+  rotationEnabled: boolean;
 }
 
 interface Option {
@@ -68,6 +81,11 @@ interface Employee {
   companyName: string;
   departmentId: string;
   designationId: string;
+  shiftId?: string;
+  shiftName?: string;
+  batchId?: string;
+  batchName?: string;
+  batchShiftName?: string;
   employmentType?: "Full-time" | "Part-time" | "Contract" | "Intern";
   status:
     | "Active"
@@ -364,6 +382,8 @@ const EmployeeList = () => {
 
   const { departments, fetchDepartments } = useDepartmentsREST();
   const { designations, fetchDesignations } = useDesignationsREST();
+  const { batches, fetchBatches } = useBatchesREST();
+  const { shifts: allShifts } = useShiftsREST();
 
   const [formData, setFormData] = useState({
     employeeId: generateId("EMP"),
@@ -393,6 +413,8 @@ const EmployeeList = () => {
     companyName: "",
     designationId: "",
     departmentId: "",
+    shiftId: "",
+    batchId: "",
     employmentType: "Full-time" as "Full-time" | "Part-time" | "Contract" | "Intern",
     about: "",
     status: "Active" as
@@ -403,6 +425,21 @@ const EmployeeList = () => {
       | "Terminated"
       | "On Leave",
   });
+
+  // Shift Assignment state - combines direct shifts and shift batches
+  const [shiftAssignmentOptions, setShiftAssignmentOptions] = useState<{
+    directShifts: Array<{ value: string; label: string; type: 'shift'; data?: any }>;
+    shiftBatches: Array<{ value: string; label: string; type: 'batch'; data?: BatchOption }>;
+  }>({
+    directShifts: [{ value: '', label: 'Select Shift', type: 'shift' }],
+    shiftBatches: [{ value: '', label: 'Select Shift Batch', type: 'batch', data: undefined }],
+  });
+  const [selectedShiftAssignment, setSelectedShiftAssignment] = useState<{
+    type: 'shift' | 'batch' | null;
+    value: string;
+    data?: any;
+  }>({ type: null, value: '' });
+
   const [permissions, setPermissions] = useState(initialState);
 
   const socket = useSocket() as Socket | null;
@@ -420,6 +457,9 @@ const EmployeeList = () => {
         // Fetch departments
         await fetchDepartments();
         // Departments will be synced via useEffect below
+
+        // Fetch batches
+        await fetchBatches();
 
         // Designations will be loaded when a department is selected
       } catch (err: any) {
@@ -459,6 +499,43 @@ const EmployeeList = () => {
       setDesignation([{ value: "", label: "Select Designation" }]);
     }
   }, [designations]);
+
+  // Sync shifts and batches from REST hook to shift assignment options
+  useEffect(() => {
+    // Map direct shifts
+    const directShifts = allShifts && allShifts.length > 0
+      ? allShifts.map((s: any) => ({
+          value: `shift-${s._id}`,
+          label: `${s.name} (${s.startTime} - ${s.endTime})`,
+          type: 'shift' as const,
+          data: s,
+        }))
+      : [{ value: '', label: 'Select Shift', type: 'shift' as const, data: undefined }];
+
+    // Map shift batches
+    const shiftBatches = batches && batches.length > 0
+      ? batches.map((b: Batch) => ({
+          value: `batch-${b._id}`,
+          label: `${b.name}${b.code ? ` (${b.code})` : ''}`,
+          type: 'batch' as const,
+          data: {
+            _id: b._id,
+            batchId: b.batchId,
+            name: b.name,
+            code: b.code,
+            shiftName: b.shiftName,
+            shiftTiming: b.shiftTiming,
+            shiftColor: b.shiftColor,
+            rotationEnabled: b.rotationEnabled,
+          } as BatchOption,
+        }))
+      : [{ value: '', label: 'Select Shift Batch', type: 'batch' as const, data: undefined }];
+
+    setShiftAssignmentOptions({
+      directShifts: [{ value: '', label: 'Select Shift', type: 'shift' as const, data: undefined }, ...(directShifts[0]?.data ? directShifts : [])],
+      shiftBatches: [{ value: '', label: 'Select Shift Batch', type: 'batch' as const, data: undefined }, ...(shiftBatches[0]?.data ? shiftBatches : [])],
+    });
+  }, [allShifts, batches]);
 
   // Sync REST hook data with local state
   useEffect(() => {
@@ -1794,6 +1871,8 @@ const EmployeeList = () => {
         companyName,
         departmentId,
         designationId,
+        shiftId,
+        batchId,
         employmentType,
         about,
         status,
@@ -1828,6 +1907,8 @@ const EmployeeList = () => {
         companyName,
         departmentId,
         designationId,
+        shiftId: shiftId || undefined,
+        batchId: batchId || undefined,
         employmentType: formData.employmentType || "Full-time",
         about,
         status: normalizeStatus(status),
@@ -2073,6 +2154,8 @@ const EmployeeList = () => {
       companyName: editingEmployee.companyName || "",
       departmentId: editingEmployee.departmentId || "",
       designationId: editingEmployee.designationId || "",
+      shiftId: editingEmployee.shiftId || undefined,
+      batchId: editingEmployee.batchId || undefined,
       dateOfJoining: editingEmployee.dateOfJoining || null,
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
@@ -2191,6 +2274,8 @@ const EmployeeList = () => {
       companyName: "",
       departmentId: "",
       designationId: "",
+      shiftId: "",
+      batchId: "",
       employmentType: "Full-time" as "Full-time" | "Part-time" | "Contract" | "Intern",
       about: "",
       status: "Active" as
@@ -2209,6 +2294,7 @@ const EmployeeList = () => {
     setActiveTab("basic-info");
     setSelectedDepartment("");
     setSelectedDesignation("");
+    setSelectedShiftAssignment({ type: null, value: '' });
     setIsDesignationDisabled(true);
     setDesignation([{ value: "", label: "Select Designation" }]);
   };
@@ -3589,6 +3675,106 @@ const EmployeeList = () => {
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">
+                            Shift Assignment <span className="text-muted">(Optional)</span>
+                          </label>
+                          <Select
+                            className="w-100"
+                            placeholder="Select shift assignment"
+                            value={
+                              formData.shiftId
+                                ? `shift-${formData.shiftId}`
+                                : formData.batchId
+                                  ? `batch-${formData.batchId}`
+                                  : ""
+                            }
+                            onChange={(value) => {
+                              if (value) {
+                                const [type, id] = value.split('-');
+                                if (type === 'shift') {
+                                  // Direct shift assignment
+                                  const shift = allShifts.find((s: any) => s._id === id);
+                                  handleSelectChange("shiftId", id);
+                                  handleSelectChange("batchId", "");
+                                  setSelectedShiftAssignment({
+                                    type: 'shift',
+                                    value: id,
+                                    data: shift,
+                                  });
+                                } else if (type === 'batch') {
+                                  // Batch shift assignment
+                                  const batch = batches.find((b: Batch) => b._id === id);
+                                  handleSelectChange("batchId", id);
+                                  handleSelectChange("shiftId", "");
+                                  setSelectedShiftAssignment({
+                                    type: 'batch',
+                                    value: id,
+                                    data: batch,
+                                  });
+                                }
+                              } else {
+                                handleSelectChange("shiftId", "");
+                                handleSelectChange("batchId", "");
+                                setSelectedShiftAssignment({ type: null, value: '' });
+                              }
+                            }}
+                          >
+                            <Select.OptGroup label="Direct Shift Assignment (Permanent)">
+                              {shiftAssignmentOptions.directShifts.map(opt => (
+                                <Select.Option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </Select.Option>
+                              ))}
+                            </Select.OptGroup>
+                            <Select.OptGroup label="Shift Batch Assignment (With Rotation)">
+                              {shiftAssignmentOptions.shiftBatches.map(opt => (
+                                <Select.Option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </Select.Option>
+                              ))}
+                            </Select.OptGroup>
+                          </Select>
+                          {selectedShiftAssignment.type === 'batch' && selectedShiftAssignment.data && (
+                            <div className="mt-2 p-2 bg-light rounded d-flex align-items-center">
+                              <div
+                                className="me-2"
+                                style={{
+                                  width: "12px",
+                                  height: "12px",
+                                  borderRadius: "2px",
+                                  backgroundColor: selectedShiftAssignment.data.shiftColor || "#6c757d",
+                                }}
+                              />
+                              <small className="text-muted">
+                                Current Shift: <strong>{selectedShiftAssignment.data.shiftName || "N/A"}</strong>
+                                {selectedShiftAssignment.data.shiftTiming && ` (${selectedShiftAssignment.data.shiftTiming})`}
+                                {selectedShiftAssignment.data.rotationEnabled && (
+                                  <span className="badge badge-info ms-2">Rotation Enabled</span>
+                                )}
+                              </small>
+                            </div>
+                          )}
+                          {selectedShiftAssignment.type === 'shift' && selectedShiftAssignment.data && (
+                            <div className="mt-2 p-2 bg-light rounded d-flex align-items-center">
+                              <div
+                                className="me-2"
+                                style={{
+                                  width: "12px",
+                                  height: "12px",
+                                  borderRadius: "2px",
+                                  backgroundColor: selectedShiftAssignment.data.color || "#6c757d",
+                                }}
+                              />
+                              <small className="text-muted">
+                                Permanent Shift: <strong>{selectedShiftAssignment.data.name || "N/A"}</strong>
+                                {selectedShiftAssignment.data.startTime && ` (${selectedShiftAssignment.data.startTime} - ${selectedShiftAssignment.data.endTime})`}
+                              </small>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
                             Status <span className="text-danger"> *</span>
                           </label>
                           <div className="d-flex align-items-center">
@@ -4554,6 +4740,121 @@ const EmployeeList = () => {
                           )}
                           {fieldErrors.designationId && (
                             <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">
+                            Shift Assignment <span className="text-muted">(Optional)</span>
+                          </label>
+                          <Select
+                            className="w-100"
+                            placeholder="Select shift assignment"
+                            value={
+                              editingEmployee?.shiftId
+                                ? `shift-${editingEmployee.shiftId}`
+                                : editingEmployee?.batchId
+                                  ? `batch-${editingEmployee.batchId}`
+                                  : ""
+                            }
+                            onChange={(value) => {
+                              if (value) {
+                                const [type, id] = value.split('-');
+                                if (type === 'shift') {
+                                  // Direct shift assignment
+                                  const shift = allShifts.find((s: any) => s._id === id);
+                                  setEditingEmployee((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          shiftId: id,
+                                          shiftName: shift?.name,
+                                          batchId: "",
+                                          batchName: undefined,
+                                          batchShiftName: undefined,
+                                        }
+                                      : prev,
+                                  );
+                                } else if (type === 'batch') {
+                                  // Batch shift assignment
+                                  const batch = batches.find((b: Batch) => b._id === id);
+                                  setEditingEmployee((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          shiftId: "",
+                                          shiftName: undefined,
+                                          batchId: id,
+                                          batchName: batch?.name,
+                                          batchShiftName: batch?.shiftName,
+                                        }
+                                      : prev,
+                                  );
+                                }
+                              } else {
+                                setEditingEmployee((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        shiftId: "",
+                                        shiftName: undefined,
+                                        batchId: "",
+                                        batchName: undefined,
+                                        batchShiftName: undefined,
+                                      }
+                                    : prev,
+                                );
+                              }
+                            }}
+                          >
+                            <Select.OptGroup label="Direct Shift Assignment (Permanent)">
+                              {shiftAssignmentOptions.directShifts.map(opt => (
+                                <Select.Option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </Select.Option>
+                              ))}
+                            </Select.OptGroup>
+                            <Select.OptGroup label="Shift Batch Assignment (With Rotation)">
+                              {shiftAssignmentOptions.shiftBatches.map(opt => (
+                                <Select.Option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </Select.Option>
+                              ))}
+                            </Select.OptGroup>
+                          </Select>
+                          {editingEmployee?.batchName && (
+                            <div className="mt-2 p-2 bg-light rounded d-flex align-items-center">
+                              <div
+                                className="me-2"
+                                style={{
+                                  width: "12px",
+                                  height: "12px",
+                                  borderRadius: "2px",
+                                  backgroundColor: batches.find((b: Batch) => b._id === editingEmployee.batchId)?.shiftColor || "#6c757d",
+                                }}
+                              />
+                              <small className="text-muted">
+                                Current Batch: <strong>{editingEmployee.batchName}</strong>
+                                {editingEmployee.batchShiftName && ` - Shift: ${editingEmployee.batchShiftName}`}
+                              </small>
+                            </div>
+                          )}
+                          {editingEmployee?.shiftName && !editingEmployee?.batchId && (
+                            <div className="mt-2 p-2 bg-light rounded d-flex align-items-center">
+                              <div
+                                className="me-2"
+                                style={{
+                                  width: "12px",
+                                  height: "12px",
+                                  borderRadius: "2px",
+                                  backgroundColor: allShifts.find((s: any) => s._id === editingEmployee.shiftId)?.color || "#6c757d",
+                                }}
+                              />
+                              <small className="text-muted">
+                                Permanent Shift: <strong>{editingEmployee.shiftName}</strong>
+                              </small>
+                            </div>
                           )}
                         </div>
                       </div>

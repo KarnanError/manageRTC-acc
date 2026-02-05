@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
 import { Table } from "antd";
+import React, { useEffect, useState } from "react";
 import { DatatableProps } from "../../data/interface";
 
 const Datatable: React.FC<DatatableProps> = ({
@@ -8,6 +8,7 @@ const Datatable: React.FC<DatatableProps> = ({
   Selection = true,
   rowId = "id",
   onChange,
+  loading = false,
 }) => {
   console.log("Data Source is ", dataSource);
 
@@ -85,6 +86,7 @@ const Datatable: React.FC<DatatableProps> = ({
           columns={columns}
           rowKey={rowId}
           dataSource={filteredDataSource}
+          loading={loading}
           pagination={{
             locale: { items_per_page: "" },
             nextIcon: <i className="ti ti-chevron-right" />,
@@ -101,6 +103,7 @@ const Datatable: React.FC<DatatableProps> = ({
           columns={columns}
           rowKey={rowId}
           dataSource={filteredDataSource}
+          loading={loading}
           pagination={{
             locale: { items_per_page: "" },
             nextIcon: <i className="ti ti-chevron-right" />,

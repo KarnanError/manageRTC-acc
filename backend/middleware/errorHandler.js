@@ -239,6 +239,14 @@ export const buildValidationError = (field, message) => {
 };
 
 /**
+ * Bad Request Error Builder
+ * Helper to build bad request errors (400)
+ */
+export const buildBadRequestError = (message) => {
+  return new AppError(message, 400, 'BAD_REQUEST');
+};
+
+/**
  * Duplicate Key Error Builder
  * Helper to build conflict errors for duplicate resources
  */
@@ -258,6 +266,14 @@ export const buildNotFoundError = (resource, identifier = '') => {
   return new NotFoundError(message);
 };
 
+/**
+ * Forbidden Error Builder
+ * Helper to build forbidden/authorization errors
+ */
+export const buildForbiddenError = (message = 'Access forbidden') => {
+  return new ForbiddenError(message);
+};
+
 export default {
   AppError,
   ValidationError,
@@ -269,6 +285,7 @@ export default {
   notFoundHandler,
   asyncHandler,
   buildValidationError,
+  buildBadRequestError,
   buildConflictError,
   buildNotFoundError
 };

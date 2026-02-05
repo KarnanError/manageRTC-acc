@@ -6,7 +6,7 @@ import CommonSelect from "../../../../core/common/commonSelect";
 import { useLeaveREST, statusDisplayMap, leaveTypeDisplayMap, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
-import { DatePicker, Spin } from "antd";
+import { DatePicker, Spin, message } from "antd";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../../core/common/footer";
 
@@ -50,7 +50,7 @@ const LeaveTypeBadge = ({ leaveType }: { leaveType: string }) => {
 
 const LeaveEmployee = () => {
   // API hook for employee's leaves
-  const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance } = useLeaveREST();
+  const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave } = useLeaveREST();
 
   // Local state for balance
   const [balances, setBalances] = useState<Record<string, { total: number; used: number; balance: number }>>({
@@ -59,6 +59,25 @@ const LeaveEmployee = () => {
     casual: { total: 12, used: 2, balance: 10 },
     other: { total: 5, used: 0, balance: 5 },
   });
+
+  // Form state for Add Leave modal
+  const [addFormData, setAddFormData] = useState({
+    leaveType: '',
+    startDate: null as any,
+    endDate: null as any,
+    session: 'Full Day',
+    reason: '',
+  });
+
+  // Form state for Edit Leave modal
+  const [editFormData, setEditFormData] = useState<{
+    _id: string;
+    leaveType: string;
+    startDate: any;
+    endDate: any;
+    session: string;
+    reason: string;
+  } | null>(null);
 
   // Fetch employee leaves on mount
   useEffect(() => {
@@ -114,6 +133,107 @@ const LeaveEmployee = () => {
     if (success) {
       fetchMyLeaves(); // Refresh list
       fetchBalanceData(); // Refresh balance
+    }
+  };
+
+  // Handler for Add Leave form submission
+  const handleAddLeaveSubmit = async () => {
+    if (!addFormData.leaveType) {
+      message.error('Please select a leave type');
+      return;
+    }
+    if (!addFormData.startDate) {
+      message.error('Please select a start date');
+      return;
+    }
+    if (!addFormData.endDate) {
+      message.error('Please select an end date');
+      return;
+    }
+    if (!addFormData.reason.trim()) {
+      message.error('Please provide a reason for the leave');
+      return;
+    }
+
+    const success = await createLeave({
+      leaveType: addFormData.leaveType as any,
+      startDate: addFormData.startDate.format('YYYY-MM-DD'),
+      endDate: addFormData.endDate.format('YYYY-MM-DD'),
+      reason: addFormData.reason,
+    });
+
+    if (success) {
+      // Reset form and close modal
+      setAddFormData({
+        leaveType: '',
+        startDate: null,
+        endDate: null,
+        session: 'Full Day',
+        reason: '',
+      });
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('add_leaves');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchMyLeaves();
+      fetchBalanceData();
+    }
+  };
+
+  // Handler for Edit Leave button click
+  const handleEditClick = (leave: any) => {
+    setEditFormData({
+      _id: leave._id,
+      leaveType: leave.leaveType,
+      startDate: leave.startDate,
+      endDate: leave.endDate,
+      session: 'Full Day',
+      reason: leave.reason || '',
+    });
+  };
+
+  // Handler for Edit Leave form submission
+  const handleEditLeaveSubmit = async () => {
+    if (!editFormData) return;
+
+    if (!editFormData.leaveType) {
+      message.error('Please select a leave type');
+      return;
+    }
+    if (!editFormData.startDate) {
+      message.error('Please select a start date');
+      return;
+    }
+    if (!editFormData.endDate) {
+      message.error('Please select an end date');
+      return;
+    }
+    if (!editFormData.reason.trim()) {
+      message.error('Please provide a reason for the leave');
+      return;
+    }
+
+    const success = await updateLeave(editFormData._id, {
+      leaveType: editFormData.leaveType as any,
+      startDate: editFormData.startDate,
+      endDate: editFormData.endDate,
+      reason: editFormData.reason,
+    });
+
+    if (success) {
+      setEditFormData(null);
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('edit_leaves');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchMyLeaves();
+      fetchBalanceData();
     }
   };
   const columns = [
@@ -189,6 +309,7 @@ const LeaveEmployee = () => {
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_leaves"
+            onClick={() => handleEditClick(record.rawLeave)}
           >
             <i className="ti ti-edit" />
           </Link>
@@ -596,6 +717,13 @@ const LeaveEmployee = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setAddFormData({
+                  leaveType: '',
+                  startDate: null,
+                  endDate: null,
+                  session: 'Full Day',
+                  reason: '',
+                })}
               >
                 <i className="ti ti-x" />
               </button>
@@ -610,6 +738,7 @@ const LeaveEmployee = () => {
                         className="select"
                         options={leavetype}
                         defaultValue={leavetype[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, leaveType: option.value })}
                       />
                     </div>
                   </div>
@@ -625,6 +754,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={addFormData.startDate}
+                          onChange={(date) => setAddFormData({ ...addFormData, startDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -644,6 +775,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={addFormData.endDate}
+                          onChange={(date) => setAddFormData({ ...addFormData, endDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -657,6 +790,7 @@ const LeaveEmployee = () => {
                         className="select"
                         options={selectChoose}
                         defaultValue={selectChoose[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, session: option.value })}
                       />
                     </div>
                   </div>
@@ -684,6 +818,8 @@ const LeaveEmployee = () => {
                         className="form-control"
                         rows={3}
                         placeholder="Enter reason for leave"
+                        value={addFormData.reason}
+                        onChange={(e) => setAddFormData({ ...addFormData, reason: e.target.value })}
                       />
                     </div>
                   </div>
@@ -705,13 +841,20 @@ const LeaveEmployee = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setAddFormData({
+                    leaveType: '',
+                    startDate: null,
+                    endDate: null,
+                    session: 'Full Day',
+                    reason: '',
+                  })}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleAddLeaveSubmit}
                 >
                   Add Leave
                 </button>
@@ -732,6 +875,7 @@ const LeaveEmployee = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setEditFormData(null)}
               >
                 <i className="ti ti-x" />
               </button>
@@ -745,7 +889,8 @@ const LeaveEmployee = () => {
                       <CommonSelect
                         className="select"
                         options={leavetype}
-                        defaultValue={leavetype[1]}
+                        defaultValue={editFormData ? leavetype.find(l => l.value === editFormData.leaveType) || leavetype[1] : leavetype[1]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, leaveType: option.value })}
                       />
                     </div>
                   </div>
@@ -761,6 +906,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.startDate ? editFormData.startDate : null}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, startDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -780,6 +927,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.endDate ? editFormData.endDate : null}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, endDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -793,7 +942,7 @@ const LeaveEmployee = () => {
                         <input
                           type="text"
                           className="form-control datetimepicker"
-                          defaultValue="15/01/24"
+                          value={editFormData?.startDate ? editFormData.startDate.format('DD/MM/YY') : ''}
                           disabled
                         />
                         <span className="input-icon-addon">
@@ -807,7 +956,8 @@ const LeaveEmployee = () => {
                       <CommonSelect
                         className="select"
                         options={selectChoose}
-                        defaultValue={selectChoose[1]}
+                        defaultValue={selectChoose[0]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, session: option.value })}
                       />
                     </div>
                   </div>
@@ -842,6 +992,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option4"
                           id="leave6"
+                          checked={editFormData?.session === 'Full Day'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'Full Day' })}
                         />
                         <label className="form-check-label" htmlFor="leave6">
                           Full Day
@@ -854,6 +1006,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option5"
                           id="leave5"
+                          checked={editFormData?.session === 'First Half'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'First Half' })}
                         />
                         <label className="form-check-label" htmlFor="leave5">
                           First Half
@@ -866,6 +1020,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option6"
                           id="leave4"
+                          checked={editFormData?.session === 'Second Half'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'Second Half' })}
                         />
                         <label className="form-check-label" htmlFor="leave4">
                           Second Half
@@ -879,7 +1035,8 @@ const LeaveEmployee = () => {
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={" Going to Hospital "}
+                        value={editFormData?.reason || ''}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, reason: e.target.value })}
                       />
                     </div>
                   </div>
@@ -890,13 +1047,14 @@ const LeaveEmployee = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setEditFormData(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleEditLeaveSubmit}
                 >
                   Save Changes
                 </button>

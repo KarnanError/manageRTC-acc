@@ -42,6 +42,12 @@ export interface TimeEntry {
     title: string;
     status: string;
   };
+  userDetails?: {
+    firstName?: string;
+    lastName?: string;
+    employeeId?: string;
+    userId?: string;
+  };
 }
 
 export interface TimeEntryFilters {

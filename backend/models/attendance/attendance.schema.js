@@ -21,6 +21,19 @@ const attendanceSchema = new mongoose.Schema({
     index: true
   },
 
+  // Employee ID (string) - stored alongside ObjectId for efficient querying
+  employeeId: {
+    type: String,
+    required: [true, 'Employee ID is required'],
+    index: true
+  },
+
+  // Employee name for quick reference (denormalized)
+  employeeName: {
+    type: String,
+    trim: true
+  },
+
   // Company for multi-tenant isolation
   companyId: {
     type: String,
@@ -306,7 +319,7 @@ attendanceSchema.pre('save', async function(next) {
     if (this.shift) {
       try {
         const Shift = mongoose.model('Shift');
-        const shift = await Shift.findById(this.shiftId);
+        const shift = await Shift.findById(this.shift);
 
         if (shift) {
           regularHoursLimit = shift.minHoursForFullDay || 8;
@@ -391,7 +404,7 @@ attendanceSchema.pre('save', async function(next) {
 
   // Generate attendance ID if not present
   if (!this.attendanceId) {
-    generateAttendanceId().then(id => {
+    generateAttendanceId(this.companyId).then(id => {
       this.attendanceId = id;
       next();
     }).catch(next);

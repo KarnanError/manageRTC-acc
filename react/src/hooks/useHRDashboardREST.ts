@@ -278,18 +278,10 @@ export const useHRDashboardREST = () => {
   /**
    * Fetch full HR Dashboard statistics
    * REST API: GET /api/hr-dashboard/stats
+   * Note: Company ID is extracted server-side from the token's public metadata
+   * The API interceptor handles token refresh automatically
    */
   const fetchDashboardStats = useCallback(async (filters: HRDashboardFilters = {}) => {
-    // Guard: Check for auth token before making request
-    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[useHRDashboardREST] Cannot fetch - missing auth token', { hasToken: !!token });
-      setError('Authentication required. Please ensure you are logged in.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
@@ -313,15 +305,9 @@ export const useHRDashboardREST = () => {
   /**
    * Fetch HR Dashboard summary (quick stats)
    * REST API: GET /api/hr-dashboard/summary
+   * Note: The API interceptor handles token refresh automatically
    */
   const fetchDashboardSummary = useCallback(async () => {
-    const token = getAuthToken();
-
-    if (!token) {
-      setError('Authentication required. Please ensure you are logged in.');
-      return null;
-    }
-
     setLoading(true);
     setError(null);
     try {

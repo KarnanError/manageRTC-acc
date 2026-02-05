@@ -68,6 +68,32 @@ export interface ShiftFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface EmployeeShift {
+  _id: string;
+  employeeId: string;
+  employeeName?: string;
+  shiftId: string;
+  shiftName?: string;
+  effectiveDate: string;
+  expiryDate?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssignShiftRequest {
+  employeeId: string;
+  shiftId: string;
+  effectiveDate: string;
+  expiryDate?: string;
+}
+
+export interface BulkAssignShiftRequest {
+  employeeIds: string[];
+  shiftId: string;
+  effectiveDate?: string;
+}
+
 export interface CreateShiftRequest {
   name: string;
   code?: string;
@@ -314,6 +340,116 @@ export const useShiftsREST = () => {
     }
   }, [fetchShifts, fetchDefaultShift]);
 
+  /**
+   * Assign shift to employee
+   * REST API: POST /api/shifts/assign
+   */
+  const assignShiftToEmployee = useCallback(async (
+    assignmentData: AssignShiftRequest
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse<EmployeeShift> = await post('/shifts/assign', assignmentData);
+
+      if (response.success && response.data) {
+        message.success('Shift assigned successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to assign shift');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to assign shift';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Bulk assign shifts to employees
+   * REST API: POST /api/shifts/bulk-assign
+   */
+  const bulkAssignShifts = useCallback(async (
+    bulkData: BulkAssignShiftRequest
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { employeeIds, shiftId, effectiveDate } = bulkData;
+      const response: ApiResponse<any> = await post('/shifts/bulk-assign', {
+        employeeIds,
+        shiftId,
+        effectiveDate: effectiveDate || new Date().toISOString().split('T')[0]
+      });
+
+      if (response.success) {
+        message.success(`Successfully assigned shifts to ${employeeIds.length} employees!`);
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to bulk assign shifts');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to bulk assign shifts';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Get employee's shift assignment
+   * REST API: GET /api/shifts/employee/:employeeId
+   */
+  const getEmployeeShift = useCallback(async (
+    employeeId: string
+  ): Promise<EmployeeShift | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse<EmployeeShift> = await get(`/shifts/employee/${employeeId}`);
+
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return null;
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch employee shift';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Remove shift assignment from employee
+   * REST API: DELETE /api/shifts/employee/:employeeId
+   */
+  const removeShiftAssignment = useCallback(async (employeeId: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await del(`/shifts/employee/${employeeId}`);
+
+      if (response.success) {
+        message.success('Shift assignment removed successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to remove shift assignment');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to remove shift assignment';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Socket.IO real-time listeners for broadcast notifications
   useEffect(() => {
     if (!socket) return;
@@ -372,7 +508,11 @@ export const useShiftsREST = () => {
     createShift,
     updateShift,
     deleteShift,
-    setAsDefault
+    setAsDefault,
+    assignShiftToEmployee,
+    bulkAssignShifts,
+    getEmployeeShift,
+    removeShiftAssignment
   };
 };
 

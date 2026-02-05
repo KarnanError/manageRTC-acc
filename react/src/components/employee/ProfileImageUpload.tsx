@@ -3,10 +3,10 @@
  * Handles profile image upload for employees
  */
 
-import { useState, useRef } from 'react';
-import { Avatar, Upload, Button, message, Modal } from 'antd';
 import { CameraOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
+import { Avatar, Button, message, Modal, Upload } from 'antd';
+import { useRef, useState } from 'react';
 import { useEmployeesREST } from '../../hooks/useEmployeesREST';
 
 export interface ProfileImageUploadProps {

@@ -603,6 +603,342 @@ export const leaveSchemas = {
 };
 
 /**
+ * Shift validation schemas
+ */
+export const shiftSchemas = {
+  create: Joi.object({
+    name: Joi.string().min(2).max(100).trim().required().messages({
+      'string.min': 'Shift name must be at least 2 characters',
+      'string.max': 'Shift name cannot exceed 100 characters',
+      'any.required': 'Shift name is required',
+    }),
+
+    code: Joi.string().min(1).max(20).trim().uppercase().optional().messages({
+      'string.min': 'Shift code must be at least 1 character',
+      'string.max': 'Shift code cannot exceed 20 characters',
+    }),
+
+    startTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).required().messages({
+      'string.pattern.base': 'Start time must be in HH:MM format (24-hour)',
+      'any.required': 'Start time is required',
+    }),
+
+    endTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).required().messages({
+      'string.pattern.base': 'End time must be in HH:MM format (24-hour)',
+      'any.required': 'End time is required',
+    }),
+
+    duration: Joi.number().min(0.5).max(24).required().messages({
+      'number.min': 'Duration must be at least 0.5 hours',
+      'number.max': 'Duration cannot exceed 24 hours',
+      'any.required': 'Duration is required',
+    }),
+
+    timezone: Joi.string().default('UTC').optional(),
+
+    description: Joi.string().max(500).allow('').optional(),
+
+    color: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).optional().messages({
+      'string.pattern.base': 'Color must be a valid hex code (e.g., #FF5733)',
+    }),
+
+    isActive: Joi.boolean().default(true),
+
+    isDefault: Joi.boolean().default(false),
+
+    // Grace period settings
+    gracePeriod: Joi.number().integer().min(0).max(120).default(0).optional().messages({
+      'number.min': 'Grace period cannot be negative',
+      'number.max': 'Grace period cannot exceed 120 minutes',
+    }),
+
+    earlyDepartureAllowance: Joi.number().integer().min(0).max(120).default(0).optional().messages({
+      'number.min': 'Early departure allowance cannot be negative',
+      'number.max': 'Early departure allowance cannot exceed 120 minutes',
+    }),
+
+    minHoursForFullDay: Joi.number().min(1).max(12).default(8).optional().messages({
+      'number.min': 'Minimum hours must be at least 1',
+      'number.max': 'Minimum hours cannot exceed 12',
+    }),
+
+    // Overtime settings
+    overtime: Joi.object({
+      enabled: Joi.boolean().default(false),
+      threshold: Joi.number().min(0).max(24).default(8).optional(),
+      multiplier: Joi.number().min(1).max(3).default(1.5).optional(),
+    }).optional(),
+
+    // Break settings
+    breakSettings: Joi.object({
+      enabled: Joi.boolean().default(false),
+      duration: Joi.number().min(0).max(480).default(0).optional().messages({
+        'number.max': 'Break duration cannot exceed 480 minutes (8 hours)',
+      }),
+      maxDuration: Joi.number().min(0).max(480).default(60).optional(),
+    }).optional(),
+
+    // Flexible hours
+    flexibleHours: Joi.object({
+      enabled: Joi.boolean().default(false),
+      windowStart: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      windowEnd: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      minHours: Joi.number().min(1).max(12).default(8).optional(),
+    }).optional(),
+
+    // Working days
+    workingDays: Joi.array().items(
+      Joi.string().valid('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
+    ).min(1).default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']).optional().messages({
+      'array.min': 'At least one working day is required',
+    }),
+
+    // Shift type
+    shiftType: Joi.string()
+      .valid('regular', 'night', 'rotating', 'flexible', 'custom')
+      .default('regular')
+      .optional(),
+
+    // Rotation settings (for rotating shifts)
+    rotation: Joi.object({
+      enabled: Joi.boolean().default(false),
+      cycleDays: Joi.number().integer().min(1).max(30).default(7).optional(),
+      rotateShifts: Joi.array().items(commonSchemas.objectId).optional(),
+    }).optional(),
+  }).custom((value, helpers) => {
+    // Validate endTime is after startTime
+    const [startHour, startMin] = value.startTime.split(':').map(Number);
+    const [endHour, endMin] = value.endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    if (endMinutes <= startMinutes) {
+      return helpers.error('any.invalid', {
+        message: 'End time must be after start time',
+      });
+    }
+
+    // Validate flexible hours window if enabled
+    if (value.flexibleHours?.enabled) {
+      if (value.flexibleHours.windowStart && value.flexibleHours.windowEnd) {
+        const [flexStartHour, flexStartMin] = value.flexibleHours.windowStart.split(':').map(Number);
+        const [flexEndHour, flexEndMin] = value.flexibleHours.windowEnd.split(':').map(Number);
+        const flexStartMinutes = flexStartHour * 60 + flexStartMin;
+        const flexEndMinutes = flexEndHour * 60 + flexEndMin;
+
+        if (flexEndMinutes <= flexStartMinutes) {
+          return helpers.error('any.invalid', {
+            message: 'Flexible hours window end must be after start',
+          });
+        }
+      }
+    }
+
+    return value;
+  }),
+
+  update: Joi.object({
+    name: Joi.string().min(2).max(100).trim().optional(),
+    code: Joi.string().min(1).max(20).trim().uppercase().optional(),
+    startTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+    endTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+    duration: Joi.number().min(0.5).max(24).optional(),
+    timezone: Joi.string().optional(),
+    description: Joi.string().max(500).allow('').optional(),
+    color: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).optional(),
+    isActive: Joi.boolean().optional(),
+    isDefault: Joi.boolean().optional(),
+    gracePeriod: Joi.number().integer().min(0).max(120).optional(),
+    earlyDepartureAllowance: Joi.number().integer().min(0).max(120).optional(),
+    minHoursForFullDay: Joi.number().min(1).max(12).optional(),
+    overtime: Joi.object({
+      enabled: Joi.boolean().optional(),
+      threshold: Joi.number().min(0).max(24).optional(),
+      multiplier: Joi.number().min(1).max(3).optional(),
+    }).optional(),
+    breakSettings: Joi.object({
+      enabled: Joi.boolean().optional(),
+      duration: Joi.number().min(0).max(480).optional(),
+      maxDuration: Joi.number().min(0).max(480).optional(),
+    }).optional(),
+    flexibleHours: Joi.object({
+      enabled: Joi.boolean().optional(),
+      windowStart: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      windowEnd: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      minHours: Joi.number().min(1).max(12).optional(),
+    }).optional(),
+    workingDays: Joi.array().items(
+      Joi.string().valid('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
+    ).min(1).optional(),
+    shiftType: Joi.string().valid('regular', 'night', 'rotating', 'flexible', 'custom').optional(),
+    rotation: Joi.object({
+      enabled: Joi.boolean().optional(),
+      cycleDays: Joi.number().integer().min(1).max(30).optional(),
+      rotateShifts: Joi.array().items(commonSchemas.objectId).optional(),
+    }).optional(),
+  }).min(1).message('At least one field must be provided for update'),
+
+  assign: Joi.object({
+    employeeId: Joi.string().required().messages({
+      'any.required': 'Employee ID is required',
+    }),
+    shiftId: commonSchemas.objectId.required().messages({
+      'any.required': 'Shift ID is required',
+    }),
+    effectiveDate: commonSchemas.isoDate.optional(),
+  }),
+
+  bulkAssign: Joi.object({
+    employeeIds: Joi.array().items(Joi.string()).min(1).required().messages({
+      'any.required': 'Employee IDs array is required',
+      'array.min': 'At least one employee ID is required',
+    }),
+    shiftId: commonSchemas.objectId.required().messages({
+      'any.required': 'Shift ID is required',
+    }),
+    effectiveDate: commonSchemas.isoDate.optional(),
+  }),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    search: Joi.string().max(100).allow('').optional(),
+    isActive: Joi.boolean().optional(),
+    isDefault: Joi.boolean().optional(),
+    sortBy: Joi.string().valid('name', 'code', 'startTime', 'endTime', 'createdAt').default('name'),
+    order: Joi.string().valid('asc', 'desc').default('asc'),
+  }),
+};
+
+/**
+ * Timesheet validation schemas
+ */
+export const timesheetSchemas = {
+  createTimeEntry: Joi.object({
+    projectId: commonSchemas.objectId.required().messages({
+      'any.required': 'Project is required',
+    }),
+
+    taskId: commonSchemas.objectId.optional(),
+
+    milestoneId: commonSchemas.objectId.optional(),
+
+    description: Joi.string().min(5).max(1000).trim().required().messages({
+      'string.min': 'Description must be at least 5 characters',
+      'string.max': 'Description cannot exceed 1000 characters',
+      'any.required': 'Description is required',
+    }),
+
+    duration: Joi.number().min(0.25).max(24).required().messages({
+      'number.min': 'Duration must be at least 0.25 hours (15 minutes)',
+      'number.max': 'Duration cannot exceed 24 hours',
+      'any.required': 'Duration is required',
+    }),
+
+    date: commonSchemas.isoDate.required().messages({
+      'any.required': 'Date is required',
+    }),
+
+    billable: Joi.boolean().default(false),
+
+    billRate: Joi.number().min(0).optional().messages({
+      'number.min': 'Bill rate cannot be negative',
+    }),
+
+    status: Joi.string()
+      .valid('draft', 'submitted', 'approved', 'rejected')
+      .default('draft')
+      .optional(),
+  }).custom((value, helpers) => {
+    // Validate date is not in the future
+    if (new Date(value.date) > new Date()) {
+      return helpers.error('any.invalid', {
+        message: 'Date cannot be in the future',
+      });
+    }
+    return value;
+  }),
+
+  updateTimeEntry: Joi.object({
+    projectId: commonSchemas.objectId.optional(),
+    taskId: commonSchemas.objectId.optional(),
+    milestoneId: commonSchemas.objectId.optional(),
+    description: Joi.string().min(5).max(1000).trim().optional(),
+    duration: Joi.number().min(0.25).max(24).optional(),
+    date: commonSchemas.isoDate.optional(),
+    billable: Joi.boolean().optional(),
+    billRate: Joi.number().min(0).optional(),
+    status: Joi.string().valid('draft', 'submitted', 'approved', 'rejected').optional(),
+  }).min(1).message('At least one field must be provided for update'),
+
+  submitTimesheet: Joi.object({
+    startDate: commonSchemas.isoDate.required().messages({
+      'any.required': 'Start date is required',
+    }),
+    endDate: commonSchemas.isoDate.required().messages({
+      'any.required': 'End date is required',
+    }),
+  }).custom((value, helpers) => {
+    // Validate date range
+    if (new Date(value.startDate) > new Date(value.endDate)) {
+      return helpers.error('any.invalid', {
+        message: 'Start date must be before end date',
+      });
+    }
+    // Validate range is not more than 31 days
+    const daysDiff = Math.ceil((new Date(value.endDate) - new Date(value.startDate)) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 31) {
+      return helpers.error('any.invalid', {
+        message: 'Timesheet period cannot exceed 31 days',
+      });
+    }
+    return value;
+  }),
+
+  approveTimesheet: Joi.object({
+    timeEntryIds: Joi.array().items(commonSchemas.objectId).min(1).required().messages({
+      'any.required': 'Time entry IDs array is required',
+      'array.min': 'At least one time entry ID is required',
+    }),
+    comments: Joi.string().max(500).allow('').optional(),
+  }),
+
+  rejectTimesheet: Joi.object({
+    timeEntryIds: Joi.array().items(commonSchemas.objectId).min(1).required().messages({
+      'any.required': 'Time entry IDs array is required',
+      'array.min': 'At least one time entry ID is required',
+    }),
+    reason: Joi.string().min(5).max(500).required().messages({
+      'string.min': 'Rejection reason must be at least 5 characters',
+      'string.max': 'Rejection reason cannot exceed 500 characters',
+      'any.required': 'Rejection reason is required',
+    }),
+  }),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    projectId: commonSchemas.objectId.optional(),
+    taskId: commonSchemas.objectId.optional(),
+    employeeId: Joi.string().optional(),
+    status: Joi.string().valid('draft', 'submitted', 'approved', 'rejected').optional(),
+    dateFrom: commonSchemas.isoDate.optional(),
+    dateTo: commonSchemas.isoDate.optional(),
+    billable: Joi.boolean().optional(),
+    sortBy: Joi.string().valid('date', 'duration', 'createdAt', 'status').default('date'),
+    order: Joi.string().valid('asc', 'desc').default('desc'),
+  }).custom((value, helpers) => {
+    // Validate date range
+    if (value.dateFrom && value.dateTo) {
+      if (new Date(value.dateFrom) > new Date(value.dateTo)) {
+        return helpers.error('any.invalid', {
+          message: 'dateFrom must be before dateTo',
+        });
+      }
+    }
+    return value;
+  }),
+};
+
+/**
  * NoSQL injection protection
  * Sanitizes MongoDB operators from query objects
  */
@@ -662,5 +998,7 @@ export default {
   clientSchemas,
   attendanceSchemas,
   leaveSchemas,
+  shiftSchemas,
+  timesheetSchemas,
   sanitizeMongoQuery,
 };

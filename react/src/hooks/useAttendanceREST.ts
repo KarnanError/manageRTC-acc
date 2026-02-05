@@ -311,6 +311,49 @@ export const useAttendanceREST = () => {
   }, [fetchAttendance]);
 
   /**
+   * Update attendance record (Generic update for editing)
+   */
+  const updateAttendance = useCallback(async (attendanceId: string, updateData: Partial<Attendance>): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const payload: any = { ...updateData };
+
+      // Handle clockIn time - convert to ISO string if it's a dayjs object or date string
+      if (updateData.clockIn?.time && typeof updateData.clockIn.time === 'string') {
+        payload.clockIn = { ...updateData.clockIn, time: new Date(updateData.clockIn.time).toISOString() };
+      }
+
+      // Handle clockOut time - convert to ISO string if it's a dayjs object or date string
+      if (updateData.clockOut?.time && typeof updateData.clockOut.time === 'string') {
+        payload.clockOut = { ...updateData.clockOut, time: new Date(updateData.clockOut.time).toISOString() };
+      }
+
+      // Handle date
+      if (updateData.date && typeof updateData.date === 'string') {
+        payload.date = new Date(updateData.date).toISOString();
+      }
+
+      const response: ApiResponse<Attendance> = await put(`/attendance/${attendanceId}`, payload);
+
+      if (response.success && response.data) {
+        message.success('Attendance updated successfully!');
+        // Refresh attendance list
+        await fetchAttendance();
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update attendance');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update attendance';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchAttendance]);
+
+  /**
    * Delete attendance record (Soft delete)
    */
   const deleteAttendance = useCallback(async (attendanceId: string): Promise<boolean> => {
@@ -475,6 +518,7 @@ export const useAttendanceREST = () => {
     getAttendanceById,
     clockIn,
     clockOut,
+    updateAttendance,
     deleteAttendance,
     fetchMyAttendance,
     fetchAttendanceByDateRange,

@@ -54,6 +54,9 @@ export const initializeCompanyDatabase = async (companyId) => {
       "termination",
       "resignation",
       "stats",
+      "shifts",
+      "timeEntries",
+      "overtimeRequests",
     ];
 
     // Create all collections
@@ -108,6 +111,182 @@ export const initializeCompanyDatabase = async (companyId) => {
       updatedAt: new Date(),
     });
     console.log(`✅ Initialized stats for company: ${companyId}`);
+
+    // Initialize default shifts
+    const shiftsCollection = db.collection("shifts");
+    const now = new Date();
+    const year = now.getFullYear();
+
+    // Default shift templates
+    const defaultShifts = [
+      {
+        // Day Shift - Regular business hours
+        shiftId: `SHF-${year}-0001`,
+        name: "Day Shift",
+        code: "DS",
+        companyId: companyId,
+        startTime: "09:00",
+        endTime: "18:00",
+        duration: 8,
+        timezone: "UTC",
+        gracePeriod: 15,
+        earlyDepartureAllowance: 15,
+        minHoursForFullDay: 8,
+        halfDayThreshold: 4,
+        type: "regular",
+        workingDays: [1, 2, 3, 4, 5], // Monday to Friday
+        color: "#52c41a", // Green
+        overtime: {
+          enabled: true,
+          threshold: 8,
+          multiplier: 1.5
+        },
+        breakSettings: {
+          enabled: true,
+          mandatory: false,
+          duration: 60,
+          maxDuration: 90
+        },
+        flexibleHours: {
+          enabled: false
+        },
+        isNightShift: false,
+        isActive: true,
+        isDefault: false,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        // Night Shift - Overnight hours
+        shiftId: `SHF-${year}-0002`,
+        name: "Night Shift",
+        code: "NS",
+        companyId: companyId,
+        startTime: "21:00",
+        endTime: "06:00",
+        duration: 8,
+        timezone: "UTC",
+        gracePeriod: 15,
+        earlyDepartureAllowance: 15,
+        minHoursForFullDay: 8,
+        halfDayThreshold: 4,
+        type: "night",
+        workingDays: [1, 2, 3, 4, 5], // Monday to Friday
+        color: "#722ed1", // Purple
+        overtime: {
+          enabled: true,
+          threshold: 8,
+          multiplier: 1.5
+        },
+        breakSettings: {
+          enabled: true,
+          mandatory: false,
+          duration: 60,
+          maxDuration: 90
+        },
+        flexibleHours: {
+          enabled: false
+        },
+        isNightShift: true,
+        isActive: true,
+        isDefault: false,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        // General Shift - Default shift for company
+        shiftId: `SHF-${year}-0003`,
+        name: "General Shift",
+        code: "GS",
+        companyId: companyId,
+        startTime: "08:00",
+        endTime: "17:00",
+        duration: 8,
+        timezone: "UTC",
+        gracePeriod: 15,
+        earlyDepartureAllowance: 15,
+        minHoursForFullDay: 8,
+        halfDayThreshold: 4,
+        type: "regular",
+        workingDays: [1, 2, 3, 4, 5], // Monday to Friday
+        color: "#1890ff", // Blue
+        overtime: {
+          enabled: true,
+          threshold: 8,
+          multiplier: 1.5
+        },
+        breakSettings: {
+          enabled: true,
+          mandatory: false,
+          duration: 60,
+          maxDuration: 90
+        },
+        flexibleHours: {
+          enabled: false
+        },
+        isNightShift: false,
+        isActive: true,
+        isDefault: true, // This is the default shift
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        // Flexible Shift - For employees with flexible hours
+        shiftId: `SHF-${year}-0004`,
+        name: "Flexible Shift",
+        code: "FS",
+        companyId: companyId,
+        startTime: "06:00",
+        endTime: "22:00",
+        duration: 8,
+        timezone: "UTC",
+        gracePeriod: 0,
+        earlyDepartureAllowance: 0,
+        minHoursForFullDay: 8,
+        halfDayThreshold: 4,
+        type: "flexible",
+        workingDays: [1, 2, 3, 4, 5], // Monday to Friday
+        color: "#faad14", // Orange
+        overtime: {
+          enabled: true,
+          threshold: 8,
+          multiplier: 1.5
+        },
+        breakSettings: {
+          enabled: true,
+          mandatory: false,
+          duration: 60,
+          maxDuration: 90
+        },
+        flexibleHours: {
+          enabled: true,
+          windowStart: "06:00",
+          windowEnd: "22:00",
+          minHoursInOffice: 8
+        },
+        isNightShift: false,
+        isActive: true,
+        isDefault: false,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    ];
+
+    try {
+      const existingShiftsCount = await shiftsCollection.countDocuments({});
+      if (existingShiftsCount === 0) {
+        await shiftsCollection.insertMany(defaultShifts);
+        console.log(`✅ Inserted ${defaultShifts.length} default shifts for company: ${companyId}`);
+      } else {
+        console.log(`ℹ️ Shifts already present for company: ${companyId}`);
+      }
+    } catch (err) {
+      console.warn(`Warning inserting default shifts for ${companyId}:`, err?.message);
+    }
 
     return {
       done: true,

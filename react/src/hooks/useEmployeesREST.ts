@@ -50,11 +50,13 @@ export interface Employee {
   department?: string; // Populated
   designationId?: string;
   designation?: string; // Populated
+  jobTitle?: string; // Alias for designation or separate job title
   reportingTo?: string;
   reportingToName?: string; // Populated
   manager?: string;
   status: 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave';
   employmentStatus?: 'Active' | 'Probation' | 'Resigned' | 'Terminated' | 'On Leave';
+  shiftId?: string; // Assigned shift ID
   gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
   dateOfBirth?: string;
   dateOfJoining: string;
@@ -248,18 +250,10 @@ export const useEmployeesREST = () => {
   /**
    * Fetch employees with stats
    * REST API: GET /api/employees
+   * Note: Company ID is extracted server-side from the token's public metadata
+   * The API interceptor handles token refresh automatically
    */
   const fetchEmployeesWithStats = useCallback(async (filters: EmployeeFilters = {}) => {
-    // Guard: Check for auth token before making request
-    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[useEmployeesREST] Cannot fetch - missing auth token', { hasToken: !!token });
-      setError('Authentication required. Please ensure you are logged in.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
@@ -1042,17 +1036,10 @@ export const useEmployeesREST = () => {
     };
   }, [socket, fetchEmployeesWithStats]);
 
-  // Initial data fetch - wait for auth token
-  // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
+  // Initial data fetch
+  // Company ID is extracted server-side from the token's public metadata
+  // The API interceptor handles token refresh automatically
   useEffect(() => {
-    const token = getAuthToken();
-
-    // Guard: Don't fetch until token is available
-    if (!token) {
-      console.log('[useEmployeesREST] Waiting for auth token', { hasToken: !!token });
-      return;
-    }
-
     fetchEmployeesWithStats();
   }, []);
 

@@ -10,7 +10,8 @@ import {
     asyncHandler,
     buildConflictError,
     buildNotFoundError,
-    buildValidationError
+    buildValidationError,
+    buildForbiddenError
 } from '../../middleware/errorHandler.js';
 import {
     buildPagination,
@@ -572,7 +573,7 @@ export const approveLeave = asyncHandler(async (req, res) => {
     status: 'approved',
     approvedBy: user.userId,
     approvedAt: new Date(),
-    approveComments: comments || '',
+    approvalComments: comments || '',
     updatedAt: new Date()
   };
 
@@ -839,6 +840,100 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Get team leave requests (for managers)
+ * @route   GET /api/leaves/team
+ * @access  Private (Manager, Admin, HR, Superadmin)
+ */
+export const getTeamLeaves = asyncHandler(async (req, res) => {
+  const { page, limit, status, leaveType, department } = req.query;
+  const user = extractUser(req);
+
+  console.log('[Leave Controller] getTeamLeaves - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get current employee (manager)
+  const currentEmployee = await getEmployeeByClerkId(collections, user.userId);
+
+  if (!currentEmployee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Build filter for team leaves
+  const filter = {
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  };
+
+  // Apply status filter
+  if (status) {
+    filter.status = status;
+  }
+
+  // Apply leave type filter
+  if (leaveType) {
+    filter.leaveType = leaveType;
+  }
+
+  // Get team members based on role
+  let teamEmployeeIds = [];
+
+  if (user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin') {
+    // Admins/HR can see all employees
+    const allEmployees = await collections.employees.find({
+      companyId: user.companyId,
+      isDeleted: { $ne: true }
+    }).toArray();
+    teamEmployeeIds = allEmployees.map(emp => emp.employeeId);
+  } else if (user.role === 'manager') {
+    // Managers can see their department employees
+    const deptFilter = {
+      companyId: user.companyId,
+      isDeleted: { $ne: true }
+    };
+
+    // Filter by department if specified, or use manager's department
+    if (department) {
+      deptFilter.departmentId = department;
+    } else if (currentEmployee.departmentId) {
+      deptFilter.departmentId = currentEmployee.departmentId;
+    }
+
+    const teamEmployees = await collections.employees.find(deptFilter).toArray();
+    teamEmployeeIds = teamEmployees.map(emp => emp.employeeId);
+  } else {
+    // Other roles can only see their own leaves
+    teamEmployeeIds = [currentEmployee.employeeId];
+  }
+
+  if (teamEmployeeIds.length === 0) {
+    return sendSuccess(res, [], 'No team members found');
+  }
+
+  filter.employeeId = { $in: teamEmployeeIds };
+
+  // Get total count
+  const total = await collections.leaves.countDocuments(filter);
+
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
+
+  // Get leave records
+  const leaves = await collections.leaves
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, leaves, 'Team leave requests retrieved successfully', 200, pagination);
+});
+
+/**
  * @desc    Upload attachment for leave request
  * @route   POST /api/leaves/:leaveId/attachments
  * @access  Private
@@ -1056,6 +1151,7 @@ export default {
   rejectLeave,
   cancelLeave,
   getLeaveBalance,
+  getTeamLeaves,
   uploadAttachment,
   deleteAttachment,
   getAttachments

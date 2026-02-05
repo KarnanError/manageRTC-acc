@@ -1,95 +1,149 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { attendance_admin_details } from "../../../core/data/json/attendanceadmin";
 import { all_routes } from "../../router/all_routes";
 import PredefinedDateRanges from "../../../core/common/datePicker";
 import Table from "../../../core/common/dataTable/index";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import CommonSelect from "../../../core/common/commonSelect";
-import { DatePicker, TimePicker } from "antd";
+import { DatePicker, TimePicker, message } from "antd";
 import { OverlayTrigger, Tooltip } from "react-bootstrap";
-import { timesheet_details } from "../../../core/data/json/timesheet_details";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import dayjs from "dayjs";
+import { useTimeTrackingREST, TimeEntry } from "../../../hooks/useTimeTrackingREST";
+import { useProjectsREST } from "../../../hooks/useProjectsREST";
+
+interface FormData {
+  projectId: string;
+  taskId?: string;
+  description: string;
+  duration: string;
+  date: string;
+  billable: boolean;
+  billRate?: string;
+}
 
 const TimeSheet = () => {
-  const data = timesheet_details;
+  // API Hooks
+  const {
+    timeEntries,
+    loading,
+    error,
+    fetchTimeEntries,
+    createTimeEntry,
+    updateTimeEntry,
+    deleteTimeEntry
+  } = useTimeTrackingREST();
+
+  const { projects, fetchProjects } = useProjectsREST();
+
+  // State
+  const [selectedProject, setSelectedProject] = useState<string>("");
+  const [dateRange, setDateRange] = useState<{ startDate?: string; endDate?: string }>({});
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
+  const [formData, setFormData] = useState<FormData>({
+    projectId: "",
+    taskId: "",
+    description: "",
+    duration: "",
+    date: new Date().toISOString().split('T')[0],
+    billable: false,
+    billRate: ""
+  });
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchProjects();
+    fetchTimeEntries({ page: 1, limit: 50, ...dateRange });
+  }, [dateRange]);
+
+  // Build table columns
   const columns = [
     {
       title: "Employee",
-      dataIndex: "Employee",
-      render: (text: String, record: any) => (
+      dataIndex: "employeeName",
+      render: (text: string, record: TimeEntry) => (
         <div className="d-flex align-items-center file-name-icon">
           <Link to="#" className="avatar avatar-md border avatar-rounded">
             <ImageWithBasePath
-              src={`assets/img/users/${record.Image}`}
+              src={`assets/img/users/user-default.jpg`}
               className="img-fluid"
               alt="img"
             />
           </Link>
           <div className="ms-2">
             <h6 className="fw-medium">
-              <Link to="#">{record.Employee}</Link>
+              <Link to="#">{record.userDetails?.firstName && record.userDetails?.lastName
+                ? `${record.userDetails.firstName} ${record.userDetails.lastName}`
+                : 'Unknown Employee'}
+              </Link>
             </h6>
-            <span className="fs-12 fw-normal ">{record.Role}</span>
+            <span className="fs-12 fw-normal">{record.userDetails?.employeeId || 'N/A'}</span>
           </div>
         </div>
       ),
-      sorter: (a: any, b: any) => a.Employee.length - b.Employee.length,
+      sorter: (a: TimeEntry, b: TimeEntry) => (a.userDetails?.firstName || '').localeCompare(b.userDetails?.firstName || ''),
     },
     {
       title: "Date",
-      dataIndex: "Date",
-      sorter: (a: any, b: any) => a.Date.length - b.Date.length,
+      dataIndex: "date",
+      render: (date: string) => new Date(date).toLocaleDateString('en-GB'),
+      sorter: (a: TimeEntry, b: TimeEntry) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     },
     {
       title: "Project",
-      dataIndex: "Project",
-      render: (text: String, record: any) => (
+      dataIndex: "projectDetails",
+      render: (project: any, record: TimeEntry) => (
         <p className="fs-14 fw-medium text-gray-9 d-flex align-items-center">
-          {record.Project}
-          <Link
-            to="#"
-            className="ms-1"
-            data-bs-toggle="tooltip"
-            data-bs-placement="right"
-            data-bs-title="Worked on the Management
-												design & Development"
-          >
-            <OverlayTrigger
-              placement="bottom"
-              overlay={
-                <Tooltip id="collapse-tooltip">
-                  Worked on the Management
-                </Tooltip>
-              }
-            >
-              <i className="ti ti-info-circle text-info"></i>
-            </OverlayTrigger>
-          </Link>
+          {project?.name || 'Unknown Project'}
         </p>
       ),
-      sorter: (a: any, b: any) => a.Project.length - b.Project.length,
+      sorter: (a: TimeEntry, b: TimeEntry) => (a.projectDetails?.name || '').localeCompare(b.projectDetails?.name || ''),
     },
     {
-      title: "Assigned hours",
-      dataIndex: "AssignedHours",
-      sorter: (a: any, b: any) =>
-        a.AssignedHours.length - b.AssignedHours.length,
+      title: "Description",
+      dataIndex: "description",
+      render: (text: string) => (
+        <p className="fs-14 fw-medium text-gray-9" style={{ maxWidth: 250 }}>
+          {text || '-'}
+        </p>
+      ),
     },
     {
-      title: "Worked Hours",
-      dataIndex: "WorkedHours",
-      sorter: (a: any, b: any) => a.WorkedHours.length - b.WorkedHours.length,
+      title: "Hours",
+      dataIndex: "duration",
+      render: (duration: number) => `${duration}h`,
+      sorter: (a: TimeEntry, b: TimeEntry) => (a.duration || 0) - (b.duration || 0),
     },
     {
-      title: "",
+      title: "Status",
+      dataIndex: "status",
+      render: (status: string) => {
+        const statusConfig = {
+          'Draft': { color: 'bg-secondary', text: 'Draft' },
+          'Submitted': { color: 'bg-info', text: 'Submitted' },
+          'Approved': { color: 'bg-success', text: 'Approved' },
+          'Rejected': { color: 'bg-danger', text: 'Rejected' }
+        };
+        const config = statusConfig[status as keyof typeof statusConfig] || statusConfig['Draft'];
+        return (
+          <span className={`badge ${config.color} rounded-1`}>
+            {config.text}
+          </span>
+        );
+      },
+      sorter: (a: TimeEntry, b: TimeEntry) => a.status.localeCompare(b.status),
+    },
+    {
+      title: "Actions",
       dataIndex: "actions",
-      render: () => (
+      render: (_: any, record: TimeEntry) => (
         <div className="action-icon d-inline-flex">
           <Link
             to="#"
             className="me-2"
+            onClick={() => handleEdit(record)}
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_timesheet"
@@ -98,6 +152,7 @@ const TimeSheet = () => {
           </Link>
           <Link
             to="#"
+            onClick={() => setDeleteEntryId(record._id)}
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#delete_modal"
@@ -108,19 +163,146 @@ const TimeSheet = () => {
       ),
     },
   ];
-  const projectChoose = [
-    { value: "Office Management", label: "Office Management" },
-    { value: "Project Management", label: "Project Management" },
-    { value: "Hospital Administration", label: "Hospital Administration" },
-  ];
+
+  // Build project options for dropdowns
+  const projectOptions = useMemo(() => {
+    if (!projects) return [];
+    return projects.map(p => ({ value: p._id, label: p.name }));
+  }, [projects]);
+
+  // Handle form input change
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Handle date range change
+  const handleDateRangeChange = (dates: any) => {
+    if (dates && dates[0] && dates[1]) {
+      setDateRange({
+        startDate: dates[0].format('YYYY-MM-DD'),
+        endDate: dates[1].format('YYYY-MM-DD')
+      });
+    }
+  };
+
+  // Handle project filter change
+  const handleProjectFilter = (value: string) => {
+    setSelectedProject(value);
+    if (value) {
+      fetchTimeEntries({ page: 1, limit: 50, projectId: value });
+    } else {
+      fetchTimeEntries({ page: 1, limit: 50 });
+    }
+  };
+
+  // Reset form
+  const resetForm = () => {
+    setFormData({
+      projectId: selectedProject || "",
+      taskId: "",
+      description: "",
+      duration: "",
+      date: new Date().toISOString().split('T')[0],
+      billable: false,
+      billRate: ""
+    });
+    setEditingEntry(null);
+  };
+
+  // Handle edit click
+  const handleEdit = (entry: TimeEntry) => {
+    setEditingEntry(entry);
+    setFormData({
+      projectId: entry.projectId,
+      taskId: entry.taskId || "",
+      description: entry.description,
+      duration: entry.duration.toString(),
+      date: new Date(entry.date).toISOString().split('T')[0],
+      billable: entry.billable,
+      billRate: entry.billRate?.toString() || ""
+    });
+  };
+
+  // Handle form submission (create or update)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validation
+    if (!formData.projectId) {
+      message.error('Please select a project');
+      return;
+    }
+    if (!formData.description || formData.description.trim().length < 5) {
+      message.error('Description must be at least 5 characters');
+      return;
+    }
+    if (!formData.duration || parseFloat(formData.duration) < 0.25) {
+      message.error('Duration must be at least 0.25 hours');
+      return;
+    }
+    if (!formData.date) {
+      message.error('Please select a date');
+      return;
+    }
+
+    const entryData = {
+      projectId: formData.projectId,
+      taskId: formData.taskId || undefined,
+      description: formData.description.trim(),
+      duration: parseFloat(formData.duration),
+      date: new Date(formData.date).toISOString(),
+      billable: formData.billable,
+      billRate: formData.billRate ? parseFloat(formData.billRate) : undefined
+    };
+
+    let success = false;
+    if (editingEntry) {
+      success = await updateTimeEntry(editingEntry._id, entryData);
+    } else {
+      success = await createTimeEntry(entryData);
+    }
+
+    if (success) {
+      // Close modals and reset
+      const modalElement = document.getElementById('edit_timesheet');
+      const bootstrapModal = (window as any).bootstrap;
+      if (bootstrapModal && modalElement) {
+        const modal = bootstrapModal.Modal.getInstance(modalElement);
+        if (modal) modal.hide();
+      }
+      const addModalElement = document.getElementById('add_timesheet');
+      if (bootstrapModal && addModalElement) {
+        const addModal = bootstrapModal.Modal.getInstance(addModalElement);
+        if (addModal) addModal.hide();
+      }
+      resetForm();
+    }
+  };
+
+  // Handle delete confirmation
+  const handleDelete = async () => {
+    if (deleteEntryId) {
+      const success = await deleteTimeEntry(deleteEntryId);
+      if (success) {
+        setDeleteEntryId(null);
+        // Close modal
+        const modalElement = document.getElementById('delete_modal');
+        const bootstrapModal = (window as any).bootstrap;
+        if (bootstrapModal && modalElement) {
+          const modal = bootstrapModal.Modal.getInstance(modalElement);
+          if (modal) modal.hide();
+        }
+      }
+    }
+  };
+
+  // Calculate total hours for display
+  const totalHours = timeEntries.reduce((sum, entry) => sum + (entry.duration || 0), 0);
+  const billableHours = timeEntries.filter(e => e.billable).reduce((sum, entry) => sum + (entry.duration || 0), 0);
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
-    return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
-  };
-  const getModalContainer2 = () => {
-    const modalElement = document.getElementById("modal_datepicker");
-    return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+    return modalElement ? modalElement : document.body;
   };
 
   return (
@@ -146,7 +328,7 @@ const TimeSheet = () => {
                 </ol>
               </nav>
             </div>
-            <div className="d-flex my-xl-auto right-content align-items-center flex-wrap ">
+            <div className="d-flex my-xl-auto right-content align-items-center flex-wrap">
               <div className="me-2 mb-2">
                 <div className="dropdown">
                   <Link
@@ -157,7 +339,7 @@ const TimeSheet = () => {
                     <i className="ti ti-file-export me-1" />
                     Export
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
                       <Link to="#" className="dropdown-item rounded-1">
                         <i className="ti ti-file-type-pdf me-1" />
@@ -167,7 +349,7 @@ const TimeSheet = () => {
                     <li>
                       <Link to="#" className="dropdown-item rounded-1">
                         <i className="ti ti-file-type-xls me-1" />
-                        Export as Excel{" "}
+                        Export as Excel
                       </Link>
                     </li>
                   </ul>
@@ -180,9 +362,10 @@ const TimeSheet = () => {
                   data-inert={true}
                   data-bs-target="#add_timesheet"
                   className="btn btn-primary d-flex align-items-center"
+                  onClick={() => resetForm()}
                 >
                   <i className="ti ti-circle-plus me-2" />
-                  Add Today’s Work
+                  Add Today's Work
                 </Link>
               </div>
               <div className="head-icons ms-2">
@@ -191,10 +374,51 @@ const TimeSheet = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+
+          {/* Stats Cards */}
+          <div className="row g-3 mb-3">
+            <div className="col-md-3">
+              <div className="card">
+                <div className="card-body">
+                  <h6 className="mb-1">Total Hours</h6>
+                  <h4 className="mb-0">{totalHours.toFixed(1)}h</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card">
+                <div className="card-body">
+                  <h6 className="mb-1">Billable Hours</h6>
+                  <h4 className="mb-0">{billableHours.toFixed(1)}h</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card">
+                <div className="card-body">
+                  <h6 className="mb-1">Entries</h6>
+                  <h4 className="mb-0">{timeEntries.length}</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card">
+                <div className="card-body">
+                  <h6 className="mb-1">Date Range</h6>
+                  <p className="mb-0 text-truncate" style={{ fontSize: '13px' }}>
+                    {dateRange.startDate && dateRange.endDate
+                      ? `${new Date(dateRange.startDate).toLocaleDateString('en-GB')} - ${new Date(dateRange.endDate).toLocaleDateString('en-GB')}`
+                      : 'All Time'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Performance Indicator list */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
-              <h5>Timesheet</h5>
+              <h5>Timesheet Entries</h5>
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
                 <div className="dropdown me-3">
                   <Link
@@ -202,24 +426,32 @@ const TimeSheet = () => {
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                   >
-                    Select Project
+                    {selectedProject
+                      ? projectOptions.find(p => p.value === selectedProject)?.label || 'Select Project'
+                      : 'Select Project'
+                    }
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Office Management
+                      <Link
+                        to="#"
+                        className="dropdown-item rounded-1"
+                        onClick={() => handleProjectFilter('')}
+                      >
+                        All Projects
                       </Link>
                     </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Project Management
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Hospital Administration
-                      </Link>
-                    </li>
+                    {projectOptions.map(project => (
+                      <li key={project.value}>
+                        <Link
+                          to="#"
+                          className="dropdown-item rounded-1"
+                          onClick={() => handleProjectFilter(project.value)}
+                        >
+                          {project.label}
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 </div>
                 <div className="dropdown">
@@ -228,32 +460,66 @@ const TimeSheet = () => {
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                   >
-                    Sort By : Last 7 Days
+                    <i className="ti ti-filter me-1" />
+                    Filter by Date
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Recently Added
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => setDateRange({})}>
+                        All Time
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Ascending
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => setDateRange({
+                        startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        endDate: new Date().toISOString().split('T')[0]
+                      })}>
+                        Last 7 Days
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Desending
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => setDateRange({
+                        startDate: new Date().toISOString().split('T')[0],
+                        endDate: new Date().toISOString().split('T')[0]
+                      })}>
+                        Today
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => {
+                        const now = new Date();
+                        setDateRange({
+                          startDate: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0],
+                          endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString().split('T')[0]
+                        });
+                      }}>
+                        This Month
+                      </Link>
+                    </li>
+                    <li>
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => {
+                        const now = new Date();
+                        setDateRange({
+                          startDate: new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0],
+                          endDate: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString().split('T')[0]
+                        });
+                      }}>
                         Last Month
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Last 7 Days
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => {
+                        const now = new Date();
+                        const startOfWeek = new Date(now);
+                        startOfWeek.setDate(now.getDate() - now.getDay());
+                        const endOfWeek = new Date(startOfWeek);
+                        endOfWeek.setDate(startOfWeek.getDate() + 6);
+                        setDateRange({
+                          startDate: startOfWeek.toISOString().split('T')[0],
+                          endDate: endOfWeek.toISOString().split('T')[0]
+                        });
+                      }}>
+                        This Week
                       </Link>
                     </li>
                   </ul>
@@ -261,7 +527,22 @@ const TimeSheet = () => {
               </div>
             </div>
             <div className="card-body p-0">
-              <Table dataSource={data} columns={columns} Selection={false} />
+              {loading ? (
+                <div className="text-center py-5">
+                  <div className="spinner-border text-primary" role="status"></div>
+                  <p className="mt-2">Loading timesheets...</p>
+                </div>
+              ) : error ? (
+                <div className="text-center py-5">
+                  <p className="text-danger">{error}</p>
+                </div>
+              ) : timeEntries.length === 0 ? (
+                <div className="text-center py-5">
+                  <p className="text-muted">No time entries found. Click "Add Today's Work" to create one.</p>
+                </div>
+              ) : (
+                <Table dataSource={timeEntries} columns={columns} Selection={false} />
+              )}
             </div>
           </div>
           {/* /Performance Indicator list */}
@@ -269,12 +550,13 @@ const TimeSheet = () => {
         <Footer />
       </div>
       {/* /Page Wrapper */}
+
       {/* Add Timesheet */}
       <div className="modal fade" id="add_timesheet">
-        <div className="modal-dialog modal-dialog-centered modal-md">
+        <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <h4 className="modal-title">Add Todays Work</h4>
+              <h4 className="modal-title">Add Today's Work</h4>
               <button
                 type="button"
                 className="btn-close custom-btn-close"
@@ -284,85 +566,102 @@ const TimeSheet = () => {
                 <i className="ti ti-x" />
               </button>
             </div>
-            <form>
+            <form onSubmit={handleSubmit}>
               <div className="modal-body pb-0">
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Project <span className="text-danger"> *</span>
+                        Project <span className="text-danger">*</span>
                       </label>
-                      <CommonSelect
-                        className="select"
-                        options={projectChoose}
-                        defaultValue={projectChoose[0]}
-                      />
+                      <select
+                        className="form-control"
+                        value={formData.projectId}
+                        onChange={(e) => handleInputChange('projectId', e.target.value)}
+                        required
+                      >
+                        <option value="">Select Project</option>
+                        {projectOptions.map(project => (
+                          <option key={project.value} value={project.value}>{project.label}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Deadline <span className="text-danger"> *</span>
+                        Description <span className="text-danger">*</span>
                       </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
+                      <textarea
+                        className="form-control"
+                        rows={3}
+                        value={formData.description}
+                        onChange={(e) => handleInputChange('description', e.target.value)}
+                        placeholder="Describe what you worked on..."
+                        required
+                      />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Total Hours <span className="text-danger"> *</span>
+                        Date <span className="text-danger">*</span>
                       </label>
-                      <input type="text" className="form-control" />
+                      <DatePicker
+                        className="form-control datetimepicker"
+                        format="DD-MM-YYYY"
+                        getPopupContainer={getModalContainer}
+                        placeholder="DD-MM-YYYY"
+                        value={formData.date ? dayjs(formData.date) : null}
+                        onChange={(date) => handleInputChange('date', date ? date.toISOString() : '')}
+                        required
+                      />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Remaining Hours<span className="text-danger"> *</span>
+                        Hours <span className="text-danger">*</span>
                       </label>
-                      <input type="text" className="form-control" />
+                      <input
+                        type="number"
+                        className="form-control"
+                        placeholder="0.00"
+                        step="0.25"
+                        min="0.25"
+                        max="24"
+                        value={formData.duration}
+                        onChange={(e) => handleInputChange('duration', e.target.value)}
+                        required
+                      />
+                      <small className="text-muted">Minimum 0.25 hours (15 minutes)</small>
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">
-                        Date<span className="text-danger"> *</span>
-                      </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
+                      <label className="form-label">Billable</label>
+                      <select
+                        className="form-control"
+                        value={formData.billable ? 'true' : 'false'}
+                        onChange={(e) => handleInputChange('billable', e.target.value === 'true')}
+                      >
+                        <option value="false">No</option>
+                        <option value="true">Yes</option>
+                      </select>
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">
-                        Hours<span className="text-danger"> *</span>
-                      </label>
-                      <input type="text" className="form-control" />
+                      <label className="form-label">Bill Rate ($)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0"
+                        value={formData.billRate}
+                        onChange={(e) => handleInputChange('billRate', e.target.value)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -376,11 +675,11 @@ const TimeSheet = () => {
                   Cancel
                 </button>
                 <button
-                  type="button"
-                  data-bs-dismiss="modal"
+                  type="submit"
                   className="btn btn-primary"
+                  disabled={loading}
                 >
-                  Add Changes
+                  {loading ? 'Adding...' : 'Add Time Entry'}
                 </button>
               </div>
             </form>
@@ -388,12 +687,13 @@ const TimeSheet = () => {
         </div>
       </div>
       {/* /Add Timesheet */}
+
       {/* Edit Timesheet */}
       <div className="modal fade" id="edit_timesheet">
-        <div className="modal-dialog modal-dialog-centered modal-md">
+        <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <h4 className="modal-title">Edit Todays Work</h4>
+              <h4 className="modal-title">Edit Time Entry</h4>
               <button
                 type="button"
                 className="btn-close custom-btn-close"
@@ -403,96 +703,101 @@ const TimeSheet = () => {
                 <i className="ti ti-x" />
               </button>
             </div>
-            <form>
+            <form onSubmit={handleSubmit}>
               <div className="modal-body pb-0">
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Project <span className="text-danger"> *</span>
+                        Project <span className="text-danger">*</span>
                       </label>
-                      <CommonSelect
-                        className="select"
-                        options={projectChoose}
-                        defaultValue={projectChoose[1]}
-                      />
+                      <select
+                        className="form-control"
+                        value={formData.projectId}
+                        onChange={(e) => handleInputChange('projectId', e.target.value)}
+                        required
+                      >
+                        <option value="">Select Project</option>
+                        {projectOptions.map(project => (
+                          <option key={project.value} value={project.value}>{project.label}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Deadline <span className="text-danger"> *</span>
+                        Description <span className="text-danger">*</span>
                       </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Total Hours <span className="text-danger"> *</span>
-                      </label>
-                      <input
-                        type="text"
+                      <textarea
                         className="form-control"
-                        defaultValue={32}
+                        rows={3}
+                        value={formData.description}
+                        onChange={(e) => handleInputChange('description', e.target.value)}
+                        placeholder="Describe what you worked on..."
+                        required
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Remaining Hours<span className="text-danger"> *</span>
+                        Date <span className="text-danger">*</span>
                       </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        defaultValue={8}
+                      <DatePicker
+                        className="form-control datetimepicker"
+                        format="DD-MM-YYYY"
+                        getPopupContainer={getModalContainer}
+                        placeholder="DD-MM-YYYY"
+                        value={formData.date ? dayjs(formData.date) : null}
+                        onChange={(date) => handleInputChange('date', date ? date.toISOString() : '')}
+                        required
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Date<span className="text-danger"> *</span>
+                        Hours <span className="text-danger">*</span>
                       </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
+                      <input
+                        type="number"
+                        className="form-control"
+                        placeholder="0.00"
+                        step="0.25"
+                        min="0.25"
+                        max="24"
+                        value={formData.duration}
+                        onChange={(e) => handleInputChange('duration', e.target.value)}
+                        required
+                      />
+                      <small className="text-muted">Minimum 0.25 hours (15 minutes)</small>
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">
-                        Hours<span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="text"
+                      <label className="form-label">Billable</label>
+                      <select
                         className="form-control"
-                        defaultValue={13}
+                        value={formData.billable ? 'true' : 'false'}
+                        onChange={(e) => handleInputChange('billable', e.target.value === 'true')}
+                      >
+                        <option value="false">No</option>
+                        <option value="true">Yes</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Bill Rate ($)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0"
+                        value={formData.billRate}
+                        onChange={(e) => handleInputChange('billRate', e.target.value)}
                       />
                     </div>
                   </div>
@@ -507,11 +812,11 @@ const TimeSheet = () => {
                   Cancel
                 </button>
                 <button
-                  type="button"
-                  data-bs-dismiss="modal"
+                  type="submit"
                   className="btn btn-primary"
+                  disabled={loading}
                 >
-                  Save Changes
+                  {loading ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -519,6 +824,45 @@ const TimeSheet = () => {
         </div>
       </div>
       {/* /Edit Timesheet */}
+
+      {/* Delete Confirmation Modal */}
+      <div className="modal fade" id="delete_modal">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Delete Time Entry</h4>
+              <button
+                type="button"
+                className="btn-close custom-btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to delete this time entry? This action cannot be undone.</p>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-light"
+                data-bs-dismiss="modal"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleDelete}
+                data-bs-dismiss="modal"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 };

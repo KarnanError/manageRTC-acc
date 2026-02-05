@@ -1,18 +1,278 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { all_routes } from "../../router/all_routes";
 import Table from "../../../core/common/dataTable/index";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import CommonSelect from "../../../core/common/commonSelect";
-import { DatePicker } from "antd";
+import { DatePicker, message, Spin } from "antd";
 import { OverlayTrigger, Tooltip } from "react-bootstrap";
-import { overtime_details } from "../../../core/data/json/overtime_details";
 import PredefinedDateRanges from "../../../core/common/datePicker";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import {
+  useOvertimeREST,
+  statusDisplayMap,
+  type OvertimeStatus,
+  type OvertimeRequest
+} from "../../../hooks/useOvertimeREST";
+import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+
+// Loading spinner component
+const LoadingSpinner = () => (
+  <div style={{ textAlign: 'center', padding: '50px' }}>
+    <Spin size="large" />
+  </div>
+);
+
+// Status badge component
+const StatusBadge = ({ status }: { status: OvertimeStatus }) => {
+  const config = statusDisplayMap[status] || statusDisplayMap.pending;
+  return (
+    <span
+      className={`badge d-inline-flex align-items-center badge-xs ${config.badgeClass}`}
+    >
+      <i className="ti ti-point-filled me-1" />
+      {config.label}
+    </span>
+  );
+};
 
 const OverTime = () => {
-  const data = overtime_details;
+  // API hooks
+  const {
+    overtimeRequests,
+    loading,
+    fetchOvertimeRequests,
+    createOvertimeRequest,
+    approveOvertimeRequest,
+    rejectOvertimeRequest,
+    deleteOvertimeRequest,
+    stats
+  } = useOvertimeREST();
+  const { employees, fetchEmployees } = useEmployeesREST();
+
+  // Local state for filters
+  const [filters, setFilters] = useState<{
+    status?: OvertimeStatus;
+    employee?: string;
+    page: number;
+    limit: number;
+  }>({
+    page: 1,
+    limit: 20,
+  });
+
+  // Form state for Add Overtime modal
+  const [addFormData, setAddFormData] = useState({
+    employeeId: '',
+    date: null as any,
+    hours: '',
+    description: '',
+    status: 'pending' as OvertimeStatus,
+  });
+
+  // Form state for Edit Overtime modal
+  const [editFormData, setEditFormData] = useState<{
+    _id: string;
+    employeeId: string;
+    date: any;
+    hours: string;
+    description: string;
+    status: OvertimeStatus;
+  } | null>(null);
+
+  // State for rejection modal
+  const [rejectModal, setRejectModal] = useState<{
+    show: boolean;
+    overtimeId: string | null;
+    reason: string;
+  }>({
+    show: false,
+    overtimeId: null,
+    reason: ''
+  });
+
+  // Fetch employees on mount
+  useEffect(() => {
+    fetchEmployees({ status: 'Active' });
+  }, []);
+
+  // Fetch overtime requests on mount and when filters change
+  useEffect(() => {
+    fetchOvertimeRequests(filters);
+  }, [filters]);
+
+  // Transform overtime requests for table display
+  const data = overtimeRequests.map((ot) => ({
+    key: ot._id,
+    _id: ot._id,
+    Employee: ot.employeeName || "Unknown",
+    Role: "Employee",
+    EmpImage: "user-32.jpg",
+    Image: "user-32.jpg",
+    Date: new Date(ot.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    OvertimeHours: `${ot.hours} Hours`,
+    Project: ot.project || "General",
+    Name: ot.approvedByName || "Pending",
+    Status: ot.status,
+    rawOvertime: ot,
+  }));
+
+  // Employee options for dropdown
+  const employeeOptions = [
+    { value: "", label: "Select Employee" },
+    ...employees.map(emp => ({
+      value: emp._id,
+      label: `${emp.firstName} ${emp.lastName}`.trim(),
+    }))
+  ];
+
+  const statusOptions = [
+    { value: "pending", label: "Pending" },
+    { value: "approved", label: "Accepted" },
+    { value: "rejected", label: "Rejected" },
+  ];
+
+  // Handler functions
+  const handleApprove = async (overtimeId: string) => {
+    const success = await approveOvertimeRequest(overtimeId, "Approved");
+    if (success) {
+      fetchOvertimeRequests(filters);
+    }
+  };
+
+  const handleRejectClick = (overtimeId: string) => {
+    setRejectModal({
+      show: true,
+      overtimeId,
+      reason: ''
+    });
+  };
+
+  const handleRejectConfirm = async () => {
+    if (rejectModal.overtimeId && rejectModal.reason.trim()) {
+      const success = await rejectOvertimeRequest(rejectModal.overtimeId, rejectModal.reason);
+      if (success) {
+        fetchOvertimeRequests(filters);
+      }
+      setRejectModal({ show: false, overtimeId: null, reason: '' });
+    }
+  };
+
+  const handleRejectCancel = () => {
+    setRejectModal({ show: false, overtimeId: null, reason: '' });
+  };
+
+  const handleDelete = async (overtimeId: string) => {
+    if (window.confirm("Are you sure you want to delete this overtime request?")) {
+      const success = await deleteOvertimeRequest(overtimeId);
+      if (success) {
+        fetchOvertimeRequests(filters);
+      }
+    }
+  };
+
+  // Handler for Add Overtime form submission
+  const handleAddOvertimeSubmit = async () => {
+    if (!addFormData.employeeId) {
+      message.error('Please select an employee');
+      return;
+    }
+    if (!addFormData.date) {
+      message.error('Please select a date');
+      return;
+    }
+    if (!addFormData.hours || parseFloat(addFormData.hours) <= 0) {
+      message.error('Please enter valid overtime hours');
+      return;
+    }
+
+    const success = await createOvertimeRequest({
+      employeeId: addFormData.employeeId,
+      date: addFormData.date.format('YYYY-MM-DD'),
+      hours: parseFloat(addFormData.hours),
+      description: addFormData.description,
+      status: addFormData.status,
+    });
+
+    if (success) {
+      // Reset form and close modal
+      setAddFormData({
+        employeeId: '',
+        date: null,
+        hours: '',
+        description: '',
+        status: 'pending',
+      });
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('add_overtime');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchOvertimeRequests(filters);
+    }
+  };
+
+  // Handler for Edit Overtime button click
+  const handleEditClick = (overtime: any) => {
+    setEditFormData({
+      _id: overtime._id,
+      employeeId: overtime.employeeId || '',
+      date: overtime.date,
+      hours: overtime.hours.toString(),
+      description: overtime.description || '',
+      status: overtime.status,
+    });
+  };
+
+  // Handler for Edit Overtime form submission
+  const handleEditOvertimeSubmit = async () => {
+    if (!editFormData) return;
+
+    if (!editFormData.employeeId) {
+      message.error('Please select an employee');
+      return;
+    }
+    if (!editFormData.date) {
+      message.error('Please select a date');
+      return;
+    }
+    if (!editFormData.hours || parseFloat(editFormData.hours) <= 0) {
+      message.error('Please enter valid overtime hours');
+      return;
+    }
+
+    const success = await createOvertimeRequest({
+      employeeId: editFormData.employeeId,
+      date: editFormData.date.format ? editFormData.date.format('YYYY-MM-DD') : editFormData.date,
+      hours: parseFloat(editFormData.hours),
+      description: editFormData.description,
+      status: editFormData.status,
+    });
+
+    if (success) {
+      setEditFormData(null);
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('edit_overtime');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchOvertimeRequests(filters);
+    }
+  };
+
+  // Filter handlers
+  const handleStatusFilter = (status: OvertimeStatus) => {
+    setFilters(prev => ({ ...prev, status, page: 1 }));
+  };
+
+  const handleEmployeeFilter = (employeeId: string) => {
+    setFilters(prev => ({ ...prev, employee: employeeId, page: 1 }));
+  };
   const columns = [
     {
       title: "Employee",
@@ -100,29 +360,43 @@ const OverTime = () => {
     {
       title: "Status",
       dataIndex: "Status",
-      render: (text: String, record: any) => (
-        <span
-          className={`badge  d-inline-flex align-items-center badge-xs ${
-            text === "Accepted" ? "badge-success" : "badge-danger"
-          }`}
-        >
-          <i className="ti ti-point-filled me-1" />
-          {text}
-        </span>
-      ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      render: (status: OvertimeStatus) => <StatusBadge status={status} />,
+      sorter: (a: any, b: any) => a.Status.localeCompare(b.Status),
     },
     {
       title: "",
       dataIndex: "actions",
-      render: () => (
+      render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
+          {record.Status === 'pending' && (
+            <>
+              <Link
+                to="#"
+                className="me-2"
+                data-bs-toggle="tooltip"
+                title="Approve"
+                onClick={() => handleApprove(record._id)}
+              >
+                <i className="ti ti-check text-success" style={{ fontSize: '18px' }} />
+              </Link>
+              <Link
+                to="#"
+                className="me-2"
+                data-bs-toggle="tooltip"
+                title="Reject"
+                onClick={() => handleRejectClick(record._id)}
+              >
+                <i className="ti ti-x text-danger" style={{ fontSize: '18px' }} />
+              </Link>
+            </>
+          )}
           <Link
             to="#"
             className="me-2"
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_overtime"
+            onClick={() => handleEditClick(record.rawOvertime)}
           >
             <i className="ti ti-edit" />
           </Link>
@@ -131,6 +405,7 @@ const OverTime = () => {
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#delete_modal"
+            onClick={() => handleDelete(record._id)}
           >
             <i className="ti ti-trash" />
           </Link>
@@ -235,7 +510,7 @@ const OverTime = () => {
                       <p className="fs-12 fw-medium mb-0 text-gray-5">
                         Overtime Employee
                       </p>
-                      <h4>12</h4>
+                      <h4>{overtimeRequests.length}</h4>
                     </div>
                     <div>
                       <span className="p-2 br-10 bg-transparent-primary border border-primary d-flex align-items-center justify-content-center">
@@ -254,7 +529,7 @@ const OverTime = () => {
                       <p className="fs-12 fw-medium mb-0 text-gray-5">
                         Overtime Hours
                       </p>
-                      <h4>118</h4>
+                      <h4>{stats?.totalHours || overtimeRequests.reduce((sum, ot) => sum + ot.hours, 0)}</h4>
                     </div>
                     <div>
                       <span className="p-2 br-10 bg-pink-transparent border border-pink d-flex align-items-center justify-content-center">
@@ -273,7 +548,7 @@ const OverTime = () => {
                       <p className="fs-12 fw-medium mb-0 text-gray-5">
                         Pending Request
                       </p>
-                      <h4>23</h4>
+                      <h4>{stats?.pending || overtimeRequests.filter(ot => ot.status === 'pending').length}</h4>
                     </div>
                     <div>
                       <span className="p-2 br-10 bg-transparent-purple border border-purple d-flex align-items-center justify-content-center">
@@ -292,7 +567,7 @@ const OverTime = () => {
                       <p className="fs-12 fw-medium mb-0 text-gray-5">
                         Rejected
                       </p>
-                      <h4>5</h4>
+                      <h4>{stats?.rejected || overtimeRequests.filter(ot => ot.status === 'rejected').length}</h4>
                     </div>
                     <div>
                       <span className="p-2 br-10 bg-skyblue-transparent border border-skyblue d-flex align-items-center justify-content-center">
@@ -430,7 +705,11 @@ const OverTime = () => {
               </div>
             </div>
             <div className="card-body p-0">
-              <Table dataSource={data} columns={columns} Selection={false} />
+              {loading ? (
+                <LoadingSpinner />
+              ) : (
+                <Table dataSource={data} columns={columns} Selection={false} />
+              )}
             </div>
           </div>
           {/* /Performance Indicator list */}
@@ -449,6 +728,13 @@ const OverTime = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setAddFormData({
+                  employeeId: '',
+                  date: null,
+                  hours: '',
+                  description: '',
+                  status: 'pending',
+                })}
               >
                 <i className="ti ti-x" />
               </button>
@@ -463,8 +749,9 @@ const OverTime = () => {
                       </label>
                       <CommonSelect
                         className="select"
-                        options={employeeName}
-                        defaultValue={employeeName[0]}
+                        options={employeeOptions}
+                        defaultValue={employeeOptions[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, employeeId: option.value })}
                       />
                     </div>
                   </div>
@@ -482,6 +769,8 @@ const OverTime = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={addFormData.date}
+                          onChange={(date) => setAddFormData({ ...addFormData, date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -492,17 +781,28 @@ const OverTime = () => {
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Overtime<span className="text-danger"> *</span>
+                        Overtime Hours<span className="text-danger"> *</span>
                       </label>
-                      <input type="text" className="form-control" />
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={addFormData.hours}
+                        onChange={(e) => setAddFormData({ ...addFormData, hours: e.target.value })}
+                        placeholder="Enter hours"
+                      />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Remaining Hours<span className="text-danger"> *</span>
+                        Status<span className="text-danger"> *</span>
                       </label>
-                      <input type="text" className="form-control" />
+                      <CommonSelect
+                        className="select"
+                        options={statusOptions}
+                        defaultValue={statusOptions[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, status: option.value })}
+                      />
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -511,19 +811,9 @@ const OverTime = () => {
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={""}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Status<span className="text-danger"> *</span>
-                      </label>
-                      <CommonSelect
-                        className="select"
-                        options={statusChoose}
-                        defaultValue={statusChoose[0]}
+                        value={addFormData.description}
+                        onChange={(e) => setAddFormData({ ...addFormData, description: e.target.value })}
+                        placeholder="Enter description"
                       />
                     </div>
                   </div>
@@ -534,15 +824,23 @@ const OverTime = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setAddFormData({
+                    employeeId: '',
+                    date: null,
+                    hours: '',
+                    description: '',
+                    status: 'pending',
+                  })}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleAddOvertimeSubmit}
+                  disabled={loading}
                 >
-                  Add Overtime
+                  {loading ? 'Adding...' : 'Add Overtime'}
                 </button>
               </div>
             </form>
@@ -561,6 +859,7 @@ const OverTime = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setEditFormData(null)}
               >
                 <i className="ti ti-x" />
               </button>
@@ -571,12 +870,13 @@ const OverTime = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
-                        Employee * <span className="text-danger"> *</span>
+                        Employee <span className="text-danger"> *</span>
                       </label>
                       <CommonSelect
                         className="select"
-                        options={employeeName}
-                        defaultValue={employeeName[1]}
+                        options={employeeOptions}
+                        defaultValue={editFormData ? employeeOptions.find(e => e.value === editFormData.employeeId) || employeeOptions[1] : employeeOptions[1]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, employeeId: option.value })}
                       />
                     </div>
                   </div>
@@ -594,6 +894,8 @@ const OverTime = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.date}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -604,24 +906,26 @@ const OverTime = () => {
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Overtime<span className="text-danger"> *</span>
+                        Overtime Hours<span className="text-danger"> *</span>
                       </label>
                       <input
-                        type="text"
+                        type="number"
                         className="form-control"
-                        defaultValue={8}
+                        value={editFormData?.hours || ''}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, hours: e.target.value })}
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">
-                        Remaining Hours<span className="text-danger"> *</span>
+                        Status<span className="text-danger"> *</span>
                       </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        defaultValue={2}
+                      <CommonSelect
+                        className="select"
+                        options={statusOptions}
+                        defaultValue={editFormData ? statusOptions.find(s => s.value === editFormData.status) || statusOptions[0] : statusOptions[0]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, status: option.value })}
                       />
                     </div>
                   </div>
@@ -631,19 +935,8 @@ const OverTime = () => {
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={""}
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Status<span className="text-danger"> *</span>
-                      </label>
-                      <CommonSelect
-                        className="select"
-                        options={statusChoose}
-                        defaultValue={statusChoose[1]}
+                        value={editFormData?.description || ''}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, description: e.target.value })}
                       />
                     </div>
                   </div>
@@ -654,15 +947,17 @@ const OverTime = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setEditFormData(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleEditOvertimeSubmit}
+                  disabled={!editFormData || loading}
                 >
-                  Add Overtime
+                  {loading ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -775,6 +1070,56 @@ const OverTime = () => {
         </div>
       </div>
       {/* /Overtime Details */}
+      {/* Reject Modal */}
+      {rejectModal.show && (
+        <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h4 className="modal-title">Reject Overtime Request</h4>
+                <button
+                  type="button"
+                  className="btn-close custom-btn-close"
+                  onClick={handleRejectCancel}
+                  aria-label="Close"
+                >
+                  <i className="ti ti-x" />
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Rejection Reason <span className="text-danger">*</span></label>
+                  <textarea
+                    className="form-control"
+                    rows={4}
+                    placeholder="Please enter the reason for rejecting this overtime request"
+                    value={rejectModal.reason}
+                    onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-light"
+                  onClick={handleRejectCancel}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={handleRejectConfirm}
+                  disabled={!rejectModal.reason.trim()}
+                >
+                  Reject Overtime
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* /Reject Modal */}
     </>
   );
 };

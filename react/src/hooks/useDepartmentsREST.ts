@@ -50,18 +50,10 @@ export const useDepartmentsREST = () => {
   /**
    * Fetch all departments with stats
    * REST API: GET /api/departments
+   * Note: Company ID is extracted server-side from the token's public metadata
+   * The API interceptor handles token refresh automatically
    */
   const fetchDepartments = useCallback(async (filters: DepartmentFilters = {}) => {
-    // Guard: Check for auth token before making request
-    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[useDepartmentsREST] Cannot fetch - missing auth token', { hasToken: !!token });
-      setError('Authentication required. Please ensure you are logged in.');
-      return [];
-    }
-
     setLoading(true);
     setError(null);
     try {

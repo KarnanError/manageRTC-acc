@@ -105,15 +105,9 @@ export const usePromotionsREST = () => {
   /**
    * Fetch promotions with filters
    * REST API: GET /api/promotions
+   * Note: The API interceptor handles token refresh automatically
    */
   const fetchPromotions = useCallback(async (filters: PromotionFilters = {}) => {
-    const token = getAuthToken();
-
-    if (!token) {
-      setError('Authentication required. Please ensure you are logged in.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
@@ -137,14 +131,9 @@ export const usePromotionsREST = () => {
   /**
    * Fetch promotion statistics
    * REST API: GET /api/promotions/stats
+   * Note: The API interceptor handles token refresh automatically
    */
   const fetchStats = useCallback(async () => {
-    const token = getAuthToken();
-
-    if (!token) {
-      return;
-    }
-
     try {
       const response: ApiResponse<PromotionStats> = await get('/promotions/stats');
 
@@ -318,14 +307,9 @@ export const usePromotionsREST = () => {
   /**
    * Fetch departments for promotion selection
    * REST API: GET /api/promotions/departments
+   * Note: The API interceptor handles token refresh automatically
    */
   const fetchDepartments = useCallback(async () => {
-    const token = getAuthToken();
-
-    if (!token) {
-      return;
-    }
-
     try {
       const response: ApiResponse<Department[]> = await get('/promotions/departments');
 
@@ -340,14 +324,9 @@ export const usePromotionsREST = () => {
   /**
    * Fetch designations for promotion selection
    * REST API: GET /api/promotions/designations
+   * Note: The API interceptor handles token refresh automatically
    */
   const fetchDesignations = useCallback(async (departmentId?: string) => {
-    const token = getAuthToken();
-
-    if (!token) {
-      return;
-    }
-
     try {
       const params = departmentId ? { departmentId } : {};
       const response: ApiResponse<Designation[]> = await get('/promotions/designations', { params });
@@ -364,14 +343,8 @@ export const usePromotionsREST = () => {
   }, []);
 
   // Initial data fetch
+  // The API interceptor handles token refresh automatically
   useEffect(() => {
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[usePromotionsREST] Waiting for auth token');
-      return;
-    }
-
     fetchPromotions();
     fetchStats();
     fetchDepartments();

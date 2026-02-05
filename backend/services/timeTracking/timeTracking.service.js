@@ -154,7 +154,40 @@ export const getTimeEntriesByUser = async (companyId, userId, filters = {}) => {
       .sort(sort)
       .toArray();
 
-    return { done: true, data: timeEntries };
+    // Populate userDetails for the user
+    const employee = await collections.employees.findOne({ userId });
+    const userDetails = employee ? {
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      employeeId: employee.employeeId,
+      userId: employee.userId
+    } : null;
+
+    // Populate projectDetails for all entries
+    const projectIds = [...new Set(timeEntries
+      .filter(entry => entry.projectId)
+      .map(entry => entry.projectId.toString())
+    )];
+
+    const projects = await collections.projects.find({
+      _id: { $in: projectIds.map(id => new ObjectId(id)) }
+    }).toArray();
+
+    const projectMap = new Map(
+      projects.map(project => [project._id.toString(), {
+        projectId: project.projectId,
+        name: project.name
+      }])
+    );
+
+    // Enrich time entries with userDetails and projectDetails
+    const enrichedEntries = timeEntries.map(entry => ({
+      ...entry,
+      userDetails,
+      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined
+    }));
+
+    return { done: true, data: enrichedEntries };
   } catch (error) {
     console.error('[TimeTrackingService] Error in getTimeEntriesByUser', {
       error: error.message,
@@ -208,7 +241,39 @@ export const getTimeEntriesByProject = async (companyId, projectId, filters = {}
       .sort(sort)
       .toArray();
 
-    return { done: true, data: timeEntries };
+    // Populate userDetails for all entries
+    const userIds = [...new Set(timeEntries.map(entry => entry.userId))];
+    const employees = await collections.employees.find({
+      userId: { $in: userIds }
+    }).toArray();
+
+    const employeeMap = new Map(
+      employees.map(emp => [emp.userId, {
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        employeeId: emp.employeeId,
+        userId: emp.userId
+      }])
+    );
+
+    // Get project details
+    const project = await collections.projects.findOne({
+      _id: new ObjectId(projectId)
+    });
+
+    const projectDetails = project ? {
+      projectId: project.projectId,
+      name: project.name
+    } : null;
+
+    // Enrich time entries with userDetails and projectDetails
+    const enrichedEntries = timeEntries.map(entry => ({
+      ...entry,
+      userDetails: employeeMap.get(entry.userId),
+      projectDetails
+    }));
+
+    return { done: true, data: enrichedEntries };
   } catch (error) {
     console.error('[TimeTrackingService] Error in getTimeEntriesByProject', {
       error: error.message,
@@ -311,7 +376,46 @@ export const getTimeEntries = async (companyId, filters = {}) => {
       .sort(sort)
       .toArray();
 
-    return { done: true, data: timeEntries };
+    // Populate userDetails for all entries
+    const userIds = [...new Set(timeEntries.map(entry => entry.userId))];
+    const employees = await collections.employees.find({
+      userId: { $in: userIds }
+    }).toArray();
+
+    const employeeMap = new Map(
+      employees.map(emp => [emp.userId, {
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        employeeId: emp.employeeId,
+        userId: emp.userId
+      }])
+    );
+
+    // Populate projectDetails for all entries
+    const projectIds = [...new Set(timeEntries
+      .filter(entry => entry.projectId)
+      .map(entry => entry.projectId.toString())
+    )];
+
+    const projects = await collections.projects.find({
+      _id: { $in: projectIds.map(id => new ObjectId(id)) }
+    }).toArray();
+
+    const projectMap = new Map(
+      projects.map(project => [project._id.toString(), {
+        projectId: project.projectId,
+        name: project.name
+      }])
+    );
+
+    // Enrich time entries with userDetails and projectDetails
+    const enrichedEntries = timeEntries.map(entry => ({
+      ...entry,
+      userDetails: employeeMap.get(entry.userId),
+      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined
+    }));
+
+    return { done: true, data: enrichedEntries };
   } catch (error) {
     console.error('[TimeTrackingService] Error in getTimeEntries', {
       error: error.message,
@@ -339,6 +443,19 @@ export const getTimeEntryById = async (companyId, timeEntryId) => {
 
     if (!timeEntry) {
       return { done: false, error: 'Time entry not found' };
+    }
+
+    // Populate user details
+    const employee = await collections.employees.findOne({
+      userId: timeEntry.userId
+    });
+    if (employee) {
+      timeEntry.userDetails = {
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        employeeId: employee.employeeId,
+        userId: employee.userId
+      };
     }
 
     // Populate project details

@@ -479,6 +479,18 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
                 {
+                  label: "Shifts Management",
+                  link: routes.shiftsManagement,
+                  base: "shifts-management",
+                  customSubmenuTwo: false,
+                },
+                {
+                  label: "Shift Batches",
+                  link: routes.batchesManagement,
+                  base: "batches-management",
+                  customSubmenuTwo: false,
+                },
+                {
                   label: "Overtime",
                   link: routes.overtime,
                   base: "overtime",
@@ -2440,6 +2452,18 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
                 {
+                  label: "Shifts Management",
+                  link: routes.shiftsManagement,
+                  base: "shifts-management",
+                  customSubmenuTwo: false,
+                },
+                {
+                  label: "Shift Batches",
+                  link: routes.batchesManagement,
+                  base: "batches-management",
+                  customSubmenuTwo: false,
+                },
+                {
                   label: "Overtime",
                   link: routes.overtime,
                   base: "overtime",
@@ -3398,6 +3422,18 @@ const useSidebarData = () => {
                   label: "Shift & Schedule",
                   link: routes.scheduletiming,
                   base: "shift-schedule",
+                  customSubmenuTwo: false,
+                },
+                {
+                  label: "Shifts Management",
+                  link: routes.shiftsManagement,
+                  base: "shifts-management",
+                  customSubmenuTwo: false,
+                },
+                {
+                  label: "Shift Batches",
+                  link: routes.batchesManagement,
+                  base: "batches-management",
                   customSubmenuTwo: false,
                 },
                 {

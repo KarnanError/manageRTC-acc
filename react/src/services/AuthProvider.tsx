@@ -80,13 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [getToken, isSignedIn, isLoaded]);
 
-  // Don't render children until token is ready for authenticated users
-  if (isLoaded && isSignedIn && !tokenReady) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-      <div>Loading authentication...</div>
-    </div>;
-  }
-
+  // Render children immediately - authentication loads in background
+  // The existing page loader handles visual feedback during navigation
+  // API interceptor will wait for token when needed
   return <>{children}</>;
 };
 

@@ -37,7 +37,7 @@ export const generateLeaveReport = async (req, res) => {
     }
 
     if (status) filter.status = status;
-    if (leaveType) filter.leaveTypeId = leaveType;
+    if (leaveType) filter.leaveType = leaveType;
 
     // Get employees to filter by department
     let employeeIds = [];
@@ -58,17 +58,16 @@ export const generateLeaveReport = async (req, res) => {
 
     // Get leave records
     const leaveRecords = await Leave.find(filter)
-      .populate('employeeId', 'employeeId firstName lastName email departmentId')
-      .populate('leaveTypeId', 'name code isPaid')
+      .populate('employee', 'employeeId firstName lastName email departmentId')
       .sort({ createdAt: -1 })
       .lean();
 
     // Calculate statistics
     const totalLeaves = leaveRecords.length;
-    const pendingCount = leaveRecords.filter(l => l.status === 'Pending').length;
-    const approvedCount = leaveRecords.filter(l => l.status === 'Approved').length;
-    const rejectedCount = leaveRecords.filter(l => l.status === 'Rejected').length;
-    const cancelledCount = leaveRecords.filter(l => l.status === 'Cancelled').length;
+    const pendingCount = leaveRecords.filter(l => l.status === 'pending').length;
+    const approvedCount = leaveRecords.filter(l => l.status === 'approved').length;
+    const rejectedCount = leaveRecords.filter(l => l.status === 'rejected').length;
+    const cancelledCount = leaveRecords.filter(l => l.status === 'cancelled').length;
 
     const totalLeaveDays = leaveRecords.reduce((sum, l) => sum + (l.numberOfDays || 0), 0);
     const approvedLeaveDays = leaveRecords
@@ -78,7 +77,7 @@ export const generateLeaveReport = async (req, res) => {
     // Group by leave type
     const byLeaveType = {};
     leaveRecords.forEach(leave => {
-      const typeName = leave.leaveTypeId?.name || 'Unknown';
+      const typeName = leave.leaveType || 'Unknown';
       if (!byLeaveType[typeName]) {
         byLeaveType[typeName] = {
           count: 0,
@@ -95,10 +94,10 @@ export const generateLeaveReport = async (req, res) => {
 
     // Group by status
     const byStatus = {
-      Pending: pendingCount,
-      Approved: approvedCount,
-      Rejected: rejectedCount,
-      Cancelled: cancelledCount
+      pending: pendingCount,
+      approved: approvedCount,
+      rejected: rejectedCount,
+      cancelled: cancelledCount
     };
 
     logger.info('Leave report generated', { companyId, totalLeaves });
@@ -258,14 +257,13 @@ export const generateMonthlyLeaveSummary = async (req, res) => {
       companyId,
       fromDate: { $gte: startDate, $lte: endDate }
     })
-      .populate('employeeId', 'employeeId firstName lastName departmentId')
-      .populate('leaveTypeId', 'name code')
+      .populate('employee', 'employeeId firstName lastName departmentId')
       .lean();
 
     // Group by leave type
     const byLeaveType = {};
     leaves.forEach(leave => {
-      const typeName = leave.leaveTypeId?.name || 'Unknown';
+      const typeName = leave.leaveType || 'Unknown';
       if (!byLeaveType[typeName]) {
         byLeaveType[typeName] = {
           count: 0,
@@ -276,14 +274,14 @@ export const generateMonthlyLeaveSummary = async (req, res) => {
       }
       byLeaveType[typeName].count++;
       byLeaveType[typeName].totalDays += leave.numberOfDays || 0;
-      if (leave.status === 'Approved') byLeaveType[typeName].approved++;
-      if (leave.status === 'Pending') byLeaveType[typeName].pending++;
+      if (leave.status === 'approved') byLeaveType[typeName].approved++;
+      if (leave.status === 'pending') byLeaveType[typeName].pending++;
     });
 
     // Group by department
     const byDepartment = {};
     leaves.forEach(leave => {
-      const deptName = leave.employeeId?.departmentId?.toString() || 'Unassigned';
+      const deptName = leave.employee?.departmentId?.toString() || 'Unassigned';
       if (!byDepartment[deptName]) {
         byDepartment[deptName] = {
           department: deptName,
@@ -294,16 +292,16 @@ export const generateMonthlyLeaveSummary = async (req, res) => {
       }
       byDepartment[deptName].totalLeaves++;
       byDepartment[deptName].totalDays += leave.numberOfDays || 0;
-      if (leave.status === 'Approved') byDepartment[deptName].approved++;
+      if (leave.status === 'approved') byDepartment[deptName].approved++;
     });
 
     // Overall statistics
     const summary = {
       totalLeaves: leaves.length,
       totalDays: leaves.reduce((sum, l) => sum + (l.numberOfDays || 0), 0),
-      approved: leaves.filter(l => l.status === 'Approved').length,
-      pending: leaves.filter(l => l.status === 'Pending').length,
-      rejected: leaves.filter(l => l.status === 'Rejected').length
+      approved: leaves.filter(l => l.status === 'approved').length,
+      pending: leaves.filter(l => l.status === 'pending').length,
+      rejected: leaves.filter(l => l.status === 'rejected').length
     };
 
     logger.info('Monthly leave summary generated', { companyId, month: reportMonth, year: reportYear });
@@ -344,8 +342,7 @@ export const exportLeaveReport = async (req, res) => {
     }
 
     const leaves = await Leave.find(filter)
-      .populate('employeeId', 'employeeId firstName lastName email')
-      .populate('leaveTypeId', 'name')
+      .populate('employee', 'employeeId firstName lastName email')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -365,9 +362,9 @@ export const exportLeaveReport = async (req, res) => {
 
     const rows = leaves.map(leave => [
       leave.leaveId,
-      leave.employeeId?.employeeId || 'N/A',
-      leave.employeeId ? `${leave.employeeId.firstName} ${leave.employeeId.lastName}` : 'Unknown',
-      leave.leaveTypeId?.name || 'N/A',
+      leave.employee?.employeeId || 'N/A',
+      leave.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'Unknown',
+      leave.leaveType || 'N/A',
       leave.fromDate?.toISOString().split('T')[0],
       leave.toDate?.toISOString().split('T')[0],
       leave.numberOfDays,

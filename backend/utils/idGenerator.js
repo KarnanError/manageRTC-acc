@@ -205,6 +205,35 @@ export const generateAttendanceId = async (companyId) => {
 };
 
 /**
+ * generateOvertimeId - Generate unique overtime request ID
+ * Format: OVT-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @param {Date} date - Overtime date
+ * @returns {Promise<string>} Generated overtime ID
+ */
+export const generateOvertimeId = async (companyId, date = new Date()) => {
+  const OvertimeRequest = mongoose.model('OvertimeRequest');
+  const year = new Date(date).getFullYear();
+
+  const lastOvertime = await OvertimeRequest.findOne({
+    companyId,
+    overtimeId: new RegExp(`^OVT-${year}-`)
+  }).sort({ overtimeId: -1 });
+
+  let sequence = 1;
+
+  if (lastOvertime && lastOvertime.overtimeId) {
+    const lastSequence = parseInt(lastOvertime.overtimeId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `OVT-${year}-${paddedSequence}`;
+};
+
+/**
  * generateShiftId - Generate unique shift ID
  * Format: SHF-YYYY-NNNN
  *
@@ -358,6 +387,34 @@ export const generateId = (prefix, companyId = '') => {
   return `${prefix}-${timestamp}-${random}`;
 };
 
+/**
+ * generateBatchId - Generate unique batch ID
+ * Format: BCH-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated batch ID
+ */
+export const generateBatchId = async (companyId) => {
+  const Batch = mongoose.model('Batch');
+  const year = new Date().getFullYear();
+
+  const lastBatch = await Batch.findOne({
+    companyId,
+    batchId: new RegExp(`^BCH-${year}-`)
+  }).sort({ batchId: -1 });
+
+  let sequence = 1;
+
+  if (lastBatch && lastBatch.batchId) {
+    const lastSequence = parseInt(lastBatch.batchId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `BCH-${year}-${paddedSequence}`;
+};
+
 export default {
   generateEmployeeId,
   generateProjectId,
@@ -366,7 +423,9 @@ export default {
   generateLeadId,
   generateClientId,
   generateAttendanceId,
+  generateOvertimeId,
   generateShiftId,
+  generateBatchId,
   generateAssetId,
   generateTrainingId,
   generateActivityId,

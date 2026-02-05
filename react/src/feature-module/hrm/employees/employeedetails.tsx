@@ -226,6 +226,15 @@ export interface Employee {
     designationId: string;
     avatarUrl: string;
     clientId: string;
+    shiftId?: string;
+    shiftName?: string;
+    shiftColor?: string;
+    shiftTiming?: string;
+    batchId?: string;
+    batchName?: string;
+    batchShiftName?: string;
+    batchShiftTiming?: string;
+    batchShiftColor?: string;
 }
 
 interface DepartmentDesignationMapping {
@@ -1904,6 +1913,60 @@ const EmployeeDetails = () => {
                                                 </span>
                                                 <p className="text-dark">{employee?.designation || '—'}</p>
                                             </div>
+                                            {(employee?.batchId || employee?.batchName || employee?.shiftId || employee?.shiftName) && (
+                                                <div className="d-flex align-items-center justify-content-between mt-2">
+                                                    <span className="d-inline-flex align-items-center">
+                                                        <i className="ti ti-clock me-2" />
+                                                        Shift Assignment
+                                                    </span>
+                                                    <div className="text-end">
+                                                        {employee?.batchName ? (
+                                                            // Shift Batch Assignment
+                                                            <>
+                                                                <p className="text-dark mb-0">
+                                                                    {employee?.batchName}
+                                                                    {employee?.batchShiftName && ` - ${employee.batchShiftName}`}
+                                                                </p>
+                                                                <small className="text-muted">
+                                                                    <span
+                                                                        className="d-inline-block me-1"
+                                                                        style={{
+                                                                            width: "8px",
+                                                                            height: "8px",
+                                                                            borderRadius: "2px",
+                                                                            backgroundColor: employee?.batchShiftColor || "#6c757d",
+                                                                            display: "inline-block"
+                                                                        }}
+                                                                    />
+                                                                    {employee?.batchShiftTiming && `(${employee.batchShiftTiming})`}
+                                                                    <span className="badge badge-info ms-2">Rotation Enabled</span>
+                                                                </small>
+                                                            </>
+                                                        ) : employee?.shiftName ? (
+                                                            // Direct Shift Assignment
+                                                            <>
+                                                                <p className="text-dark mb-0">{employee?.shiftName}</p>
+                                                                <small className="text-muted">
+                                                                    <span
+                                                                        className="d-inline-block me-1"
+                                                                        style={{
+                                                                            width: "8px",
+                                                                            height: "8px",
+                                                                            borderRadius: "2px",
+                                                                            backgroundColor: employee?.shiftColor || "#6c757d",
+                                                                            display: "inline-block"
+                                                                        }}
+                                                                    />
+                                                                    {employee?.shiftTiming && `(${employee.shiftTiming})`}
+                                                                    <span className="badge badge-secondary ms-2">Permanent</span>
+                                                                </small>
+                                                            </>
+                                                        ) : (
+                                                            <p className="text-muted mb-0">—</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                             {employeePromotion && (
                                                 <div className="d-flex align-items-center justify-content-between mt-2">
                                                     <span className="d-inline-flex align-items-center">

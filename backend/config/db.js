@@ -129,6 +129,14 @@ export const getTenantCollections = (tenantDbName) => {
     holidays: db.collection('holidays'),
     holidayTypes: db.collection('holidayTypes'),
     shifts: db.collection('shifts'),
+    batches: db.collection('batches'),
+    batchAssignmentHistory: db.collection('batchAssignmentHistory'),
+
+    // Time Tracking
+    timeEntries: db.collection('timeEntries'),
+
+    // Overtime
+    overtimeRequests: db.collection('overtimeRequests'),
 
     // invoice section
     addInvoices: db.collection('invoices'),

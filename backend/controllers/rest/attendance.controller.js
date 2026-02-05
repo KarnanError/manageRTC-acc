@@ -193,7 +193,8 @@ export const createAttendance = asyncHandler(async (req, res) => {
   // Prepare attendance data
   const attendanceToInsert = {
     attendanceId: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    employeeId: employee.employeeId,
+    employee: employee._id, // ObjectId reference for Mongoose features
+    employeeId: employee.employeeId, // String ID for efficient querying
     employeeName: `${employee.firstName} ${employee.lastName}`,
     date: new Date(),
     clockIn: {
@@ -483,8 +484,9 @@ export const getAttendanceByEmployee = asyncHandler(async (req, res) => {
   const { page, limit, startDate, endDate } = req.query;
   const user = extractUser(req);
 
-  if (!ObjectId.isValid(employeeId)) {
-    throw buildValidationError('employeeId', 'Invalid employee ID format');
+  // Validate employeeId (it's a string like "EMP-2026-0001", not an ObjectId)
+  if (!employeeId || typeof employeeId !== 'string' || !employeeId.trim()) {
+    throw buildValidationError('employeeId', 'Employee ID is required and must be a string');
   }
 
   console.log('[Attendance Controller] getAttendanceByEmployee - employeeId:', employeeId, 'companyId:', user.companyId);
@@ -1028,8 +1030,9 @@ export const generateEmployeeReport = asyncHandler(async (req, res) => {
   const { startDate, endDate, format = 'json' } = req.body;
   const user = extractUser(req);
 
-  if (!ObjectId.isValid(employeeId)) {
-    throw buildValidationError('employeeId', 'Invalid employee ID format');
+  // Validate employeeId (it's a string like "EMP-2026-0001", not an ObjectId)
+  if (!employeeId || typeof employeeId !== 'string' || !employeeId.trim()) {
+    throw buildValidationError('employeeId', 'Employee ID is required and must be a string');
   }
 
   if (!startDate || !endDate) {

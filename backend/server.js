@@ -51,8 +51,12 @@ import shiftRoutes from "./routes/api/shifts.js";
 import taskRoutes from "./routes/api/tasks.js";
 import terminationRoutes from "./routes/api/terminations.js";
 import trainingRoutes from "./routes/api/training.js";
+import timetrackingRoutes from "./routes/api/timetracking.js";
+import overtimeRoutes from "./routes/api/overtime.js";
 import userProfileRoutes from "./routes/api/user-profile.js";
 import clerkWebhookRoutes from "./routes/webhooks/clerk.routes.js";
+import scheduleRoutes from "./routes/api/schedule.js";
+import batchRoutes from "./routes/api/batches.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,11 +193,15 @@ const initializeServer = async () => {
     app.use("/api/designations", designationRoutes);
     app.use("/api/resignations", resignationRoutes);
     app.use("/api/shifts", shiftRoutes);
+    app.use("/api/batches", batchRoutes);
     app.use("/api/terminations", terminationRoutes);
     app.use("/api/holidays", holidayRoutes);
     app.use("/api/hr-dashboard", hrDashboardRoutes);
     app.use("/api/admin-dashboard", adminDashboardRoutes);
     app.use("/api/user-profile", userProfileRoutes);
+    app.use("/api/timetracking", timetrackingRoutes);
+    app.use("/api/overtime", overtimeRoutes);
+    app.use("/api/schedule", scheduleRoutes);
 
     // Clerk Webhooks
     app.use("/api/webhooks", clerkWebhookRoutes);
