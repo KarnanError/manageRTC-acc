@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { ObjectId } from "mongodb";
-import { getTenantCollections } from "../../config/db.js";
+import { client, getTenantCollections } from "../../config/db.js";
+import { AppError, buildValidationError } from "../../middleware/errorHandler.js";
 
 const normalizeStatus = (status) => {
   if (!status) return "Active";
@@ -12,6 +13,34 @@ const normalizeStatus = (status) => {
   if (normalized === "terminated") return "Terminated";
   if (normalized === "on leave") return "On Leave";
   return "Active";
+};
+
+const buildDependentRecordsError = (details) => {
+  const err = new AppError(
+    "Dependent records exist. Reassignment is required before deletion.",
+    409,
+    "DEPENDENT_RECORDS"
+  );
+  err.details = [{ requiresReassign: true, ...details }];
+  return err;
+};
+
+const countDesignationDependencies = async (collections, sourceId, sourceIdStr) => {
+  const [employees, policies, promotions] = await Promise.all([
+    collections.employees.countDocuments({ designationId: sourceIdStr }),
+    collections.policy.countDocuments({
+      "assignTo.designationIds": sourceId,
+      applyToAll: false,
+    }),
+    collections.promotions.countDocuments({
+      $or: [
+        { "promotionTo.designationId": sourceIdStr },
+        { "promotionFrom.designationId": sourceIdStr },
+      ],
+    }),
+  ]);
+
+  return { employees, policies, promotions };
 };
 
 export const addDesignation = async (companyId, hrId, payload) => {
@@ -69,151 +98,122 @@ export const addDesignation = async (companyId, hrId, payload) => {
   }
 };
 
-export const deleteDesignation = async (companyId, hrId, designationId) => {
-  try {
-    if (!companyId || !hrId || !designationId) {
-      return { done: false, error: "Missing required fields" };
-    }
-
-    const collections = getTenantCollections(companyId);
-    const designationObjId = new ObjectId(designationId);
-
-    const [hrExists, designation] = await Promise.all([
-      collections.hr.countDocuments({ userId: hrId }),
-      collections.designations.findOne({ _id: designationObjId }),
-    ]);
-
-    // if (!hrExists) {
-    //   return { done: false, error: "HR not found" };
-    // }
-
-    if (!designation) {
-      return { done: false, error: "Designation not found" };
-    }
-
-    const employeeCount = await collections.employees.countDocuments({
-      designation: designation.designation,
-    });
-
-    if (employeeCount > 0) {
-      return {
-        done: false,
-        error: `${employeeCount} employee(s) use '${designation.designation}'`,
-      };
-    }
-
-    const deleteResult = await collections.designations.deleteOne({
-      _id: designationObjId,
-    });
-
-    if (deleteResult.deletedCount === 0) {
-      return { done: false, error: "Failed to delete designation" };
-    }
-
-    return {
-      done: true,
-      data: { deletedDesignation: designation.designation },
-      message: `'${designation.designation}' deleted successfully`,
-    };
-  } catch (error) {
-    console.error("Delete designation failed:", error);
-    return {
-      done: false,
-      error: `Operation failed: ${error.message}`,
-    };
+export const deleteDesignation = async (companyId, hrId, designationId, reassignTo = null) => {
+  if (!companyId || !designationId) {
+    throw buildValidationError("designationId", "Missing required fields");
   }
+
+  const collections = getTenantCollections(companyId);
+  const designationObjId = new ObjectId(designationId);
+
+  const designation = await collections.designations.findOne({ _id: designationObjId });
+  if (!designation) {
+    throw new AppError("Designation not found", 404, "NOT_FOUND");
+  }
+
+  const dependencyCounts = await countDesignationDependencies(
+    collections,
+    designationObjId,
+    designationObjId.toString()
+  );
+
+  const hasDependencies = Object.values(dependencyCounts).some((count) => count > 0);
+  if (hasDependencies && !reassignTo) {
+    throw buildDependentRecordsError(dependencyCounts);
+  }
+
+  if (reassignTo) {
+    if (!ObjectId.isValid(reassignTo)) {
+      throw buildValidationError("reassignTo", "Invalid target designation ID format");
+    }
+    if (reassignTo === designationObjId.toString()) {
+      throw buildValidationError("reassignTo", "Target designation must be different");
+    }
+  }
+
+  const targetDesignation = reassignTo
+    ? await collections.designations.findOne({ _id: new ObjectId(reassignTo) })
+    : null;
+
+  if (reassignTo && !targetDesignation) {
+    throw buildValidationError("reassignTo", "Target designation not found");
+  }
+
+  if (reassignTo && targetDesignation) {
+    if (!designation.departmentId.equals(targetDesignation.departmentId)) {
+      throw buildValidationError("reassignTo", "Target designation must be in the same department");
+    }
+  }
+
+  const session = client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (reassignTo && targetDesignation) {
+        const targetId = new ObjectId(reassignTo);
+        const sourceIdStr = designationObjId.toString();
+        const targetIdStr = targetId.toString();
+
+        await collections.employees.updateMany(
+          { designationId: sourceIdStr },
+          {
+            $set: {
+              designationId: targetIdStr,
+              designation: targetDesignation.designation
+            }
+          },
+          { session }
+        );
+
+        await collections.policy.updateMany(
+          { "assignTo.designationIds": designationObjId, applyToAll: false },
+          { $set: { "assignTo.$[dept].designationIds.$[desig]": targetId } },
+          {
+            arrayFilters: [
+              { "dept.departmentId": designation.departmentId },
+              { "desig": designationObjId }
+            ],
+            session
+          }
+        );
+
+        await collections.promotions.updateMany(
+          { "promotionTo.designationId": sourceIdStr },
+          { $set: { "promotionTo.designationId": targetIdStr } },
+          { session }
+        );
+        await collections.promotions.updateMany(
+          { "promotionFrom.designationId": sourceIdStr },
+          { $set: { "promotionFrom.designationId": targetIdStr } },
+          { session }
+        );
+      }
+
+      const deleteResult = await collections.designations.deleteOne(
+        { _id: designationObjId },
+        { session }
+      );
+
+      if (deleteResult.deletedCount === 0) {
+        throw new AppError("Failed to delete designation", 500, "DELETE_FAILED");
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return {
+    done: true,
+    data: { deletedDesignation: designation.designation },
+    message: `'${designation.designation}' deleted successfully`,
+  };
 };
 
 export const reassignAndDeleteDesignation = async (companyId, hrId, payload) => {
-  try {
-    if (!companyId || !payload || !payload.sourceDesignationId || !payload.targetDesignationId) {
-      return { done: false, error: "Missing required fields" };
-    }
-
-    const collections = getTenantCollections(companyId);
-    const sourceId = new ObjectId(payload.sourceDesignationId);
-    const targetId = new ObjectId(payload.targetDesignationId);
-
-    // Verify source designation exists
-    const sourceDesignation = await collections.designations.findOne({
-      _id: sourceId,
-    });
-    if (!sourceDesignation) {
-      return { done: false, error: "Source designation not found" };
-    }
-
-    // Verify target designation exists
-    const targetDesignation = await collections.designations.findOne({
-      _id: targetId,
-    });
-    if (!targetDesignation) {
-      return { done: false, error: "Target designation not found" };
-    }
-
-    // Verify both designations are in the same department
-    if (!sourceDesignation.departmentId.equals(targetDesignation.departmentId)) {
-      return { done: false, error: "Target designation must be in the same department" };
-    }
-
-    // Reassign employees from source to target designation
-    // Employees store designationId as string of ObjectId
-    const employeeUpdateResult = await collections.employees.updateMany(
-      { designationId: sourceId.toString() },
-      { 
-        $set: { 
-          designationId: targetId.toString(),
-          designation: targetDesignation.designation
-        } 
-      }
-    );
-
-    // Reassign policies from source to target designation
-    // Policies have assignTo: [{departmentId: ObjectId, designationIds: [ObjectId]}]
-    // We need to replace sourceId with targetId in designationIds arrays
-    const policyUpdateResult = await collections.policy.updateMany(
-      { 
-        "assignTo.designationIds": sourceId,  // Find policies containing source designation
-        applyToAll: false  // Only update policies that are not applied to all
-      },
-      { 
-        $set: { 
-          "assignTo.$[dept].designationIds.$[desig]": targetId  // Replace designation ObjectId
-        }
-      },
-      { 
-        arrayFilters: [
-          { "dept.departmentId": sourceDesignation.departmentId },  // Match the department
-          { "desig": sourceId }  // Match the specific designation to replace
-        ]
-      }
-    );
-
-    // Delete source designation
-    const deleteResult = await collections.designations.deleteOne({
-      _id: sourceId,
-    });
-
-    if (deleteResult.deletedCount === 0) {
-      return { done: false, error: "Failed to delete designation" };
-    }
-
-    return {
-      done: true,
-      message: "Designation deleted and all employees and policies reassigned successfully",
-      data: {
-        employeesReassigned: employeeUpdateResult.modifiedCount,
-        policiesReassigned: policyUpdateResult.modifiedCount,
-        deletedDesignation: sourceDesignation.designation,
-        targetDesignation: targetDesignation.designation,
-      },
-    };
-  } catch (error) {
-    console.error("Reassign and delete designation failed:", error);
-    return {
-      done: false,
-      error: `Internal server error: ${error.message}`,
-    };
+  if (!companyId || !payload || !payload.sourceDesignationId || !payload.targetDesignationId) {
+    throw buildValidationError("designationId", "Missing required fields");
   }
+
+  return deleteDesignation(companyId, hrId, payload.sourceDesignationId, payload.targetDesignationId);
 };
 
 export const displayDesignations = async (companyId, hrId, filters) => {

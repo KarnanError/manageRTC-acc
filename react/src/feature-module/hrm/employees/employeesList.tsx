@@ -57,10 +57,17 @@ interface Address {
   country: string;
 }
 
+interface PassportInfo {
+  number?: string;
+  expiryDate?: string;
+  country?: string;
+}
+
 interface PersonalInfo {
   gender: string;
   birthday: string | null;
   address: Address;
+  passport?: PassportInfo;
 }
 
 interface Employee {
@@ -323,8 +330,7 @@ const EmployeeList = () => {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(
     null,
   );
-  const [reassignEmployeeId, setReassignEmployeeId] = useState('');
-  const [reassignError, setReassignError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newlyAddedEmployee, setNewlyAddedEmployee] = useState<Employee | null>(
     null,
@@ -383,7 +389,6 @@ const EmployeeList = () => {
     createEmployee,
     updateEmployee,
     deleteEmployee: deleteEmployeeREST,
-    reassignAndDeleteEmployee,
     updatePermissions,
     updatePersonalInfo,
     checkDuplicates: checkDuplicatesREST,
@@ -1045,6 +1050,7 @@ const EmployeeList = () => {
             data-bs-target="#delete_modal"
             onClick={() => {
               setEmployeeToDelete(employee);
+              setDeleteError('');
             }}
           >
             <i className="ti ti-trash" />
@@ -1248,9 +1254,26 @@ const EmployeeList = () => {
     }
   };
 
+  const DATE_FORMAT = "DD-MM-YYYY";
+  const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
+
+  const isValidDateString = (value?: string | null) =>
+    !!value && DATE_REGEX.test(value);
+
+  const toDayjsDate = (value?: string | null) => {
+    if (!value) return null;
+    if (isValidDateString(value)) {
+      const parsed = dayjs(value, DATE_FORMAT);
+      return parsed.isValid() ? parsed : null;
+    }
+    const fallback = dayjs(value);
+    return fallback.isValid() ? fallback : null;
+  };
+
   // Handle date change
-  const handleDateChange = (date: string) => {
-    setFormData((prev) => ({ ...prev, dateOfJoining: date }));
+  const handleDateChange = (_date: any, dateString?: string) => {
+    const value = dateString || "";
+    setFormData((prev) => ({ ...prev, dateOfJoining: value }));
   };
 
   // Handle select dropdown changes
@@ -1284,34 +1307,19 @@ const EmployeeList = () => {
     setEmployees(sortedData);
   };
 
-  // Get eligible employees for reassignment (same department and designation)
-  const getEligibleEmployees = () => {
-    if (!employeeToDelete) return [];
-
-    return employees.filter(emp =>
-      emp.status === 'Active' &&
-      emp._id !== employeeToDelete._id &&
-      emp.departmentId === employeeToDelete.departmentId &&
-      emp.designationId === employeeToDelete.designationId
-    );
-  };
-
-  // Delete with reassignment
-  const deleteEmployee = async (id: string, reassignedTo: string): Promise<boolean> => {
+  const deleteEmployee = async (id: string): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
 
-      if (!id || !reassignedTo) {
-        setReassignError("Employee ID and reassignment employee are required");
-        setLoading(false);
+      if (!id) {
+        setDeleteError("Employee ID is required");
         return false;
       }
 
-      // Use REST API to reassign and delete employee
-      const success = await reassignAndDeleteEmployee(id, reassignedTo, { showMessage: false });
-      if (!success) {
-        setReassignError("Failed to delete employee");
+      const result = await deleteEmployeeREST(id, { showMessage: false });
+      if (!result.success) {
+        setDeleteError(result.error?.message || "Failed to delete employee");
         return false;
       }
 
@@ -1322,7 +1330,7 @@ const EmployeeList = () => {
       return true;
     } catch (error) {
       console.error("Delete error:", error);
-      setReassignError("Failed to delete employee");
+      setDeleteError("Failed to delete employee");
       setLoading(false);
       return false;
     } finally {
@@ -1330,35 +1338,16 @@ const EmployeeList = () => {
     }
   };
 
-  // Handle confirm delete with validation
   const handleConfirmDelete = async () => {
     if (!employeeToDelete) return;
 
-    const eligibleEmployees = getEligibleEmployees();
-
-    if (eligibleEmployees.length === 0) {
-      setReassignError('No employee available with the same designation in this department for reassignment.');
-      return;
-    }
-
-    if (!reassignEmployeeId) {
-      setReassignError('Please select an employee to reassign data to.');
-      return;
-    }
-
-    if (reassignEmployeeId === employeeToDelete._id) {
-      setReassignError('You cannot reassign data to the same employee being deleted.');
-      return;
-    }
-
-    setReassignError('');
-    const success = await deleteEmployee(employeeToDelete._id, reassignEmployeeId);
+    setDeleteError('');
+    const success = await deleteEmployee(employeeToDelete._id);
 
     if (success) {
       const closeButton = document.querySelector('#delete_modal [data-bs-dismiss="modal"]') as HTMLButtonElement | null;
       if (closeButton) closeButton.click();
       setEmployeeToDelete(null);
-      setReassignEmployeeId('');
     }
   };
 
@@ -1573,9 +1562,9 @@ const EmployeeList = () => {
         field: "dateOfJoining",
         message: "Joining date is required",
       },
-      "dateOfJoining must be a string, Date object, or valid date wrapper": {
+      "dateOfJoining must be in DD-MM-YYYY format": {
         field: "dateOfJoining",
-        message: "Invalid joining date",
+        message: "Date must be in DD-MM-YYYY format",
       },
       "Email already registered": {
         field: "email",
@@ -1660,9 +1649,24 @@ const EmployeeList = () => {
         break;
       case "birthday":
         if (!value) return "Birthday is required";
+        if (!isValidDateString(value)) return "Date must be in DD-MM-YYYY format";
+        {
+          const dob = toDayjsDate(value);
+          if (dob && dob.isAfter(dayjs(), "day")) {
+            return "DOB cannot be in the future";
+          }
+        }
         break;
       case "dateOfJoining":
         if (!value) return "Joining date is required";
+        if (!isValidDateString(value)) return "Date must be in DD-MM-YYYY format";
+        if (formData.personal?.birthday && isValidDateString(formData.personal.birthday)) {
+          const dob = toDayjsDate(formData.personal.birthday);
+          const doj = toDayjsDate(value);
+          if (dob && doj && doj.isBefore(dob, "day")) {
+            return "Joining date must be on or after DOB";
+          }
+        }
         break;
       case "departmentId":
         if (!value || !value.trim()) return "Department is required";
@@ -1771,6 +1775,9 @@ const EmployeeList = () => {
     if (!formData.dateOfJoining) {
       errors.dateOfJoining = "Joining date is required";
       console.error("Validation Error - dateOfJoining:", errors.dateOfJoining);
+    } else if (!isValidDateString(formData.dateOfJoining)) {
+      errors.dateOfJoining = "Date must be in DD-MM-YYYY format";
+      console.error("Validation Error - dateOfJoining:", errors.dateOfJoining);
     }
 
     // Employment type (required by backend)
@@ -1789,6 +1796,29 @@ const EmployeeList = () => {
     if (!formData.personal?.birthday) {
       errors.birthday = "Birthday is required";
       console.error("Validation Error - birthday:", errors.birthday);
+    } else if (!isValidDateString(formData.personal.birthday)) {
+      errors.birthday = "Date must be in DD-MM-YYYY format";
+      console.error("Validation Error - birthday:", errors.birthday);
+    } else {
+      const dob = toDayjsDate(formData.personal.birthday);
+      if (dob && dob.isAfter(dayjs(), "day")) {
+        errors.birthday = "DOB cannot be in the future";
+        console.error("Validation Error - birthday:", errors.birthday);
+      }
+    }
+
+    if (
+      formData.personal?.birthday &&
+      formData.dateOfJoining &&
+      isValidDateString(formData.personal.birthday) &&
+      isValidDateString(formData.dateOfJoining)
+    ) {
+      const dob = toDayjsDate(formData.personal.birthday);
+      const doj = toDayjsDate(formData.dateOfJoining);
+      if (dob && doj && doj.isBefore(dob, "day")) {
+        errors.dateOfJoining = "Joining date must be on or after DOB";
+        console.error("Validation Error - dateOfJoining:", errors.dateOfJoining);
+      }
     }
 
     // Set errors in state
@@ -1874,6 +1904,8 @@ const EmployeeList = () => {
     // Date of joining (required by backend)
     if (!editingEmployee.dateOfJoining) {
       errors.dateOfJoining = "Joining date is required";
+    } else if (!isValidDateString(editingEmployee.dateOfJoining)) {
+      errors.dateOfJoining = "Date must be in DD-MM-YYYY format";
     }
 
     // Role (required field)
@@ -1894,6 +1926,26 @@ const EmployeeList = () => {
     // Birthday (required field)
     if (!editingEmployee.personal?.birthday) {
       errors.birthday = "Birthday is required";
+    } else if (!isValidDateString(editingEmployee.personal.birthday)) {
+      errors.birthday = "Date must be in DD-MM-YYYY format";
+    } else {
+      const dob = toDayjsDate(editingEmployee.personal.birthday);
+      if (dob && dob.isAfter(dayjs(), "day")) {
+        errors.birthday = "DOB cannot be in the future";
+      }
+    }
+
+    if (
+      editingEmployee.personal?.birthday &&
+      editingEmployee.dateOfJoining &&
+      isValidDateString(editingEmployee.personal.birthday) &&
+      isValidDateString(editingEmployee.dateOfJoining)
+    ) {
+      const dob = toDayjsDate(editingEmployee.personal.birthday);
+      const doj = toDayjsDate(editingEmployee.dateOfJoining);
+      if (dob && doj && doj.isBefore(dob, "day")) {
+        errors.dateOfJoining = "Joining date must be on or after DOB";
+      }
     }
 
     // Set errors in state
@@ -2297,6 +2349,16 @@ const EmployeeList = () => {
     const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
     const currentStatus = normalizeStatus(editingEmployee.status);
 
+    const mergedPersonal = {
+      ...(editingEmployee.personal || {}),
+      address: {
+        ...(editingEmployee.personal?.address || {})
+      },
+      passport: {
+        ...(editingEmployee.personal?.passport || {})
+      }
+    };
+
     const updateData: any = {
       employeeId: editingEmployee.employeeId || "",
       firstName: editingEmployee.firstName || "",
@@ -2310,6 +2372,7 @@ const EmployeeList = () => {
         phone: editingEmployee.contact?.phone || "",
       },
       personal: {
+        ...mergedPersonal,
         gender: editingEmployee.personal?.gender || "",
         birthday: editingEmployee.personal?.birthday || null,
         address: editingEmployee.personal?.address || {
@@ -2357,6 +2420,11 @@ const EmployeeList = () => {
         });
 
         setEditingEmployee(null); // Close modal or reset editing state
+      } else {
+        toast.error("Failed to update employee", {
+          position: "top-right",
+          autoClose: 3000,
+        });
       }
     } catch (error) {
       console.error("Update error:", error);
@@ -2403,6 +2471,11 @@ const EmployeeList = () => {
 
         setEditingEmployee(null); // Reset editing state
         setPermissions(initialState);
+      } else {
+        toast.error("Failed to update permissions.", {
+          position: "top-right",
+          autoClose: 3000,
+        });
       }
     } catch (error) {
       console.error("Update permissions error:", error);
@@ -2768,7 +2841,11 @@ const EmployeeList = () => {
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
                 <div className="me-3">
                   <div className="input-icon-end position-relative">
-                    <PredefinedDateRanges onChange={handleDateRangeFilter} />
+                    <PredefinedDateRanges
+                      onChange={handleDateRangeFilter}
+                      displayFormat="DD-MM-YYYY"
+                      outputFormat="DD-MM-YYYY"
+                    />
                     <span className="input-icon-addon">
                       <i className="ti ti-chevron-down" />
                     </span>
@@ -3407,11 +3484,11 @@ const EmployeeList = () => {
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="dateOfJoining"
-                              value={formData.dateOfJoining}
+                              value={toDayjsDate(formData.dateOfJoining)}
                               onFocus={() => clearFieldError("dateOfJoining")}
-                              onChange={(date) => {
-                                handleDateChange(date);
-                                handleFieldBlur("dateOfJoining", date);
+                              onChange={(date, dateString) => {
+                                handleDateChange(date, dateString as string);
+                                handleFieldBlur("dateOfJoining", dateString as string);
                               }}
                             />
                             <span className="input-icon-addon">
@@ -3600,28 +3677,29 @@ const EmployeeList = () => {
                           <div className="input-icon-end position-relative">
                             <DatePicker
                               className={`form-control datetimepicker ${fieldErrors.birthday ? "is-invalid" : ""}`}
-                              format="DD-MM-YYYY"
+                              format={{
+                                format: "DD-MM-YYYY",
+                                type: "mask",
+                              }}
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="birthday"
                               value={
                                 formData.personal?.birthday
-                                  ? dayjs(formData.personal.birthday)
+                                  ? toDayjsDate(formData.personal.birthday)
                                   : null
                               }
                               onFocus={() => clearFieldError("birthday")}
-                              onChange={(date) => {
-                                const isoDate = date
-                                  ? date.toDate().toISOString()
-                                  : null;
+                              onChange={(_date, dateString) => {
+                                const dateValue = (dateString as string) || "";
                                 setFormData((prev) => ({
                                   ...prev,
                                   personal: {
                                     ...prev.personal,
-                                    birthday: isoDate,
+                                    birthday: dateValue,
                                   },
                                 }));
-                                handleFieldBlur("birthday", isoDate);
+                                handleFieldBlur("birthday", dateValue);
                               }}
                             />
                             <span className="input-icon-addon">
@@ -4483,23 +4561,25 @@ const EmployeeList = () => {
                           <div className={`input-icon-end position-relative ${fieldErrors.dateOfJoining ? 'has-error' : ''}`}>
                             <DatePicker
                               className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? 'is-invalid' : ''}`}
-                              format="DD-MM-YYYY"
+                              format={{
+                                format: "DD-MM-YYYY",
+                                type: "mask",
+                              }}
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="dateOfJoining"
                               value={
                                 editingEmployee?.dateOfJoining
-                                  ? dayjs(editingEmployee.dateOfJoining)
+                                  ? toDayjsDate(editingEmployee.dateOfJoining)
                                   : null
                               }
-                              onChange={(date: dayjs.Dayjs | null) => {
+                              onChange={(_date, dateString) => {
+                                const dateValue = (dateString as string) || "";
                                 setEditingEmployee((prev) =>
                                   prev
                                     ? {
                                         ...prev,
-                                        dateOfJoining: date
-                                          ? date.toDate().toISOString()
-                                          : "",
+                                        dateOfJoining: dateValue,
                                       }
                                     : prev,
                                 );
@@ -4616,24 +4696,25 @@ const EmployeeList = () => {
                           <div className="input-icon-end position-relative">
                             <DatePicker
                               className="form-control datetimepicker"
-                              format="DD-MM-YYYY"
+                              format={{
+                                format: "DD-MM-YYYY",
+                                type: "mask",
+                              }}
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               value={
                                 editingEmployee?.personal?.birthday
-                                  ? dayjs(editingEmployee.personal.birthday)
+                                  ? toDayjsDate(editingEmployee.personal.birthday)
                                   : null
                               }
-                              onChange={(date) =>
+                              onChange={(_date, dateString) =>
                                 setEditingEmployee((prev) =>
                                   prev
                                     ? {
                                         ...prev,
                                         personal: {
                                           ...prev.personal,
-                                          birthday: date
-                                            ? date.toDate().toISOString()
-                                            : null,
+                                          birthday: (dateString as string) || "",
                                         },
                                       }
                                     : prev,
@@ -5414,57 +5495,23 @@ const EmployeeList = () => {
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
               <p className="mb-1 text-warning fw-medium">
-                This employee has associated records. Please reassign them before deletion.
+                This action permanently deletes data and cannot be undone.
               </p>
               <p className="mb-3">
                 {employeeToDelete
                   ? `Are you sure you want to delete employee "${employeeToDelete?.firstName}"? This cannot be undone.`
                   : "You want to delete all the marked items, this can't be undone once you delete."}
               </p>
-              <div className="text-start mb-3">
-                <label className="form-label">Reassign employee data to <span className="text-danger">*</span></label>
-                {(() => {
-                  const eligibleEmployees = getEligibleEmployees();
-
-                  if (eligibleEmployees.length === 0) {
-                    return (
-                      <div className="alert alert-warning py-2 mb-2">
-                        <i className="ti ti-alert-circle me-1"></i>
-                        No employee available with the same designation in this department for reassignment.
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <select
-                      className="form-select"
-                      value={reassignEmployeeId}
-                      onChange={(e) => {
-                        setReassignEmployeeId(e.target.value);
-                        setReassignError('');
-                      }}
-                    >
-                      <option value="">Select an employee</option>
-                      {eligibleEmployees.map(emp => (
-                        <option key={emp._id} value={emp._id}>
-                          {emp.firstName} {emp.lastName} ({emp.designationId})
-                        </option>
-                      ))}
-                    </select>
-                  );
-                })()}
-                {reassignError && (
-                  <div className="text-danger mt-1">{reassignError}</div>
-                )}
-              </div>
+              {deleteError && (
+                <div className="text-danger mb-3">{deleteError}</div>
+              )}
               <div className="d-flex justify-content-center">
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
                   onClick={() => {
                     setEmployeeToDelete(null);
-                    setReassignEmployeeId('');
-                    setReassignError('');
+                    setDeleteError('');
                   }}
                   disabled={loading}
                 >
@@ -5473,7 +5520,7 @@ const EmployeeList = () => {
                 <button
                   className="btn btn-danger"
                   onClick={handleConfirmDelete}
-                  disabled={loading || getEligibleEmployees().length === 0}
+                  disabled={loading}
                 >
                   {loading ? 'Deleting...' : 'Yes, Delete'}
                 </button>

@@ -96,7 +96,7 @@ interface Address {
 
 interface PersonalInfo {
     gender: string;
-    birthday: string; // ISO date string
+    birthday: string; // DD-MM-YYYY
     maritalStatus: string;
     religion: string;
     employmentOfSpouse: boolean;
@@ -209,11 +209,11 @@ export interface Employee {
     contact: ContactInfo;
     personal: PersonalInfo;
     account: AccountInfo;
-    emergencyContacts: EmergencyContact;
+    emergencyContacts?: EmergencyContact | EmergencyContact[];
     bank: BankInfo;
-    family: FamilyInfo;
-    education: EducationEntry;
-    experience: ExperienceEntry;
+    family?: FamilyInfo | FamilyInfo[];
+    education?: EducationEntry | EducationEntry[];
+    experience?: ExperienceEntry | ExperienceEntry[];
     assets: Asset[];
     statutory: Statutory;
     updatedBy: string;
@@ -342,7 +342,7 @@ const EmployeeDetails = () => {
         nationality: "",
         religion: "",
         maritalStatus: "Select",
-        employmentOfSpouse: "",
+        employmentOfSpouse: false,
         noOfChildren: 0
     });
     const [educationFormData, setEducationFormData] = useState<{
@@ -372,6 +372,28 @@ const EmployeeDetails = () => {
     const [aboutFormData, setAboutFormData] = useState({
         about: "",
     });
+    const [familyEntries, setFamilyEntries] = useState<FamilyInfo[]>([]);
+    const [educationEntries, setEducationEntries] = useState<EducationEntry[]>([]);
+    const [experienceEntries, setExperienceEntries] = useState<ExperienceEntry[]>([]);
+    const [editingFamilyIndex, setEditingFamilyIndex] = useState<number | null>(null);
+    const [editingEducationIndex, setEditingEducationIndex] = useState<number | null>(null);
+    const [editingExperienceIndex, setEditingExperienceIndex] = useState<number | null>(null);
+
+    const DATE_FORMAT = "DD-MM-YYYY";
+    const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
+
+    const isValidDateString = (value?: string | null) =>
+        !!value && DATE_REGEX.test(value);
+
+    const toDayjsDate = (value?: string | null) => {
+        if (!value) return null;
+        if (isValidDateString(value)) {
+            const parsed = dayjs(value, DATE_FORMAT);
+            return parsed.isValid() ? parsed : null;
+        }
+        const fallback = dayjs(value);
+        return fallback.isValid() ? fallback : null;
+    };
     // Handle Next button click
     const handleNext = () => {
         handleEditSubmit(undefined as any).then(() => {
@@ -381,6 +403,47 @@ const EmployeeDetails = () => {
                 addressTab.click();
             }
         });
+    };
+
+    const normalizeFamilyEntries = (familyData: any): FamilyInfo[] => {
+        const list = Array.isArray(familyData) ? familyData : familyData ? [familyData] : [];
+        return list
+            .map((entry: any) => ({
+                Name: entry?.Name || entry?.name || entry?.familyMemberName || "",
+                relationship: entry?.relationship || "",
+                phone: entry?.phone || ""
+            }))
+            .filter((entry: FamilyInfo) => entry.Name || entry.relationship || entry.phone);
+    };
+
+    const normalizeEducationEntries = (educationData: any): EducationEntry[] => {
+        const list = Array.isArray(educationData) ? educationData : educationData ? [educationData] : [];
+        return list
+            .map((entry: any) => ({
+                institution: entry?.institution || "",
+                degree: entry?.degree || entry?.course || "",
+                startDate: entry?.startDate || "",
+                endDate: entry?.endDate || "",
+                grade: entry?.grade || ""
+            }))
+            .filter((entry: EducationEntry) =>
+                entry.institution || entry.degree || entry.startDate || entry.endDate || entry.grade
+            );
+    };
+
+    const normalizeExperienceEntries = (experienceData: any): ExperienceEntry[] => {
+        const list = Array.isArray(experienceData) ? experienceData : experienceData ? [experienceData] : [];
+        return list
+            .map((entry: any) => ({
+                previousCompany: entry?.previousCompany || entry?.company || entry?.companyName || "",
+                designation: entry?.designation || entry?.position || entry?.role || "",
+                startDate: entry?.startDate || "",
+                endDate: entry?.endDate || "",
+                currentlyWorking: entry?.currentlyWorking ?? entry?.current ?? false
+            }))
+            .filter((entry: ExperienceEntry) =>
+                entry.previousCompany || entry.designation || entry.startDate || entry.endDate
+            );
     };
 
     // Handle permissions update
@@ -402,6 +465,8 @@ const EmployeeDetails = () => {
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
+            } else {
+                toast.error("Failed to update permissions");
             }
         } catch (error) {
             toast.error("Failed to update permissions");
@@ -492,7 +557,7 @@ const EmployeeDetails = () => {
         };
 
         try {
-            const success = await employeesREST.updateBankDetails(employee.employeeId, bankData);
+            const success = await employeesREST.updateBankDetails(employee._id, bankData);
             if (success) {
                 toast.success("Bank details updated successfully!", {
                     position: "top-right",
@@ -506,6 +571,11 @@ const EmployeeDetails = () => {
                 // Close modal programmatically
                 const closeButton = document.querySelector('#edit_bank [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update bank details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update bank details.", {
@@ -542,20 +612,30 @@ const EmployeeDetails = () => {
             return;
         }
 
-        const educationData = {
+        const newEntry: EducationEntry = {
             institution: educationFormData.institution,
-            course: educationFormData.course,
-            startDate: educationFormData.startDate ? educationFormData.startDate.toISOString() : "",
-            endDate: educationFormData.endDate ? educationFormData.endDate.toISOString() : ""
+            degree: educationFormData.course,
+            startDate: educationFormData.startDate ? educationFormData.startDate.format(DATE_FORMAT) : "",
+            endDate: educationFormData.endDate ? educationFormData.endDate.format(DATE_FORMAT) : "",
+            grade: ""
         };
 
+        const updatedEntries =
+            editingEducationIndex === null
+                ? [...educationEntries, newEntry]
+                : educationEntries.map((entry, index) =>
+                    index === editingEducationIndex ? newEntry : entry
+                );
+
         try {
-            const success = await employeesREST.updateEducationInfo(employee.employeeId, educationData);
+            const success = await employeesREST.updateEducationInfo(employee._id, updatedEntries);
             if (success) {
                 toast.success("Education details updated successfully!", {
                     position: "top-right",
                     autoClose: 3000,
                 });
+                setEducationEntries(updatedEntries);
+                setEditingEducationIndex(null);
                 // Refresh employee details
                 const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
@@ -564,6 +644,11 @@ const EmployeeDetails = () => {
                 // Close modal programmatically
                 const closeButton = document.querySelector('#edit_education [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update education details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update education details.", {
@@ -574,12 +659,63 @@ const EmployeeDetails = () => {
     };
 
     const resetEducationForm = () => {
+        const entry = editingEducationIndex !== null ? educationEntries[editingEducationIndex] : null;
         setEducationFormData({
-            institution: employee.education?.institution || "",
-            course: employee.education?.degree || "",
-            startDate: employee.education?.startDate ? dayjs(employee.education.startDate) : null,
-            endDate: employee.education?.endDate ? dayjs(employee.education.endDate) : null
+            institution: entry?.institution || "",
+            course: entry?.degree || "",
+            startDate: entry?.startDate ? toDayjsDate(entry.startDate) : null,
+            endDate: entry?.endDate ? toDayjsDate(entry.endDate) : null
         });
+    };
+
+    const openEducationAddModal = () => {
+        setEditingEducationIndex(null);
+        setEducationFormData({
+            institution: "",
+            course: "",
+            startDate: null,
+            endDate: null
+        });
+    };
+
+    const openEducationEditModal = (index: number) => {
+        const entry = educationEntries[index];
+        setEditingEducationIndex(index);
+        setEducationFormData({
+            institution: entry?.institution || "",
+            course: entry?.degree || "",
+            startDate: entry?.startDate ? toDayjsDate(entry.startDate) : null,
+            endDate: entry?.endDate ? toDayjsDate(entry.endDate) : null
+        });
+    };
+
+    const handleEducationDelete = async (index: number) => {
+        if (!employee) return;
+        const updatedEntries = educationEntries.filter((_, idx) => idx !== index);
+        try {
+            const success = await employeesREST.updateEducationInfo(employee._id, updatedEntries);
+            if (success) {
+                toast.success("Education entry removed successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                setEducationEntries(updatedEntries);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+            } else {
+                toast.error("Failed to remove education entry.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        } catch (error) {
+            toast.error("Failed to remove education entry.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     // handleFamily form validation and submission
@@ -603,18 +739,28 @@ const EmployeeDetails = () => {
             return;
         }
 
-        // Submit family details to backend using REST API
-        const familyData = {
-            ...familyFormData
+        const newEntry: FamilyInfo = {
+            Name: familyFormData.familyMemberName,
+            relationship: familyFormData.relationship,
+            phone: familyFormData.phone
         };
 
+        const updatedEntries =
+            editingFamilyIndex === null
+                ? [...familyEntries, newEntry]
+                : familyEntries.map((entry, index) =>
+                    index === editingFamilyIndex ? newEntry : entry
+                );
+
         try {
-            const success = await employeesREST.updateFamilyInfo(employee.employeeId, familyData);
+            const success = await employeesREST.updateFamilyInfo(employee._id, updatedEntries);
             if (success) {
                 toast.success("Family details updated successfully!", {
                     position: "top-right",
                     autoClose: 3000,
                 });
+                setFamilyEntries(updatedEntries);
+                setEditingFamilyIndex(null);
                 // Refresh employee details
                 const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
@@ -623,6 +769,11 @@ const EmployeeDetails = () => {
                 // Close modal programmatically
                 const closeButton = document.querySelector('#edit_family [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update family details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update family details.", {
@@ -633,11 +784,60 @@ const EmployeeDetails = () => {
     };
 
     const resetFamilyForm = () => {
+        const entry = editingFamilyIndex !== null ? familyEntries[editingFamilyIndex] : null;
         setFamilyFormData({
-            familyMemberName: employee.family?.Name || "",
-            relationship: employee.family?.relationship || "",
-            phone: employee.family?.phone || ""
+            familyMemberName: entry?.Name || "",
+            relationship: entry?.relationship || "",
+            phone: entry?.phone || ""
         });
+    };
+
+    const openFamilyAddModal = () => {
+        setEditingFamilyIndex(null);
+        setFamilyFormData({
+            familyMemberName: "",
+            relationship: "",
+            phone: ""
+        });
+    };
+
+    const openFamilyEditModal = (index: number) => {
+        const entry = familyEntries[index];
+        setEditingFamilyIndex(index);
+        setFamilyFormData({
+            familyMemberName: entry?.Name || "",
+            relationship: entry?.relationship || "",
+            phone: entry?.phone || ""
+        });
+    };
+
+    const handleFamilyDelete = async (index: number) => {
+        if (!employee) return;
+        const updatedEntries = familyEntries.filter((_, idx) => idx !== index);
+        try {
+            const success = await employeesREST.updateFamilyInfo(employee._id, updatedEntries);
+            if (success) {
+                toast.success("Family member removed successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                setFamilyEntries(updatedEntries);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+            } else {
+                toast.error("Failed to remove family member.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        } catch (error) {
+            toast.error("Failed to remove family member.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     // Handle personal info form validation and submission
@@ -665,19 +865,23 @@ const EmployeeDetails = () => {
 
         // Submit personal details to backend using REST API
         const personalData = {
+            ...(employee.personal || {}),
             passport: {
+                ...(employee.personal?.passport || {}),
                 number: personalFormData.passportNo,
-                expiryDate: personalFormData.passportExpiryDate ? dayjs(personalFormData.passportExpiryDate).toISOString() : "",
+                expiryDate: personalFormData.passportExpiryDate
+                    ? dayjs(personalFormData.passportExpiryDate).format(DATE_FORMAT)
+                    : "",
                 country: personalFormData.nationality
             },
             religion: personalFormData.religion,
             maritalStatus: personalFormData.maritalStatus,
-            employmentOfSpouse: personalFormData.maritalStatus === "Yes" ? personalFormData.employmentOfSpouse : "",
+            employmentOfSpouse: personalFormData.maritalStatus === "Yes" ? personalFormData.employmentOfSpouse : false,
             noOfChildren: personalFormData.maritalStatus === "Yes" ? personalFormData.noOfChildren : 0
         };
 
         try {
-            const success = await employeesREST.updatePersonalInfo(employee.employeeId, personalData);
+            const success = await employeesREST.updatePersonalInfo(employee._id, personalData);
             if (success) {
                 toast.success("Personal details updated successfully!", {
                     position: "top-right",
@@ -691,6 +895,11 @@ const EmployeeDetails = () => {
                 // Close modal programmatically
                 const closeButton = document.querySelector('#edit_personal [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update personal details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update personal details.", {
@@ -702,11 +911,13 @@ const EmployeeDetails = () => {
     const resetPersonalForm = () => {
         setPersonalFormData({
             passportNo: employee.personal?.passport?.number || "",
-            passportExpiryDate: employee.personal?.passport?.expiryDate ? dayjs(employee.personal.passport.expiryDate) : null,
+            passportExpiryDate: employee.personal?.passport?.expiryDate
+                ? toDayjsDate(employee.personal.passport.expiryDate)
+                : null,
             nationality: employee.personal?.passport?.country || "",
             religion: employee.personal?.religion || "",
             maritalStatus: employee.personal?.maritalStatus || "Select",
-            employmentOfSpouse: employee.personal?.employmentOfSpouse ? "Yes" : "No",
+            employmentOfSpouse: !!employee.personal?.employmentOfSpouse,
             noOfChildren: employee.personal?.noOfChildren || 0
         });
     };
@@ -747,7 +958,7 @@ const EmployeeDetails = () => {
         }];
 
         try {
-            const success = await employeesREST.updateEmergencyContacts(employee.employeeId, emergencyContacts);
+            const success = await employeesREST.updateEmergencyContacts(employee._id, emergencyContacts);
             if (success) {
                 toast.success("Emergency contact updated successfully!", {
                     position: "top-right",
@@ -766,6 +977,11 @@ const EmployeeDetails = () => {
                 if (closeButton){
                     closeButton.click();
                 }
+            } else {
+                toast.error("Failed to update emergency contact.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update emergency contact.", {
@@ -776,11 +992,12 @@ const EmployeeDetails = () => {
     };
 
     const resetEmergencyModel = () => {
+        const contact = getEmergencyContact();
         setEmergencyFormData({
-            name: employee.emergencyContacts?.name || "",
-            relationship: employee.emergencyContacts?.relationship || "",
-            phone1: employee.emergencyContacts?.phone?.[0] || "",
-            phone2: employee.emergencyContacts?.phone?.[1] || ""
+            name: contact?.name || "",
+            relationship: contact?.relationship || "",
+            phone1: contact?.phone?.[0] || "",
+            phone2: contact?.phone?.[1] || ""
         });
     };
 
@@ -794,19 +1011,28 @@ const EmployeeDetails = () => {
             });
             return;
         }
-        const experienceData = {
-            companyName: experienceFormData.company,
+        const newEntry: ExperienceEntry = {
+            previousCompany: experienceFormData.company,
             designation: experienceFormData.designation,
             startDate: experienceFormData.startDate,
-            endDate: experienceFormData.endDate
+            endDate: experienceFormData.endDate,
+            currentlyWorking: false
         };
+        const updatedEntries =
+            editingExperienceIndex === null
+                ? [...experienceEntries, newEntry]
+                : experienceEntries.map((entry, index) =>
+                    index === editingExperienceIndex ? newEntry : entry
+                );
         try {
-            const success = await employeesREST.updateExperienceInfo(employee.employeeId, experienceData);
+            const success = await employeesREST.updateExperienceInfo(employee._id, updatedEntries);
             if (success) {
                 toast.success("Experience details updated successfully!", {
                     position: "top-right",
                     autoClose: 3000,
                 });
+                setExperienceEntries(updatedEntries);
+                setEditingExperienceIndex(null);
                 // Refresh employee details
                 const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
                 if (updatedEmployee) {
@@ -815,6 +1041,11 @@ const EmployeeDetails = () => {
                 // Close modal programmatically
                 const closeButton = document.querySelector('#add_experience [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update experience details.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update experience details.", {
@@ -825,12 +1056,63 @@ const EmployeeDetails = () => {
     };
 
     const resetExperienceForm = () => {
+        const entry = editingExperienceIndex !== null ? experienceEntries[editingExperienceIndex] : null;
         setExperienceFormData({
-            company: employee.experience?.previousCompany || "",
-            designation: employee.experience?.designation || "",
-            startDate: employee.experience?.startDate || "",
-            endDate: employee.experience?.endDate || "",
+            company: entry?.previousCompany || "",
+            designation: entry?.designation || "",
+            startDate: entry?.startDate || "",
+            endDate: entry?.endDate || "",
         });
+    };
+
+    const openExperienceAddModal = () => {
+        setEditingExperienceIndex(null);
+        setExperienceFormData({
+            company: "",
+            designation: "",
+            startDate: "",
+            endDate: "",
+        });
+    };
+
+    const openExperienceEditModal = (index: number) => {
+        const entry = experienceEntries[index];
+        setEditingExperienceIndex(index);
+        setExperienceFormData({
+            company: entry?.previousCompany || "",
+            designation: entry?.designation || "",
+            startDate: entry?.startDate || "",
+            endDate: entry?.endDate || "",
+        });
+    };
+
+    const handleExperienceDelete = async (index: number) => {
+        if (!employee) return;
+        const updatedEntries = experienceEntries.filter((_, idx) => idx !== index);
+        try {
+            const success = await employeesREST.updateExperienceInfo(employee._id, updatedEntries);
+            if (success) {
+                toast.success("Experience entry removed successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                setExperienceEntries(updatedEntries);
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee._id);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+            } else {
+                toast.error("Failed to remove experience entry.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+            }
+        } catch (error) {
+            toast.error("Failed to remove experience entry.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     const handleAboutSubmit = async (e: React.FormEvent) => {
@@ -852,7 +1134,7 @@ const EmployeeDetails = () => {
         }
         try {
             setLoading(true);
-            const success = await employeesREST.updateAboutInfo(employee.employeeId, aboutFormData.about);
+            const success = await employeesREST.updateAboutInfo(employee._id, aboutFormData.about);
             if (success) {
                 toast.success("About information updated successfully!", {
                     position: "top-right",
@@ -866,6 +1148,11 @@ const EmployeeDetails = () => {
                 // Optionally close modal if present
                 const closeButton = document.querySelector('#edit_about [data-bs-dismiss="modal"]') as HTMLButtonElement;
                 if (closeButton) closeButton.click();
+            } else {
+                toast.error("Failed to update about", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update about", {
@@ -986,6 +1273,27 @@ const EmployeeDetails = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [employee, setEmployee] = useState<Employee | null>(null);
+    const getEmergencyContact = React.useCallback((): EmergencyContact | null => {
+        const contact = Array.isArray(employee?.emergencyContacts)
+            ? employee?.emergencyContacts?.[0]
+            : employee?.emergencyContacts;
+        const fallback = (employee as any)?.emergencyContact;
+        if (contact) {
+            return {
+                name: contact.name || "",
+                relationship: contact.relationship || "",
+                phone: Array.isArray(contact.phone) ? contact.phone : contact.phone ? [contact.phone] : []
+            };
+        }
+        if (fallback) {
+            return {
+                name: fallback.name || "",
+                relationship: fallback.relationship || "",
+                phone: Array.isArray(fallback.phone) ? fallback.phone : fallback.phone ? [fallback.phone] : []
+            };
+        }
+        return null;
+    }, [employee]);
 
     // REST API Hooks for HRM operations
     const employeesREST = useEmployeesREST();
@@ -1040,48 +1348,59 @@ const EmployeeDetails = () => {
             // Initialize personal form data
             setPersonalFormData({
                 passportNo: employee.personal?.passport?.number || "",
-                passportExpiryDate: employee.personal?.passport?.expiryDate ? dayjs(employee.personal.passport.expiryDate) : null,
+                passportExpiryDate: employee.personal?.passport?.expiryDate
+                    ? toDayjsDate(employee.personal.passport.expiryDate)
+                    : null,
                 nationality: employee.personal?.passport?.country || "",
                 religion: employee.personal?.religion || "",
                 maritalStatus: employee.personal?.maritalStatus || "Select",
-                employmentOfSpouse: employee.personal?.employmentOfSpouse ? "Yes" : "No",
+                employmentOfSpouse: !!employee.personal?.employmentOfSpouse,
                 noOfChildren: employee.personal?.noOfChildren || 0
             });
 
+            const normalizedFamily = normalizeFamilyEntries(employee.family);
+            setFamilyEntries(normalizedFamily);
             setFamilyFormData({
-                familyMemberName: employee.family?.Name || "",
-                relationship: employee.family?.relationship || "",
-                phone: employee.family?.phone || ""
+                familyMemberName: normalizedFamily[0]?.Name || "",
+                relationship: normalizedFamily[0]?.relationship || "",
+                phone: normalizedFamily[0]?.phone || ""
             });
 
-            // Initialize education form data
+            const normalizedEducation = normalizeEducationEntries(employee.education);
+            setEducationEntries(normalizedEducation);
             setEducationFormData({
-                institution: employee.education?.institution || "",
-                course: employee.education?.degree || "",
-                startDate: employee.education?.startDate ? dayjs(employee.education.startDate) : null,
-                endDate: employee.education?.endDate ? dayjs(employee.education.endDate) : null
+                institution: normalizedEducation[0]?.institution || "",
+                course: normalizedEducation[0]?.degree || "",
+                startDate: normalizedEducation[0]?.startDate ? toDayjsDate(normalizedEducation[0]?.startDate) : null,
+                endDate: normalizedEducation[0]?.endDate ? toDayjsDate(normalizedEducation[0]?.endDate) : null
             });
 
+            const emergencyContact = getEmergencyContact();
             setEmergencyFormData({
-                name: employee.emergencyContacts?.name || "",
-                relationship: employee.emergencyContacts?.relationship || "",
-                phone1: employee.emergencyContacts?.phone?.[0] || "",
-                phone2: employee.emergencyContacts?.phone?.[1] || ""
+                name: emergencyContact?.name || "",
+                relationship: emergencyContact?.relationship || "",
+                phone1: emergencyContact?.phone?.[0] || "",
+                phone2: emergencyContact?.phone?.[1] || ""
             });
 
+            const normalizedExperience = normalizeExperienceEntries(employee.experience);
+            setExperienceEntries(normalizedExperience);
             setExperienceFormData({
-                company: employee.experience?.previousCompany || "",
-                designation: employee.experience?.designation || "",
-                startDate: employee.experience?.startDate || "",
-                endDate: employee.experience?.endDate || "",
+                company: normalizedExperience[0]?.previousCompany || "",
+                designation: normalizedExperience[0]?.designation || "",
+                startDate: normalizedExperience[0]?.startDate || "",
+                endDate: normalizedExperience[0]?.endDate || "",
             });
 
             setAboutFormData({
                 about: typeof employee.about === 'string' ? employee.about : "",
             });
 
+            setEditingFamilyIndex(null);
+            setEditingEducationIndex(null);
+            setEditingExperienceIndex(null);
         }
-    }, [employee]);
+    }, [employee, getEmergencyContact]);
 
 
     // Handle edit form changes
@@ -1138,6 +1457,19 @@ const EmployeeDetails = () => {
         const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
         const currentStatus = editFormData.status || "Active";
 
+        const mergedPersonal = {
+            ...(employee?.personal || {}),
+            ...(editFormData.personal || {}),
+            address: {
+                ...(employee?.personal?.address || {}),
+                ...(editFormData.personal?.address || {})
+            },
+            passport: {
+                ...(employee?.personal?.passport || {}),
+                ...(editFormData.personal?.passport || {})
+            }
+        };
+
         const payload: any = {
             employeeId: editFormData.employeeId || "",
             firstName: editFormData.firstName || "",
@@ -1149,17 +1481,7 @@ const EmployeeDetails = () => {
                 email: editFormData.contact?.email || "",
                 phone: editFormData.contact?.phone || "",
             },
-            personal: {
-                gender: editFormData.personal?.gender || "",
-                birthday: editFormData.personal?.birthday || null,
-                address: editFormData.personal?.address || {
-                    street: "",
-                    city: "",
-                    state: "",
-                    postalCode: "",
-                    country: "",
-                },
-            },
+            personal: mergedPersonal,
             companyName: editFormData.companyName || "",
             departmentId: editFormData.departmentId || "",
             designationId: editFormData.designationId || "",
@@ -1176,7 +1498,7 @@ const EmployeeDetails = () => {
         }
 
         try {
-            const employeeObjectId = editFormData._id || payload.employeeId;
+            const employeeObjectId = employee?._id || editFormData._id || payload.employeeId;
             const success = await employeesREST.updateEmployee(employeeObjectId, payload);
             if (success) {
                 toast.success("Employee updated successfully!", {
@@ -1188,6 +1510,11 @@ const EmployeeDetails = () => {
                 if (updatedEmployee) {
                     setEmployee(updatedEmployee as any);
                 }
+            } else {
+                toast.error("Failed to update employee.", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
             }
         } catch (error) {
             toast.error("Failed to update employee.", {
@@ -1695,19 +2022,10 @@ const EmployeeDetails = () => {
         { value: "Maternity Benefit ", label: "Maternity Benefit " },
     ];
 
-    function formatDate(isoDateString?: string) {
-        if (!isoDateString) return ""; // handle undefined or empty
-
-        const date = new Date(isoDateString);
-        if (isNaN(date.getTime())) return "";
-
-        const day = date.getDate();
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const month = monthNames[date.getMonth()];
-        const year = date.getFullYear();
-
-        return `${day} ${month} ${year}`;
+    function formatDate(dateString?: string) {
+        if (!dateString) return "";
+        const parsed = toDayjsDate(dateString);
+        return parsed ? parsed.format(DATE_FORMAT) : "";
     }
 
     return (
@@ -2094,7 +2412,7 @@ const EmployeeDetails = () => {
                                                     <i className="ti ti-edit" />
                                                 </Link>
                                             </div>
-                                            {employee?.emergencyContacts ? (
+                                            {getEmergencyContact() ? (
                                                 <div>
                                                     <div className="mb-3">
                                                         <div className="d-flex align-items-center gap-3 mb-2">
@@ -2103,7 +2421,7 @@ const EmployeeDetails = () => {
                                                                 Name:
                                                             </span>
 
-                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.name || '-'}</p>
+                                                            <p className="text-dark mb-0">{getEmergencyContact()?.name || '-'}</p>
                                                         </div>
                                                     </div>
                                                     <div className="mb-3">
@@ -2113,7 +2431,7 @@ const EmployeeDetails = () => {
                                                                 Relationship:
                                                             </span>
 
-                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.relationship || '-'}</p>
+                                                            <p className="text-dark mb-0">{getEmergencyContact()?.relationship || '-'}</p>
                                                         </div>
                                                     </div>
                                                     <div className="mb-3">
@@ -2122,7 +2440,7 @@ const EmployeeDetails = () => {
                                                                 <i className="ti ti-e-passport me-2" />
                                                                 Phone Number1:
                                                             </span>
-                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.phone?.[0] || '-'}</p>
+                                                            <p className="text-dark mb-0">{getEmergencyContact()?.phone?.[0] || '-'}</p>
                                                         </div>
                                                     </div>
                                                     <div className="mb-3">
@@ -2132,12 +2450,12 @@ const EmployeeDetails = () => {
                                                                 Phone Number2:
                                                             </span>
 
-                                                            <p className="text-dark mb-0">{employee?.emergencyContacts?.phone?.[1] || '-'}</p>
+                                                            <p className="text-dark mb-0">{getEmergencyContact()?.phone?.[1] || '-'}</p>
                                                         </div>
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <p className="text-muted">No education records available</p>
+                                                <p className="text-muted">No emergency contacts available</p>
                                             )}
                                         </div>
                                     </div>
@@ -2271,8 +2589,9 @@ const EmployeeDetails = () => {
                                                                     className="btn btn-icon btn-sm"
                                                                     data-bs-toggle="modal" data-inert={true}
                                                                     data-bs-target="#edit_family"
+                                                                    onClick={openFamilyAddModal}
                                                                 >
-                                                                    <i className="ti ti-edit" />
+                                                                    <i className="ti ti-plus" />
                                                                 </Link>
                                                                 <Link
                                                                     to="#"
@@ -2295,32 +2614,64 @@ const EmployeeDetails = () => {
                                                     data-bs-parent="#accordionExample"
                                                 >
                                                     <div className="accordion-body">
-                                                        <div className="row">
-                                                            <div className="col-md-4">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                    Name
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.Name || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-4">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                   Relationship
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.relationship || '-'}
-                                                                </h6>
-                                                            </div>
-                                                            <div className="col-md-4">
-                                                                <span className="d-inline-flex align-items-center">
-                                                                   Phone
-                                                                </span>
-                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
-                                                                    {employee?.family?.phone || '-'}
-                                                                </h6>
-                                                            </div>
-                                                        </div>
+                                                        {familyEntries.length > 0 ? (
+                                                            familyEntries.map((member, index) => (
+                                                                <div
+                                                                    key={`${member.Name || "family"}-${index}`}
+                                                                    className="border-bottom pb-2 mb-2"
+                                                                >
+                                                                    <div className="d-flex align-items-start justify-content-between">
+                                                                        <div className="row flex-grow-1">
+                                                                            <div className="col-md-4">
+                                                                                <span className="d-inline-flex align-items-center">
+                                                                                    Name
+                                                                                </span>
+                                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
+                                                                                    {member.Name || '-'}
+                                                                                </h6>
+                                                                            </div>
+                                                                            <div className="col-md-4">
+                                                                                <span className="d-inline-flex align-items-center">
+                                                                                    Relationship
+                                                                                </span>
+                                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
+                                                                                    {member.relationship || '-'}
+                                                                                </h6>
+                                                                            </div>
+                                                                            <div className="col-md-4">
+                                                                                <span className="d-inline-flex align-items-center">
+                                                                                    Phone
+                                                                                </span>
+                                                                                <h6 className="d-flex align-items-center fw-medium mt-1">
+                                                                                    {member.phone || '-'}
+                                                                                </h6>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="d-flex gap-2 ms-2">
+                                                                            <Link
+                                                                                to="#"
+                                                                                className="btn btn-icon btn-sm"
+                                                                                data-bs-toggle="modal"
+                                                                                data-inert={true}
+                                                                                data-bs-target="#edit_family"
+                                                                                onClick={() => openFamilyEditModal(index)}
+                                                                            >
+                                                                                <i className="ti ti-edit" />
+                                                                            </Link>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-icon btn-sm text-danger"
+                                                                                onClick={() => handleFamilyDelete(index)}
+                                                                            >
+                                                                                <i className="ti ti-trash" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <p className="text-muted">No family records available</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -2341,8 +2692,9 @@ const EmployeeDetails = () => {
                                                                                 className="btn btn-icon btn-sm"
                                                                                 data-bs-toggle="modal" data-inert={true}
                                                                                 data-bs-target="#edit_education"
+                                                                                onClick={openEducationAddModal}
                                                                             >
-                                                                                <i className="ti ti-edit" />
+                                                                                <i className="ti ti-plus" />
                                                                             </Link>
                                                                             <Link
                                                                                 to="#"
@@ -2365,48 +2717,73 @@ const EmployeeDetails = () => {
                                                                 data-bs-parent="#accordionExample"
                                                             >
                                                                 <div className="accordion-body">
-                                                                    {employee?.education ? (
-                                                                        <div>
-                                                                            <div className="mb-3">
-                                                                                <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                    <span className="d-inline-flex align-items-center">
-                                                                                        <i className="ti ti-e-passport me-2" />
-                                                                                        Institution Name:
-                                                                                    </span>
-
-                                                                                    <p className="text-dark mb-0">{employee?.education?.institution || '-'}</p>
+                                                                    {educationEntries.length > 0 ? (
+                                                                        educationEntries.map((entry, index) => (
+                                                                            <div
+                                                                                key={`${entry.institution || "education"}-${index}`}
+                                                                                className="border-bottom pb-2 mb-2"
+                                                                            >
+                                                                                <div className="d-flex align-items-start justify-content-between">
+                                                                                    <div className="flex-grow-1">
+                                                                                        <div className="mb-3">
+                                                                                            <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                <span className="d-inline-flex align-items-center">
+                                                                                                    <i className="ti ti-e-passport me-2" />
+                                                                                                    Institution Name:
+                                                                                                </span>
+                                                                                                <p className="text-dark mb-0">{entry.institution || '-'}</p>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="mb-3">
+                                                                                            <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                <span className="d-inline-flex align-items-center">
+                                                                                                    <i className="ti ti-e-passport me-2" />
+                                                                                                    Course Name:
+                                                                                                </span>
+                                                                                                <p className="text-dark mb-0">{entry.degree || '-'}</p>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="mb-3">
+                                                                                            <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                <span className="d-inline-flex align-items-center">
+                                                                                                    <i className="ti ti-e-passport me-2" />
+                                                                                                    Start Date:
+                                                                                                </span>
+                                                                                                <p className="text-dark mb-0">{formatDate(entry.startDate) || '-'}</p>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="mb-3">
+                                                                                            <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                <span className="d-inline-flex align-items-center">
+                                                                                                    <i className="ti ti-e-passport me-2" />
+                                                                                                    End Date:
+                                                                                                </span>
+                                                                                                <p className="text-dark mb-0">{formatDate(entry.endDate) || '-'}</p>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="d-flex gap-2 ms-2">
+                                                                                        <Link
+                                                                                            to="#"
+                                                                                            className="btn btn-icon btn-sm"
+                                                                                            data-bs-toggle="modal"
+                                                                                            data-inert={true}
+                                                                                            data-bs-target="#edit_education"
+                                                                                            onClick={() => openEducationEditModal(index)}
+                                                                                        >
+                                                                                            <i className="ti ti-edit" />
+                                                                                        </Link>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="btn btn-icon btn-sm text-danger"
+                                                                                            onClick={() => handleEducationDelete(index)}
+                                                                                        >
+                                                                                            <i className="ti ti-trash" />
+                                                                                        </button>
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
-                                                                            <div className="mb-3">
-                                                                                <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                    <span className="d-inline-flex align-items-center">
-                                                                                        <i className="ti ti-e-passport me-2" />
-                                                                                        Course Name:
-                                                                                    </span>
-
-                                                                                    <p className="text-dark mb-0">{employee?.education?.degree || '-'}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="mb-3">
-                                                                                <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                    <span className="d-inline-flex align-items-center">
-                                                                                        <i className="ti ti-e-passport me-2" />
-                                                                                        Start Date:
-                                                                                    </span>
-                                                                                    <p className="text-dark mb-0">{formatDate(employee?.education?.startDate) || '-'}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="mb-3">
-                                                                                <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                    <span className="d-inline-flex align-items-center">
-                                                                                        <i className="ti ti-e-passport me-2" />
-                                                                                        End Date:
-                                                                                    </span>
-
-                                                                                    <p className="text-dark mb-0">{formatDate(employee?.education?.endDate) || '-'}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
+                                                                        ))
                                                                     ) : (
                                                                         <p className="text-muted">No education records available</p>
                                                                     )}
@@ -2430,8 +2807,9 @@ const EmployeeDetails = () => {
                                                                                 className="btn btn-icon btn-sm"
                                                                                 data-bs-toggle="modal" data-inert={true}
                                                                                 data-bs-target="#add_experience"
+                                                                                onClick={openExperienceAddModal}
                                                                             >
-                                                                                <i className="ti ti-edit" />
+                                                                                <i className="ti ti-plus" />
                                                                             </Link>
                                                                             <Link
                                                                                 to="#"
@@ -2455,47 +2833,73 @@ const EmployeeDetails = () => {
                                                             >
                                                                 <div className="accordion-body">
                                                                     <div>
-                                                                        {employee?.experience ? (
-                                                                            <div>
-                                                                                <div className="mb-3">
-                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                        <span className="d-inline-flex align-items-center">
-                                                                                            <i className="ti ti-e-passport me-2" />
-                                                                                            Company Name:
-                                                                                        </span>
-
-                                                                                        <p className="text-dark mb-0">{employee?.experience?.previousCompany || '-'}</p>
+                                                                        {experienceEntries.length > 0 ? (
+                                                                            experienceEntries.map((entry, index) => (
+                                                                                <div
+                                                                                    key={`${entry.previousCompany || "experience"}-${index}`}
+                                                                                    className="border-bottom pb-2 mb-2"
+                                                                                >
+                                                                                    <div className="d-flex align-items-start justify-content-between">
+                                                                                        <div className="flex-grow-1">
+                                                                                            <div className="mb-3">
+                                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                                        Company Name:
+                                                                                                    </span>
+                                                                                                    <p className="text-dark mb-0">{entry.previousCompany || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="mb-3">
+                                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                                        Role:
+                                                                                                    </span>
+                                                                                                    <p className="text-dark mb-0">{entry.designation || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="mb-3">
+                                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                                        Start Date:
+                                                                                                    </span>
+                                                                                                    <p className="text-dark mb-0">{formatDate(entry.startDate) || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="mb-3">
+                                                                                                <div className="d-flex align-items-center gap-3 mb-2">
+                                                                                                    <span className="d-inline-flex align-items-center">
+                                                                                                        <i className="ti ti-e-passport me-2" />
+                                                                                                        End Date:
+                                                                                                    </span>
+                                                                                                    <p className="text-dark mb-0">{formatDate(entry.endDate) || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="d-flex gap-2 ms-2">
+                                                                                            <Link
+                                                                                                to="#"
+                                                                                                className="btn btn-icon btn-sm"
+                                                                                                data-bs-toggle="modal"
+                                                                                                data-inert={true}
+                                                                                                data-bs-target="#add_experience"
+                                                                                                onClick={() => openExperienceEditModal(index)}
+                                                                                            >
+                                                                                                <i className="ti ti-edit" />
+                                                                                            </Link>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="btn btn-icon btn-sm text-danger"
+                                                                                                onClick={() => handleExperienceDelete(index)}
+                                                                                            >
+                                                                                                <i className="ti ti-trash" />
+                                                                                            </button>
+                                                                                        </div>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="mb-3">
-                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                        <span className="d-inline-flex align-items-center">
-                                                                                            <i className="ti ti-e-passport me-2" />
-                                                                                            Role:
-                                                                                        </span>
-
-                                                                                        <p className="text-dark mb-0">{employee?.experience?.designation || '-'}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="mb-3">
-                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                        <span className="d-inline-flex align-items-center">
-                                                                                            <i className="ti ti-e-passport me-2" />
-                                                                                            Start Date:
-                                                                                        </span>
-                                                                                        <p className="text-dark mb-0">{formatDate(employee?.experience?.startDate) || '-'}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="mb-3">
-                                                                                    <div className="d-flex align-items-center gap-3 mb-2">
-                                                                                        <span className="d-inline-flex align-items-center">
-                                                                                            <i className="ti ti-e-passport me-2" />
-                                                                                            End Date:
-                                                                                        </span>
-                                                                                        <p className="text-dark mb-0">{formatDate(employee?.experience?.endDate) || '-'}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
+                                                                            ))
                                                                         ) : (
                                                                             <p className="text-muted">No experience records available</p>
                                                                         )}
@@ -3083,10 +3487,10 @@ const EmployeeDetails = () => {
                                                                 format="DD-MM-YYYY"
                                                                 getPopupContainer={getModalContainer}
                                                                 placeholder="DD-MM-YYYY"
-                                                                value={editFormData.dateOfJoining ? dayjs(editFormData.dateOfJoining) : null}
+                                                                value={editFormData.dateOfJoining ? toDayjsDate(editFormData.dateOfJoining) : null}
                                                                 onChange={(date) => setEditFormData(prev => ({
                                                                     ...prev,
-                                                                    dateOfJoining: date ? date.format('YYYY-MM-DD') : null
+                                                                    dateOfJoining: date ? date.format(DATE_FORMAT) : null
                                                                 }))}
                                                             />
                                                             <span className="input-icon-addon">
@@ -3149,15 +3553,21 @@ const EmployeeDetails = () => {
                                                         <div className="input-icon-end position-relative">
                                                             <DatePicker
                                                                 className="form-control datetimepicker"
-                                                                format="DD-MM-YYYY"
+                                                                format={{
+                                                                    format: "DD-MM-YYYY",
+                                                                    type: "mask",
+                                                                }}
                                                                 getPopupContainer={getModalContainer}
                                                                 placeholder="DD-MM-YYYY"
-                                                                value={editFormData.personal?.birthday ? dayjs(editFormData.personal.birthday) : null}
-                                                                onChange={(date) => setEditFormData(prev => ({
+                                                                value={editFormData.personal?.birthday ? toDayjsDate(editFormData.personal.birthday) : null}
+                                                                disabledDate={(current) =>
+                                                                    current ? current.endOf("day").isAfter(dayjs()) : false
+                                                                }
+                                                                onChange={(_date, dateString) => setEditFormData(prev => ({
                                                                     ...prev,
                                                                     personal: {
                                                                         ...prev.personal,
-                                                                        birthday: date ? date.format('YYYY-MM-DD') : null
+                                                                        birthday: (dateString as string) || null
                                                                     }
                                                                 }))}
                                                             />
@@ -3624,7 +4034,10 @@ const EmployeeDetails = () => {
                                             <div className="input-icon-end position-relative">
                                                 <DatePicker
                                                     className="form-control datetimepicker"
-                                                    format="DD-MM-YYYY"
+                                                    format={{
+                                                        format: "DD-MM-YYYY",
+                                                        type: "mask",
+                                                    }}
                                                     getPopupContainer={() => document.getElementById('edit_personal') || document.body}
                                                     placeholder="DD-MM-YYYY"
                                                     value={personalFormData.passportExpiryDate}
@@ -3685,13 +4098,20 @@ const EmployeeDetails = () => {
                                             <div className="col-md-6">
                                                 <div className="mb-3">
                                                     <label className="form-label">Employment spouse</label>
-                                                    <input
-                                                        type="text"
+                                                    <select
                                                         className="form-control"
-                                                        value={personalFormData.employmentOfSpouse}
-                                                        onChange={(e) => setPersonalFormData(prev => ({ ...prev, employmentOfSpouse: e.target.value }))}
+                                                        value={personalFormData.employmentOfSpouse ? "Yes" : "No"}
+                                                        onChange={(e) =>
+                                                            setPersonalFormData(prev => ({
+                                                                ...prev,
+                                                                employmentOfSpouse: e.target.value === "Yes"
+                                                            }))
+                                                        }
                                                         required
-                                                    />
+                                                    >
+                                                        <option value="Yes">Yes</option>
+                                                        <option value="No">No</option>
+                                                    </select>
                                                 </div>
                                             </div>
                                             <div className="col-md-6">
@@ -3913,7 +4333,9 @@ const EmployeeDetails = () => {
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
                         <div className="modal-header">
-                            <h4 className="modal-title">Family Information</h4>
+                            <h4 className="modal-title">
+                                {editingFamilyIndex !== null ? "Edit Family Member" : "Add Family Member"}
+                            </h4>
                             <button
                                 type="button"
                                 className="btn-close custom-btn-close"
@@ -3981,7 +4403,9 @@ const EmployeeDetails = () => {
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
                         <div className="modal-header">
-                            <h4 className="modal-title">Education Information</h4>
+                            <h4 className="modal-title">
+                                {editingEducationIndex !== null ? "Edit Education Entry" : "Add Education Entry"}
+                            </h4>
                             <button
                                 type="button"
                                 className="btn-close custom-btn-close"
@@ -4029,7 +4453,10 @@ const EmployeeDetails = () => {
                                             <div className="input-icon-end position-relative">
                                                 <DatePicker
                                                     className="form-control datetimepicker"
-                                                    format="DD-MM-YYYY"
+                                                    format={{
+                                                        format: "DD-MM-YYYY",
+                                                        type: "mask",
+                                                    }}
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
                                                     value={educationFormData.startDate}
@@ -4095,7 +4522,9 @@ const EmployeeDetails = () => {
                 <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
                         <div className="modal-header">
-                            <h4 className="modal-title">Company Information</h4>
+                            <h4 className="modal-title">
+                                {editingExperienceIndex !== null ? "Edit Experience Entry" : "Add Experience Entry"}
+                            </h4>
                             <button
                                 type="button"
                                 className="btn-close custom-btn-close"
@@ -4153,8 +4582,13 @@ const EmployeeDetails = () => {
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
                                                     required
-                                                    value={experienceFormData.startDate ? dayjs(experienceFormData.startDate) : null}
-                                                    onChange={(date) => setExperienceFormData({...experienceFormData, startDate: date ? date.toISOString() : ""})}
+                                                    value={experienceFormData.startDate ? toDayjsDate(experienceFormData.startDate) : null}
+                                                    onChange={(_date, dateString) =>
+                                                        setExperienceFormData({
+                                                            ...experienceFormData,
+                                                            startDate: (dateString as string) || ""
+                                                        })
+                                                    }
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />
@@ -4177,8 +4611,13 @@ const EmployeeDetails = () => {
                                                     getPopupContainer={getModalContainer}
                                                     placeholder="DD-MM-YYYY"
                                                     required
-                                                    value={experienceFormData.endDate ? dayjs(experienceFormData.endDate) : null}
-                                                    onChange={(date) => setExperienceFormData({...experienceFormData, endDate: date ? date.toISOString() : ""})}
+                                                    value={experienceFormData.endDate ? toDayjsDate(experienceFormData.endDate) : null}
+                                                    onChange={(_date, dateString) =>
+                                                        setExperienceFormData({
+                                                            ...experienceFormData,
+                                                            endDate: (dateString as string) || ""
+                                                        })
+                                                    }
                                                 />
                                                 <span className="input-icon-addon">
                                                     <i className="ti ti-calendar text-gray-7" />

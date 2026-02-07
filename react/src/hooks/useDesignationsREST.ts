@@ -41,6 +41,26 @@ export interface CreateDesignationRequest {
   description?: string;
 }
 
+export interface DeleteErrorDetails {
+  code?: string;
+  message: string;
+  details?: any;
+}
+
+export interface DeleteResult {
+  success: boolean;
+  error?: DeleteErrorDetails;
+}
+
+const buildApiError = (err: any, fallbackMessage: string): DeleteErrorDetails => {
+  const apiError = err?.response?.data?.error;
+  return {
+    code: apiError?.code,
+    message: apiError?.message || err?.message || fallbackMessage,
+    details: apiError?.details
+  };
+};
+
 /**
  * Designations REST API Hook
  */
@@ -182,7 +202,7 @@ export const useDesignationsREST = () => {
   const deleteDesignation = useCallback(async (
     designationId: string,
     reassignToId?: string
-  ): Promise<boolean> => {
+  ): Promise<DeleteResult> => {
     setLoading(true);
     setError(null);
     try {
@@ -193,14 +213,16 @@ export const useDesignationsREST = () => {
       if (response.success) {
         message.success('Designation deleted successfully!');
         await fetchDesignations();
-        return true;
+        return { success: true };
       }
       throw new Error(response.error?.message || 'Failed to delete designation');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete designation';
-      setError(errorMessage);
-      message.error(errorMessage);
-      return false;
+      const apiError = buildApiError(err, 'Failed to delete designation');
+      if (apiError.code !== 'DEPENDENT_RECORDS') {
+        setError(apiError.message);
+        message.error(apiError.message);
+      }
+      return { success: false, error: apiError };
     } finally {
       setLoading(false);
     }

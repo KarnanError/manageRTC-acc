@@ -19,6 +19,28 @@ import {
   sendCreated,
   buildPagination
 } from '../../utils/apiResponse.js';
+import { formatDDMMYYYY, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/dateFormat.js';
+
+const parseDateField = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && !isValidDDMMYYYY(value)) {
+    throw buildValidationError(fieldName, 'Date must be in DD-MM-YYYY format');
+  }
+  const parsed = parseDDMMYYYY(value);
+  if (!parsed) {
+    throw buildValidationError(fieldName, 'Date must be in DD-MM-YYYY format');
+  }
+  return parsed;
+};
+
+const formatPolicyDates = (policy) => {
+  if (!policy) return policy;
+  return {
+    ...policy,
+    effectiveDate: formatDDMMYYYY(policy.effectiveDate)
+  };
+};
 
 /**
  * Get all policies with optional filtering
@@ -56,10 +78,10 @@ export const getAllPolicies = asyncHandler(async (req, res) => {
   if (startDate || endDate) {
     filter.effectiveDate = {};
     if (startDate) {
-      filter.effectiveDate.$gte = new Date(startDate);
+      filter.effectiveDate.$gte = parseDateField(startDate, 'startDate');
     }
     if (endDate) {
-      filter.effectiveDate.$lte = new Date(endDate);
+      filter.effectiveDate.$lte = parseDateField(endDate, 'endDate');
     }
   }
 
@@ -83,7 +105,9 @@ export const getAllPolicies = asyncHandler(async (req, res) => {
 
   const pagination = buildPagination(pageNum, limitNum, total);
 
-  return sendSuccess(res, policies, 'Policies retrieved successfully', 200, pagination);
+  const formattedPolicies = policies.map(formatPolicyDates);
+
+  return sendSuccess(res, formattedPolicies, 'Policies retrieved successfully', 200, pagination);
 });
 
 /**
@@ -141,7 +165,8 @@ export const getPolicyById = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Policy', id);
   }
 
-  return sendSuccess(res, policy, 'Policy retrieved successfully');
+  const formattedPolicy = formatPolicyDates(policy);
+  return sendSuccess(res, formattedPolicy, 'Policy retrieved successfully');
 });
 
 /**
@@ -170,6 +195,13 @@ export const createPolicy = asyncHandler(async (req, res) => {
     throw buildValidationError('effectiveDate', 'Effective Date is required');
   }
 
+  const parsedEffectiveDate = parseDateField(effectiveDate, 'effectiveDate');
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  if (parsedEffectiveDate < todayStart) {
+    throw buildValidationError('effectiveDate', 'Effective Date must be today or later');
+  }
+
   // Validate applyToAll and assignTo combination
   if (!applyToAll && (!assignTo || assignTo.length === 0)) {
     throw buildValidationError('assignTo', 'Either apply to all employees or assign to specific departments/designations');
@@ -191,7 +223,7 @@ export const createPolicy = asyncHandler(async (req, res) => {
   const policyToInsert = {
     policyName: policyName.trim(),
     policyDescription: policyDescription.trim(),
-    effectiveDate: new Date(effectiveDate),
+    effectiveDate: parsedEffectiveDate,
     applyToAll: applyToAll || false,
     assignTo: assignTo || [],
     createdBy: user.userId,
@@ -208,8 +240,9 @@ export const createPolicy = asyncHandler(async (req, res) => {
 
   // Get created policy
   const policy = await collections.policies.findOne({ _id: result.insertedId });
+  const formattedPolicy = formatPolicyDates(policy);
 
-  return sendCreated(res, policy, 'Policy created successfully');
+  return sendCreated(res, formattedPolicy, 'Policy created successfully');
 });
 
 /**
@@ -272,7 +305,15 @@ export const updatePolicy = asyncHandler(async (req, res) => {
 
   if (policyName !== undefined) updateData.policyName = policyName.trim();
   if (policyDescription !== undefined) updateData.policyDescription = policyDescription.trim();
-  if (effectiveDate !== undefined) updateData.effectiveDate = new Date(effectiveDate);
+  if (effectiveDate !== undefined) {
+    const parsedEffectiveDate = parseDateField(effectiveDate, 'effectiveDate');
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (parsedEffectiveDate < todayStart) {
+      throw buildValidationError('effectiveDate', 'Effective Date must be today or later');
+    }
+    updateData.effectiveDate = parsedEffectiveDate;
+  }
   if (applyToAll !== undefined) updateData.applyToAll = applyToAll;
   if (assignTo !== undefined) updateData.assignTo = assignTo;
 
@@ -288,12 +329,13 @@ export const updatePolicy = asyncHandler(async (req, res) => {
 
   // Get updated policy
   const updatedPolicy = await collections.policies.findOne({ _id: new ObjectId(id) });
+  const formattedPolicy = formatPolicyDates(updatedPolicy);
 
-  return sendSuccess(res, updatedPolicy, 'Policy updated successfully');
+  return sendSuccess(res, formattedPolicy, 'Policy updated successfully');
 });
 
 /**
- * Delete policy (soft delete)
+ * Delete policy (hard delete)
  * REST API: DELETE /api/policies/:id
  */
 export const deletePolicy = asyncHandler(async (req, res) => {
@@ -306,27 +348,16 @@ export const deletePolicy = asyncHandler(async (req, res) => {
   const collections = getTenantCollections(user.companyId);
 
   const policy = await collections.policies.findOne({
-    _id: new ObjectId(id),
-    isDeleted: { $ne: true }
+    _id: new ObjectId(id)
   });
 
   if (!policy) {
     throw buildNotFoundError('Policy', id);
   }
 
-  // Soft delete
-  const result = await collections.policies.updateOne(
-    { _id: new ObjectId(id) },
-    {
-      $set: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedBy: user.userId
-      }
-    }
-  );
+  const result = await collections.policies.deleteOne({ _id: new ObjectId(id) });
 
-  if (result.matchedCount === 0) {
+  if (result.deletedCount === 0) {
     throw buildNotFoundError('Policy', id);
   }
 
@@ -361,7 +392,9 @@ export const searchPolicies = asyncHandler(async (req, res) => {
     .limit(20)
     .toArray();
 
-  return sendSuccess(res, policies, 'Search results retrieved successfully');
+  const formattedPolicies = policies.map(formatPolicyDates);
+
+  return sendSuccess(res, formattedPolicies, 'Search results retrieved successfully');
 });
 
 export default {

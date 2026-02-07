@@ -502,31 +502,58 @@ const EmployeesGrid = () => {
 
   // Validate form before submission
   const validateForm = (): boolean => {
-    // Check required fields
+    const errors: Record<string, string> = {};
+
     if (!formData.firstName) {
-      alert("Please fill in first name");
-      return false;
+      errors.firstName = "First name is required";
     }
     if (!formData.contact.email) {
-      alert("Please fill in email");
-      return false;
+      errors.email = "Email is required";
     }
     if (!formData.account.userName) {
-      alert("Please fill in username");
-      return false;
+      errors.userName = "Username is required";
     }
     if (!formData.account.password) {
-      alert("Please fill in password");
-      return false;
+      errors.password = "Password is required";
     }
     if (!formData.contact.phone) {
-      alert("Please fill in phone");
-      return false;
+      errors.phone = "Phone number is required";
+    }
+    if (!formData.dateOfJoining) {
+      errors.dateOfJoining = "Joining date is required";
+    } else if (!isValidDateString(formData.dateOfJoining)) {
+      errors.dateOfJoining = "Date must be in DD-MM-YYYY format";
+    }
+    if (!formData.personal?.birthday) {
+      errors.birthday = "Birthday is required";
+    } else if (!isValidDateString(formData.personal.birthday)) {
+      errors.birthday = "Date must be in DD-MM-YYYY format";
+    } else {
+      const dob = toDayjsDate(formData.personal.birthday);
+      if (dob && dob.isAfter(dayjs(), "day")) {
+        errors.birthday = "DOB cannot be in the future";
+      }
     }
 
-    // Check password match
+    if (
+      formData.personal?.birthday &&
+      formData.dateOfJoining &&
+      isValidDateString(formData.personal.birthday) &&
+      isValidDateString(formData.dateOfJoining)
+    ) {
+      const dob = toDayjsDate(formData.personal.birthday);
+      const doj = toDayjsDate(formData.dateOfJoining);
+      if (dob && doj && doj.isBefore(dob, "day")) {
+        errors.dateOfJoining = "Joining date must be on or after DOB";
+      }
+    }
+
     if (formData.account.password !== confirmPassword) {
-      alert("Passwords don't match!");
+      errors.password = "Passwords don't match";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return false;
     }
 
@@ -747,7 +774,23 @@ const EmployeesGrid = () => {
     }
   };
 
-  const handleDateChange = (date: string) => {
+  const DATE_FORMAT = "DD-MM-YYYY";
+  const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
+
+  const isValidDateString = (value?: string | null) =>
+    !!value && DATE_REGEX.test(value);
+
+  const toDayjsDate = (value?: string | null) => {
+    if (!value) return null;
+    if (isValidDateString(value)) {
+      const parsed = dayjs(value, DATE_FORMAT);
+      return parsed.isValid() ? parsed : null;
+    }
+    const fallback = dayjs(value);
+    return fallback.isValid() ? fallback : null;
+  };
+
+  const handleDateChange = (_date: any, dateString?: string) => {
         // Clear dateOfJoining error
         if (fieldErrors['dateOfJoining']) {
           const newErrors = { ...fieldErrors };
@@ -757,7 +800,7 @@ const EmployeesGrid = () => {
             setModalError(null);
           }
         }
-    setFormData(prev => ({ ...prev, dateOfJoining: date }));
+    setFormData(prev => ({ ...prev, dateOfJoining: dateString || "" }));
   };
 
   const handleSelectChange = (field: string, value: string) => {
@@ -933,6 +976,10 @@ const EmployeesGrid = () => {
     if (success) {
       setEditingEmployee(null); // Close modal or reset editing state
       setError(null);
+      toast.success("Employee updated successfully!", {
+        position: "top-right",
+        autoClose: 3000,
+      });
     } else {
       setError("Failed to update employee");
     }
@@ -957,6 +1004,10 @@ const EmployeesGrid = () => {
     if (success) {
       setPermissions(initialState);
       setError(null);
+      toast.success("Employee permissions updated successfully!", {
+        position: "top-right",
+        autoClose: 3000,
+      });
     } else {
       setError("Failed to update permissions");
     }
@@ -1653,7 +1704,7 @@ const EmployeesGrid = () => {
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="dateOfJoining"
-                              value={formData.dateOfJoining}
+                              value={toDayjsDate(formData.dateOfJoining)}
                               onChange={handleDateChange}
                             />
                             <span className="input-icon-addon">
@@ -1730,24 +1781,40 @@ const EmployeesGrid = () => {
                           </label>
                           <div className="input-icon-end position-relative">
                             <DatePicker
-                              className="form-control datetimepicker"
-                              format="DD-MM-YYYY"
+                              className={`form-control datetimepicker ${getFieldErrorClass('birthday')}`}
+                              format={{
+                                format: "DD-MM-YYYY",
+                                type: "mask",
+                              }}
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="birthday"
-                              value={formData.personal?.birthday ? dayjs(formData.personal.birthday) : null}
-                              onChange={(date) => setFormData(prev => ({
-                                ...prev,
-                                personal: {
-                                  ...prev.personal,
-                                  birthday: date ? date.toDate().toISOString() : null
+                              value={formData.personal?.birthday ? toDayjsDate(formData.personal.birthday) : null}
+                              onChange={(_date, dateString) => {
+                                if (fieldErrors['birthday']) {
+                                  const newErrors = { ...fieldErrors };
+                                  delete newErrors['birthday'];
+                                  setFieldErrors(newErrors);
+                                  if (Object.keys(newErrors).length === 0) {
+                                    setModalError(null);
+                                  }
                                 }
-                              }))}
+                                setFormData(prev => ({
+                                  ...prev,
+                                  personal: {
+                                    ...prev.personal,
+                                    birthday: (dateString as string) || ""
+                                  }
+                                }));
+                              }}
                             />
                             <span className="input-icon-addon">
                               <i className="ti ti-calendar text-gray-7" />
                             </span>
                           </div>
+                          {getFieldError('birthday') && (
+                            <div className="invalid-feedback d-block">{getFieldError('birthday')}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-12">
@@ -2320,16 +2387,19 @@ const EmployeesGrid = () => {
                           <div className="input-icon-end position-relative">
                             <DatePicker
                               className="form-control datetimepicker"
-                              format="DD-MM-YYYY"
+                              format={{
+                                format: "DD-MM-YYYY",
+                                type: "mask",
+                              }}
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               name="dateOfJoining"
-                              value={editingEmployee?.dateOfJoining ? dayjs(editingEmployee.dateOfJoining) : null}
-                              onChange={(date: dayjs.Dayjs | null) => {
+                              value={editingEmployee?.dateOfJoining ? toDayjsDate(editingEmployee.dateOfJoining) : null}
+                              onChange={(_date, dateString) => {
                                 setEditingEmployee(prev =>
                                   prev ? {
                                     ...prev,
-                                    dateOfJoining: date ? date.toDate().toISOString() : ""
+                                    dateOfJoining: (dateString as string) || ""
                                   } : prev
                                 );
                               }}

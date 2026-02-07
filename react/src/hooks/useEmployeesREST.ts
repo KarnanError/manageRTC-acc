@@ -213,6 +213,17 @@ export interface CheckDuplicatesResponse {
   field?: string;
 }
 
+export interface DeleteErrorDetails {
+  code?: string;
+  message: string;
+  details?: any;
+}
+
+export interface DeleteResult {
+  success: boolean;
+  error?: DeleteErrorDetails;
+}
+
 /**
  * Normalize status to ensure correct case
  */
@@ -237,6 +248,53 @@ const normalizeStatus = (
 
   return 'Active';
 };
+
+const buildApiError = (err: any, fallbackMessage: string): DeleteErrorDetails => {
+  const apiError = err?.response?.data?.error;
+  return {
+    code: apiError?.code,
+    message: apiError?.message || err?.message || fallbackMessage,
+    details: apiError?.details
+  };
+};
+
+const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+  return [value];
+};
+
+const normalizeFamilyPayload = (familyData: any) =>
+  toArray(familyData).map((entry) => ({
+    Name: entry?.Name || entry?.name || entry?.familyMemberName || '',
+    relationship: entry?.relationship || '',
+    phone: entry?.phone || ''
+  }));
+
+const normalizeEducationPayload = (educationData: any) =>
+  toArray(educationData).map((entry) => ({
+    institution: entry?.institution || '',
+    degree: entry?.degree || entry?.course || '',
+    startDate: entry?.startDate || '',
+    endDate: entry?.endDate || '',
+    grade: entry?.grade || ''
+  }));
+
+const normalizeExperiencePayload = (experienceData: any) =>
+  toArray(experienceData).map((entry) => ({
+    previousCompany: entry?.previousCompany || entry?.company || entry?.companyName || '',
+    designation: entry?.designation || entry?.position || entry?.role || '',
+    startDate: entry?.startDate || '',
+    endDate: entry?.endDate || '',
+    currentlyWorking: entry?.currentlyWorking ?? entry?.current ?? false
+  }));
+
+const normalizeEmergencyContactsPayload = (emergencyContacts: any) =>
+  toArray(emergencyContacts).map((entry) => ({
+    name: entry?.name || '',
+    relationship: entry?.relationship || '',
+    phone: Array.isArray(entry?.phone) ? entry.phone : entry?.phone ? [entry.phone] : []
+  }));
 
 /**
  * Employees REST API Hook
@@ -527,7 +585,6 @@ export const useEmployeesREST = () => {
       const response: ApiResponse<Employee> = await put(`/employees/${employeeId}`, updateData);
 
       if (response.success && response.data) {
-        message.success('Employee updated successfully!');
         // Refresh the list
         await fetchEmployeesWithStats();
         return true;
@@ -536,7 +593,6 @@ export const useEmployeesREST = () => {
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update employee';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -556,14 +612,12 @@ export const useEmployeesREST = () => {
       const response: ApiResponse = await put(`/employees/${permissionsData.employeeId}`, permissionsData);
 
       if (response.success) {
-        message.success('Permissions updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update permissions');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update permissions';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -586,14 +640,12 @@ export const useEmployeesREST = () => {
       });
 
       if (response.success) {
-        message.success('Personal information updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update personal info');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update personal info';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -616,14 +668,12 @@ export const useEmployeesREST = () => {
       });
 
       if (response.success) {
-        message.success('Bank details updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update bank details');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update bank details';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -641,19 +691,18 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
+      const normalizedFamily = normalizeFamilyPayload(familyData);
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        family: familyData
+        family: normalizedFamily
       });
 
       if (response.success) {
-        message.success('Family information updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update family info');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update family info';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -671,19 +720,18 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
+      const normalizedEducation = normalizeEducationPayload(educationData);
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        education: educationData
+        education: normalizedEducation
       });
 
       if (response.success) {
-        message.success('Education details updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update education info');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update education info';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -701,19 +749,18 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
+      const normalizedEmergencyContacts = normalizeEmergencyContactsPayload(emergencyContacts);
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        emergencyContacts
+        emergencyContacts: normalizedEmergencyContacts
       });
 
       if (response.success) {
-        message.success('Emergency contacts updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update emergency contacts');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update emergency contacts';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -731,19 +778,18 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
+      const normalizedExperience = normalizeExperiencePayload(experienceData);
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        experience: experienceData
+        experience: normalizedExperience
       });
 
       if (response.success) {
-        message.success('Experience updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update experience');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update experience';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -758,7 +804,7 @@ export const useEmployeesREST = () => {
     employeeId: string,
     reassignToEmployeeId: string,
     options: { showMessage?: boolean } = {}
-  ): Promise<boolean> => {
+  ): Promise<DeleteResult> => {
     setLoading(true);
     setError(null);
     const { showMessage = true } = options;
@@ -771,18 +817,23 @@ export const useEmployeesREST = () => {
         if (showMessage) {
           message.success('Employee reassigned and deleted successfully!');
         }
-        return true;
+        await fetchEmployeesWithStats();
+        return { success: true };
       }
       throw new Error(response.error?.message || 'Failed to reassign and delete employee');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to reassign and delete employee';
-      setError(errorMessage);
-      message.error(errorMessage);
-      return false;
+      const apiError = buildApiError(err, 'Failed to reassign and delete employee');
+      if (apiError.code !== 'DEPENDENT_RECORDS') {
+        setError(apiError.message);
+        if (showMessage) {
+          message.error(apiError.message);
+        }
+      }
+      return { success: false, error: apiError };
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchEmployeesWithStats]);
 
   /**
    * Update employee about section
@@ -800,14 +851,12 @@ export const useEmployeesREST = () => {
       });
 
       if (response.success) {
-        message.success('About section updated successfully!');
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update about section');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update about section';
       setError(errorMessage);
-      message.error(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -818,24 +867,34 @@ export const useEmployeesREST = () => {
    * Delete employee
    * REST API: DELETE /api/employees/:id
    */
-  const deleteEmployee = useCallback(async (employeeId: string): Promise<boolean> => {
+  const deleteEmployee = useCallback(async (
+    employeeId: string,
+    options: { showMessage?: boolean } = {}
+  ): Promise<DeleteResult> => {
     setLoading(true);
     setError(null);
+    const { showMessage = true } = options;
     try {
       const response: ApiResponse = await del(`/employees/${employeeId}`);
 
       if (response.success) {
-        message.success('Employee deleted successfully!');
+        if (showMessage) {
+          message.success('Employee deleted successfully!');
+        }
         // Refresh the list
         await fetchEmployeesWithStats();
-        return true;
+        return { success: true };
       }
       throw new Error(response.error?.message || 'Failed to delete employee');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete employee';
-      setError(errorMessage);
-      message.error(errorMessage);
-      return false;
+      const apiError = buildApiError(err, 'Failed to delete employee');
+      if (apiError.code !== 'DEPENDENT_RECORDS') {
+        setError(apiError.message);
+        if (showMessage) {
+          message.error(apiError.message);
+        }
+      }
+      return { success: false, error: apiError };
     } finally {
       setLoading(false);
     }

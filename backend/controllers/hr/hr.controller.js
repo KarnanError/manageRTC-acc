@@ -69,6 +69,8 @@ const hrDashboardController = (socket, io) => {
   };
 
   const isObject = (val) => val && typeof val === 'object' && !Array.isArray(val);
+  const isValidDDMMYYYY = (value) =>
+    DateTime.fromFormat(value, 'dd-MM-yyyy', { zone: 'utc' }).isValid;
 
   const validateEmployeeData = (data) => {
     if (typeof data !== 'object' || data === null) {
@@ -129,9 +131,13 @@ const hrDashboardController = (socket, io) => {
       return 'Missing required field: dateOfJoining';
     }
     const dateOfJoining = data.dateOfJoining;
-    if (typeof dateOfJoining !== 'string' && !(dateOfJoining instanceof Date)) {
+    if (typeof dateOfJoining === 'string') {
+      if (!isValidDDMMYYYY(dateOfJoining)) {
+        return 'dateOfJoining must be in DD-MM-YYYY format';
+      }
+    } else if (!(dateOfJoining instanceof Date)) {
       if (!dateOfJoining || typeof dateOfJoining.$d !== 'object') {
-        return 'dateOfJoining must be a string, Date object, or valid date wrapper';
+        return 'dateOfJoining must be in DD-MM-YYYY format';
       }
     }
 
@@ -220,9 +226,13 @@ const hrDashboardController = (socket, io) => {
       return 'Missing required field: dateOfJoining';
     }
     const dateOfJoining = data.dateOfJoining;
-    if (typeof dateOfJoining !== 'string' && !(dateOfJoining instanceof Date)) {
+    if (typeof dateOfJoining === 'string') {
+      if (!isValidDDMMYYYY(dateOfJoining)) {
+        return 'dateOfJoining must be in DD-MM-YYYY format';
+      }
+    } else if (!(dateOfJoining instanceof Date)) {
       if (!dateOfJoining || typeof dateOfJoining.$d !== 'object') {
-        return 'dateOfJoining must be a string, Date object, or valid date wrapper';
+        return 'dateOfJoining must be in DD-MM-YYYY format';
       }
     }
 

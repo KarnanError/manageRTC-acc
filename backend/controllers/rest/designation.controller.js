@@ -304,6 +304,16 @@ export const deleteDesignationById = async (req, res) => {
     }
   } catch (error) {
     logger.error('Error deleting designation:', error);
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        error: {
+          code: error.code || 'INTERNAL_ERROR',
+          message: error.message,
+          details: error.details || []
+        }
+      });
+    }
     res.status(500).json({
       success: false,
       error: { message: 'Failed to delete designation' }

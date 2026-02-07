@@ -98,6 +98,8 @@ export const getTenantCollections = (tenantDbName) => {
     jobs: db.collection('jobApplications'),
     jobApplications: db.collection('jobApplications'), // Add explicit mapping for admin stats
     earnings: db.collection('earnings'),
+    payrolls: db.collection('payrolls'),
+    payroll: db.collection('payrolls'),
 
     // employee dashboard collection
     skills: db.collection('skills'),

@@ -93,6 +93,7 @@ const Designations = () => {
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [targetDesignationId, setTargetDesignationId] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
+  const [deleteDependencyDetails, setDeleteDependencyDetails] = useState<any | null>(null);
   const [stats, setStats] = useState<DesignationStats>({
     totalDesignations: 0,
     activeCount: 0,
@@ -374,6 +375,16 @@ const Designations = () => {
     setSortedDesignations(sortedData);
   };
 
+  const extractDependencyDetails = (details: any) => {
+    if (Array.isArray(details) && details.length > 0) {
+      return details[0];
+    }
+    if (details && typeof details === 'object') {
+      return details;
+    }
+    return null;
+  };
+
   const applyFilters = async (updatedFields: {
     department?: string;
     status?: string;
@@ -480,16 +491,26 @@ const Designations = () => {
         return;
       }
 
-      const success = await deleteDesignation(designationId);
+      const result = await deleteDesignation(designationId);
 
-      if (success) {
+      if (result.success) {
         setError(null);
         // Refresh designations list and stats
         await Promise.all([
           fetchDesignations(filters),
           fetchStats()
         ]);
+        return;
       }
+      if (result.error?.code === 'DEPENDENT_RECORDS') {
+        setDeleteDependencyDetails(extractDependencyDetails(result.error.details));
+        setShowReassignModal(true);
+        setTargetDesignationId("");
+        hideModal('delete_modal');
+        setTimeout(() => showModal('reassign_delete_designation_modal'), 100);
+        return;
+      }
+      setError(result.error?.message || "Failed to delete designation");
     } catch (error) {
       setError("Failed to delete designation");
     } finally {
@@ -507,13 +528,14 @@ const Designations = () => {
       setIsReassigning(true);
       setError(null);
 
-      const success = await deleteDesignation(designationToDelete._id, targetDesignationId);
+      const result = await deleteDesignation(designationToDelete._id, targetDesignationId);
 
-      if (success) {
+      if (result.success) {
         setError(null);
         setShowReassignModal(false);
         setTargetDesignationId("");
         setDesignationToDelete(null);
+        setDeleteDependencyDetails(null);
         // Close modal and refresh data
         hideModal('reassign_delete_designation_modal');
         // Refresh designations list and stats
@@ -521,6 +543,8 @@ const Designations = () => {
           fetchDesignations(filters),
           fetchStats()
         ]);
+      } else {
+        setError(result.error?.message || "Failed to reassign and delete designation");
       }
     } catch (error) {
       setError("Failed to reassign and delete designation");
@@ -533,6 +557,7 @@ const Designations = () => {
     const hasEmployees = (designation.employeeCount || 0) > 0;
 
     setDesignationToDelete(designation);
+    setDeleteDependencyDetails(null);
 
     if (hasEmployees) {
       // Show reassignment modal programmatically
@@ -561,6 +586,12 @@ const Designations = () => {
     value: desig._id,
     label: desig.designation
   }));
+
+  const dependencySummary = {
+    employees: deleteDependencyDetails?.employees ?? designationToDelete?.employeeCount ?? 0,
+    policies: deleteDependencyDetails?.policies ?? 0,
+    promotions: deleteDependencyDetails?.promotions ?? 0
+  };
 
   if (loading) {
     return (
@@ -1150,6 +1181,9 @@ const Designations = () => {
                 <i className="ti ti-trash-x fs-36" />
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
+              <p className="mb-1 text-warning fw-medium">
+                This action permanently deletes data and cannot be undone.
+              </p>
               <p className="mb-3">
                 {designationToDelete
                   ? `Are you sure you want to delete designation "${designationToDelete.designation}"? This cannot be undone.`
@@ -1159,7 +1193,10 @@ const Designations = () => {
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
-                  onClick={() => setDesignationToDelete(null)}
+                  onClick={() => {
+                    setDesignationToDelete(null);
+                    setDeleteDependencyDetails(null);
+                  }}
                   disabled={loading}
                 >
                   Cancel
@@ -1205,6 +1242,7 @@ const Designations = () => {
                   setShowReassignModal(false);
                   setTargetDesignationId("");
                   setDesignationToDelete(null);
+                  setDeleteDependencyDetails(null);
                 }}
               >
                 <i className="ti ti-x" />
@@ -1217,8 +1255,16 @@ const Designations = () => {
                   <strong>Designation "{designationToDelete?.designation}" cannot be deleted directly</strong>
                   <p className="mb-0 mt-1">
                     This designation has{" "}
-                    <strong>{designationToDelete?.employeeCount || 0} employee{(designationToDelete?.employeeCount || 0) > 1 ? 's' : ''}</strong>.
-                    Please reassign {(designationToDelete?.employeeCount || 0) > 1 ? 'them' : 'the employee'} to another designation before deletion.
+                    <strong>{dependencySummary.employees} employee{dependencySummary.employees !== 1 ? 's' : ''}</strong>,
+                    {" "}
+                    <strong>{dependencySummary.policies} polic{dependencySummary.policies !== 1 ? 'ies' : 'y'}</strong>
+                    {dependencySummary.promotions > 0 && (
+                      <>
+                        {", "}
+                        <strong>{dependencySummary.promotions} promotion{dependencySummary.promotions !== 1 ? 's' : ''}</strong>
+                      </>
+                    )}
+                    . Please reassign to another designation before deletion.
                   </p>
                 </div>
               </div>
@@ -1254,6 +1300,7 @@ const Designations = () => {
                   setShowReassignModal(false);
                   setTargetDesignationId("");
                   setDesignationToDelete(null);
+                  setDeleteDependencyDetails(null);
                 }}
                 disabled={isReassigning}
               >

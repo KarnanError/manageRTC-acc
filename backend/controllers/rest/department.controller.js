@@ -6,17 +6,13 @@
 
 import { ObjectId } from 'mongodb';
 import { getTenantCollections } from '../../config/db.js';
-import logger from '../../utils/logger.js';
-import { extractUser } from '../../utils/apiResponse.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  asyncHandler
+  asyncHandler,
+  buildNotFoundError
 } from '../../middleware/errorHandler.js';
-import {
-  sendSuccess,
-  sendCreated
-} from '../../utils/apiResponse.js';
+import { deleteDepartment as deleteDepartmentService } from '../../services/hr/hrm.department.js';
+import { extractUser, sendCreated, sendSuccess } from '../../utils/apiResponse.js';
+import logger from '../../utils/logger.js';
 
 /**
  * Helper function to check if user has required role
@@ -82,10 +78,107 @@ export const getAllDepartments = asyncHandler(async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const departments = await collections.departments
-      .find(mongoQuery)
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum)
+      .aggregate([
+        { $match: mongoQuery },
+        { $sort: sort },
+        { $skip: skip },
+        { $limit: limitNum },
+        {
+          $lookup: {
+            from: 'designations',
+            let: { deptId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $eq: ['$departmentId', '$$deptId'] } } },
+              { $project: { _id: 1 } }
+            ],
+            as: 'designations'
+          }
+        },
+        {
+          $addFields: {
+            designationIds: {
+              $map: {
+                input: '$designations',
+                as: 'des',
+                in: { $toString: '$$des._id' }
+              }
+            }
+          }
+        },
+        {
+          $lookup: {
+            from: 'employees',
+            let: { designationIds: '$designationIds' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $in: ['$designationId', '$$designationIds'] },
+                      {
+                        $or: [
+                          { $eq: ['$status', 'active'] },
+                          { $eq: ['$status', 'Active'] }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              { $project: { _id: 1 } }
+            ],
+            as: 'employees'
+          }
+        },
+        {
+          $lookup: {
+            from: 'policy',
+            let: { deptId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$applyToAll', false] },
+                      {
+                        $gt: [
+                          {
+                            $size: {
+                              $filter: {
+                                input: { $ifNull: ['$assignTo', []] },
+                                as: 'assign',
+                                cond: { $eq: ['$$assign.departmentId', '$$deptId'] }
+                              }
+                            }
+                          },
+                          0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              { $project: { _id: 1 } }
+            ],
+            as: 'policies'
+          }
+        },
+        {
+          $addFields: {
+            employeeCount: { $size: '$employees' },
+            designationCount: { $size: '$designations' },
+            policyCount: { $size: '$policies' }
+          }
+        },
+        {
+          $project: {
+            employees: 0,
+            designations: 0,
+            policies: 0,
+            designationIds: 0
+          }
+        }
+      ])
       .toArray();
 
     console.log('[Department Controller] Found', departments.length, 'departments out of', total, 'total');
@@ -103,14 +196,6 @@ export const getAllDepartments = asyncHandler(async (req, res) => {
       }).length
     };
 
-    // Add employee counts if requested
-    const departmentsWithCounts = departments.map(dept => ({
-      ...dept,
-      employeeCount: dept.employeeCount || 0,
-      designationCount: dept.designationCount || 0,
-      policyCount: dept.policyCount || 0
-    }));
-
     // Build pagination metadata
     const pagination = {
       page: pageNum,
@@ -123,10 +208,10 @@ export const getAllDepartments = asyncHandler(async (req, res) => {
 
     res.json({
       success: true,
-      data: departmentsWithCounts,
+      data: departments,
       stats,
       pagination,
-      count: departmentsWithCounts.length
+      count: departments.length
     });
 
   } catch (error) {
@@ -320,57 +405,24 @@ export const updateDepartment = asyncHandler(async (req, res) => {
  * @route DELETE /api/departments/:id
  */
 export const deleteDepartment = asyncHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = extractUser(req);
+  const { id } = req.params;
+  const { reassignTo } = req.body || {};
+  const user = extractUser(req);
 
-    // Role check: Only admin and superadmin can delete departments
-    if (!ensureRole(user, ['admin', 'superadmin'])) {
-      return sendForbidden(res, 'Only Admin can delete departments');
-    }
-
-    console.log('[Department Controller] deleteDepartment - id:', id, 'companyId:', user.companyId);
-
-    // Get tenant collections
-    const collections = getTenantCollections(user.companyId);
-
-    // Check if department exists
-    const department = await collections.departments.findOne({ _id: new ObjectId(id) });
-
-    if (!department) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Department not found' }
-      });
-    }
-
-    // Check if department has employees
-    if (department.employeeCount > 0) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: 'Cannot delete department with assigned employees',
-          field: 'general'
-        }
-      });
-    }
-
-    // Delete department
-    const result = await collections.departments.deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
-      throw buildNotFoundError('Department', id);
-    }
-
-    return sendSuccess(res, { _id: id }, 'Department deleted successfully');
-
-  } catch (error) {
-    logger.error('[Department Controller] Error deleting department:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to delete department' }
-    });
+  // Role check: Only admin and superadmin can delete departments
+  if (!ensureRole(user, ['admin', 'superadmin'])) {
+    return sendForbidden(res, 'Only Admin can delete departments');
   }
+
+  console.log('[Department Controller] deleteDepartment - id:', id, 'companyId:', user.companyId);
+
+  const result = await deleteDepartmentService(user.companyId, user.userId, id, reassignTo);
+
+  return sendSuccess(
+    res,
+    { _id: id, reassignedTo: reassignTo || null },
+    result.message || 'Department deleted successfully'
+  );
 });
 
 /**

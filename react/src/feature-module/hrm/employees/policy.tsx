@@ -1,6 +1,5 @@
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
-import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -104,6 +103,22 @@ const Policy = () => {
   const getModalContainer = (): HTMLElement => {
     const modalElement = document.getElementById("modal-datepicker");
     return modalElement ? modalElement : document.body;
+  };
+
+  const DATE_FORMAT = "DD-MM-YYYY";
+  const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
+
+  const isValidDateString = (value?: string | null) =>
+    !!value && DATE_REGEX.test(value);
+
+  const toDayjsDate = (value?: string | null) => {
+    if (!value) return null;
+    if (isValidDateString(value)) {
+      const parsed = dayjs(value, DATE_FORMAT);
+      return parsed.isValid() ? parsed : null;
+    }
+    const fallback = dayjs(value);
+    return fallback.isValid() ? fallback : null;
   };
 
   // Fetch initial data on mount
@@ -221,8 +236,15 @@ const Policy = () => {
     {
       title: "In-effect Date",
       dataIndex: "effectiveDate",
-      sorter: (a: any, b: any) => new Date(a.effectiveDate).getTime() - new Date(b.effectiveDate).getTime(),
-      render: (date: string) => DateTime.fromISO(date).toFormat("dd-MM-yyyy"),
+      sorter: (a: any, b: any) => {
+        const aDate = toDayjsDate(a.effectiveDate);
+        const bDate = toDayjsDate(b.effectiveDate);
+        return (aDate?.valueOf() || 0) - (bDate?.valueOf() || 0);
+      },
+      render: (date: string) => {
+        const parsed = toDayjsDate(date);
+        return parsed ? parsed.format("DD-MM-YYYY") : "-";
+      },
     },
     {
       title: "",
@@ -360,12 +382,11 @@ const Policy = () => {
   // Helper function to validate future date
   const isFutureDate = (dateString: string): boolean => {
     if (!dateString) return false;
-    const selectedDate = new Date(dateString);
-    const today = new Date();
-    // Set time to 00:00:00 for accurate date comparison
-    today.setHours(0, 0, 0, 0);
-    selectedDate.setHours(0, 0, 0, 0);
-    return selectedDate >= today;
+    if (!isValidDateString(dateString)) return false;
+    const selectedDate = toDayjsDate(dateString);
+    if (!selectedDate) return false;
+    const today = dayjs().startOf("day");
+    return selectedDate.startOf("day").isSame(today) || selectedDate.isAfter(today);
   };
 
   // Reset Add PolicyType form fields and errors
@@ -528,8 +549,11 @@ const Policy = () => {
       if (!effectiveDate) {
         setEffectiveDateError("Effective Date is required");
         hasError = true;
+      } else if (!isValidDateString(effectiveDate)) {
+        setEffectiveDateError("Date must be in DD-MM-YYYY format");
+        hasError = true;
       } else if (!isFutureDate(effectiveDate)) {
-        setEffectiveDateError("Effective Date must be in the future");
+        setEffectiveDateError("Effective Date must be today or later");
         hasError = true;
       }
 
@@ -704,8 +728,11 @@ const Policy = () => {
       if (!effectiveDate) {
         setEditEffectiveDateError("Effective Date is required");
         hasError = true;
+      } else if (!isValidDateString(effectiveDate)) {
+        setEditEffectiveDateError("Date must be in DD-MM-YYYY format");
+        hasError = true;
       } else if (!isFutureDate(effectiveDate)) {
-        setEditEffectiveDateError("Effective Date must be in the future");
+        setEditEffectiveDateError("Effective Date must be today or later");
         hasError = true;
       }
 
@@ -1020,7 +1047,11 @@ const Policy = () => {
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
                 <div className="me-3">
                   <div className="input-icon-end position-relative">
-                    <PredefinedDateRanges onChange={handleDateRangeFilter} />
+                    <PredefinedDateRanges
+                      onChange={handleDateRangeFilter}
+                      displayFormat="DD-MM-YYYY"
+                      outputFormat="DD-MM-YYYY"
+                    />
                     <span className="input-icon-addon">
                       <i className="ti ti-chevron-down" />
                     </span>
@@ -1153,13 +1184,16 @@ const Policy = () => {
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className={`form-control datetimepicker ${effectiveDateError ? 'is-invalid' : ''}`}
-                          format="DD-MM-YYYY"
+                          format={{
+                            format: "DD-MM-YYYY",
+                            type: "mask",
+                          }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          value={effectiveDate ? dayjs(effectiveDate) : null}
-                          onChange={(date) => {
-                            const isoDate = date ? date.toDate().toISOString() : "";
-                            setEffectiveDate(isoDate);
+                          value={effectiveDate ? toDayjsDate(effectiveDate) : null}
+                          onChange={(_date, dateString) => {
+                            const dateValue = (dateString as string) || "";
+                            setEffectiveDate(dateValue);
                             // Clear error when user selects a date
                             if (effectiveDateError) {
                               setEffectiveDateError(null);
@@ -1446,14 +1480,17 @@ const Policy = () => {
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className={`form-control datetimepicker ${editEffectiveDateError ? 'is-invalid' : ''}`}
-                          format="DD-MM-YYYY"
+                          format={{
+                            format: "DD-MM-YYYY",
+                            type: "mask",
+                          }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                          value={editingPolicyType?.effectiveDate ? dayjs(editingPolicyType.effectiveDate) : null}
-                          onChange={(date) => {
-                            const isoDate = date ? date.toDate().toISOString() : "";
+                          value={editingPolicyType?.effectiveDate ? toDayjsDate(editingPolicyType.effectiveDate) : null}
+                          onChange={(_date, dateString) => {
+                            const dateValue = (dateString as string) || "";
                             setEditingPolicyType(prev =>
-                              prev ? { ...prev, effectiveDate: isoDate } : prev);
+                              prev ? { ...prev, effectiveDate: dateValue } : prev);
                             // Clear error when user selects a date
                             if (editEffectiveDateError) {
                               setEditEffectiveDateError(null);
@@ -1698,6 +1735,9 @@ const Policy = () => {
                 <i className="ti ti-trash-x fs-36" />
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
+              <p className="mb-1 text-warning fw-medium">
+                This action permanently deletes data and cannot be undone.
+              </p>
               <p className="mb-3">
                 {policyToDelete
                   ? `Are you sure you want to delete policy "${policyToDelete.policyName}"? This cannot be undone.`
@@ -1768,7 +1808,9 @@ const Policy = () => {
                     </div>
                     <div className="ps-4">
                       <p className="fs-16 mb-0">
-                        {DateTime.fromISO(viewingPolicyType.effectiveDate).toFormat("dd MMMM yyyy")}
+                        {toDayjsDate(viewingPolicyType.effectiveDate)
+                          ? toDayjsDate(viewingPolicyType.effectiveDate)!.format("DD MMMM YYYY")
+                          : "-"}
                       </p>
                     </div>
                   </div>

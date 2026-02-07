@@ -4,6 +4,7 @@
  */
 
 import Joi from 'joi';
+import { DateTime } from 'luxon';
 
 /**
  * validate - Factory function to create validation middleware
@@ -102,6 +103,20 @@ export const commonSchemas = {
     'date.format': 'Invalid date format. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)',
   }),
 
+  // Date validation (DD-MM-YYYY)
+  ddmmyyyy: Joi.string()
+    .custom((value, helpers) => {
+      if (value === '' || value === null) return value;
+      const dt = DateTime.fromFormat(value, 'dd-MM-yyyy', { zone: 'utc' });
+      if (!dt.isValid) {
+        return helpers.message('Date must be in DD-MM-YYYY format');
+      }
+      return value;
+    })
+    .messages({
+      'string.base': 'Date must be a string in DD-MM-YYYY format',
+    }),
+
   // Pagination
   pagination: {
     page: Joi.number().integer().min(1).default(1),
@@ -138,11 +153,16 @@ export const employeeSchemas = {
     phone: commonSchemas.phone.optional(),
 
     // Support both flat and nested structures
-    dateOfBirth: commonSchemas.isoDate.max('now').optional().messages({
-      'date.max': 'Date of birth cannot be in the future',
+    dateOfBirth: commonSchemas.ddmmyyyy.optional().allow('', null).custom((value, helpers) => {
+      if (value === '' || value === null) return value;
+      const dt = DateTime.fromFormat(value, 'dd-MM-yyyy', { zone: 'utc' });
+      if (dt.isValid && dt > DateTime.utc().startOf('day')) {
+        return helpers.message('Date of birth cannot be in the future');
+      }
+      return value;
     }),
 
-    dateOfJoining: commonSchemas.isoDate.optional(),
+    dateOfJoining: commonSchemas.ddmmyyyy.optional().allow('', null),
 
     gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say').optional(),
 
@@ -185,7 +205,7 @@ export const employeeSchemas = {
         .valid('Male', 'Female', 'Other', 'Prefer not to say', 'male', 'female', 'other', '')
         .optional()
         .allow(''),
-      birthday: Joi.date().optional().allow(null),
+      birthday: commonSchemas.ddmmyyyy.optional().allow('', null),
       address: Joi.object({
         street: Joi.string().allow('').optional(),
         city: Joi.string().allow('').optional(),
@@ -230,7 +250,14 @@ export const employeeSchemas = {
     lastName: Joi.string().min(1).max(50).trim().optional(),
     email: commonSchemas.email.optional(),
     phone: commonSchemas.phone.optional(),
-    dateOfBirth: commonSchemas.isoDate.max('now').optional(),
+    dateOfBirth: commonSchemas.ddmmyyyy.optional().allow('', null).custom((value, helpers) => {
+      if (value === '' || value === null) return value;
+      const dt = DateTime.fromFormat(value, 'dd-MM-yyyy', { zone: 'utc' });
+      if (dt.isValid && dt > DateTime.utc().startOf('day')) {
+        return helpers.message('Date of birth cannot be in the future');
+      }
+      return value;
+    }),
     gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say').optional(),
     address: Joi.object({
       street: Joi.string().max(200).allow('').optional(),
@@ -263,15 +290,15 @@ export const employeeSchemas = {
     // Personal information
     personal: Joi.object({
       gender: Joi.string().optional(),
-      birthday: commonSchemas.isoDate.optional(),
+      birthday: commonSchemas.ddmmyyyy.optional().allow('', null),
       maritalStatus: Joi.string().optional(),
       religion: Joi.string().optional(),
       employmentOfSpouse: Joi.boolean().optional(),
       noOfChildren: Joi.number().min(0).optional(),
       passport: Joi.object({
         number: Joi.string().optional(),
-        issueDate: commonSchemas.isoDate.optional(),
-        expiryDate: commonSchemas.isoDate.optional(),
+        issueDate: commonSchemas.ddmmyyyy.optional().allow('', null),
+        expiryDate: commonSchemas.ddmmyyyy.optional().allow('', null),
         country: Joi.string().optional(),
       }).optional(),
       address: Joi.object({
@@ -289,7 +316,7 @@ export const employeeSchemas = {
     }).optional(),
     // Additional employee fields
     about: Joi.string().max(2000).allow('').optional(),
-    dateOfJoining: commonSchemas.isoDate.optional(),
+    dateOfJoining: commonSchemas.ddmmyyyy.optional().allow('', null),
     notes: Joi.string().max(2000).allow('').optional(),
     // Permissions
     enabledModules: Joi.object().pattern(Joi.string(), Joi.boolean()).optional(),

@@ -1,6 +1,8 @@
 // react/src/employees/departments.jsx
 
 import { message } from 'antd';
+import jsPDF from "jspdf";
+import * as XLSX from "xlsx";
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -13,6 +15,7 @@ import { departmentName } from '../../../core/common/selectoption/selectoption';
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { showModal, hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
 import { all_routes } from '../../router/all_routes';
+import { useSocket } from "../../../SocketContext";
 
 type PasswordField = "password" | "confirmPassword";
 
@@ -47,8 +50,11 @@ const Department = () => {
     fetchDepartments,
     createDepartment,
     updateDepartment,
-    deleteDepartment
+    deleteDepartment,
+    reassignAndDeleteDepartment
   } = useDepartmentsREST();
+
+  const socket = useSocket();
 
   const [sortedDepartments, setSortedDepartments] = useState<Departments[]>([]);
   const [departmentName, setDepartmentName] = useState("");
@@ -66,6 +72,8 @@ const Department = () => {
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [targetDepartmentId, setTargetDepartmentId] = useState<string>("");
   const [isReassigning, setIsReassigning] = useState(false);
+  const [deleteDependencyDetails, setDeleteDependencyDetails] = useState<any | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [localStats, setLocalStats] = useState<DepartmentStats>({
     totalDepartments: 0,
     activeCount: 0,
@@ -78,6 +86,29 @@ const Department = () => {
     fetchDepartments(filters);
   }, []);
 
+  // Refresh counts when employees or designations change
+  useEffect(() => {
+    if (!socket) return;
+
+    const refresh = () => fetchDepartments(filters);
+
+    socket.on('employee:created', refresh);
+    socket.on('employee:updated', refresh);
+    socket.on('employee:deleted', refresh);
+    socket.on('designation:created', refresh);
+    socket.on('designation:updated', refresh);
+    socket.on('designation:deleted', refresh);
+
+    return () => {
+      socket.off('employee:created', refresh);
+      socket.off('employee:updated', refresh);
+      socket.off('employee:deleted', refresh);
+      socket.off('designation:created', refresh);
+      socket.off('designation:updated', refresh);
+      socket.off('designation:deleted', refresh);
+    };
+  }, [socket, fetchDepartments, filters]);
+
   // Update local stats when stats from hook change
   useEffect(() => {
     if (stats) {
@@ -89,6 +120,16 @@ const Department = () => {
   const normalizeStatus = (status: string): string => {
     if (!status) return '';
     return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  };
+
+  const extractDependencyDetails = (details: any) => {
+    if (Array.isArray(details) && details.length > 0) {
+      return details[0];
+    }
+    if (details && typeof details === 'object') {
+      return details;
+    }
+    return null;
   };
 
   const columns = [
@@ -197,6 +238,67 @@ const Department = () => {
     ...dept,
     key: dept._id || index.toString(),
   }));
+
+  const buildExportRows = () =>
+    (departments || []).map((dept, index) => ({
+      No: index + 1,
+      Department: dept.department,
+      Employees: dept.employeeCount ?? 0,
+      Designations: dept.designationCount ?? 0,
+      Policies: dept.policyCount ?? 0,
+      Status: dept.status
+    }));
+
+  const exportToPDF = () => {
+    const rows = buildExportRows();
+    const doc = new jsPDF();
+    let y = 20;
+    doc.setFontSize(14);
+    doc.text("Departments Export", 14, 15);
+    doc.setFontSize(10);
+    rows.forEach((row, index) => {
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(
+        `${index + 1}. ${row.Department} | Employees: ${row.Employees} | Designations: ${row.Designations} | Policies: ${row.Policies} | Status: ${row.Status}`,
+        14,
+        y
+      );
+      y += 8;
+    });
+    doc.save("departments-export.pdf");
+  };
+
+  const exportToExcel = () => {
+    const rows = buildExportRows();
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Departments");
+    XLSX.writeFile(workbook, "departments-export.xlsx");
+  };
+
+  const handleExport = async (type: "pdf" | "excel") => {
+    if (!departments.length) {
+      message.warning("No departments available to export.");
+      return;
+    }
+    try {
+      setExporting(true);
+      if (type === "pdf") {
+        exportToPDF();
+      } else {
+        exportToExcel();
+      }
+      message.success(`Departments exported as ${type.toUpperCase()} successfully.`);
+    } catch (err) {
+      console.error("Department export failed:", err);
+      message.error("Failed to export departments. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // helper functions
 
@@ -349,13 +451,25 @@ const Department = () => {
 
   const deleteDepartmentById = async (departmentId: string) => {
     try {
-      const success = await deleteDepartment(departmentId);
+      const result = await deleteDepartment(departmentId, { showMessage: false });
 
-      if (success) {
+      if (result.success) {
         // Refresh departments list
         await fetchDepartments(filters);
         message.success("Department deleted successfully");
+        return;
       }
+      if (result.error?.code === 'DEPENDENT_RECORDS') {
+        setDeleteDependencyDetails(extractDependencyDetails(result.error.details));
+        setShowReassignModal(true);
+        setTargetDepartmentId("");
+        hideModal('delete_modal');
+        setTimeout(() => {
+          showModal('reassign_delete_modal');
+        }, 100);
+        return;
+      }
+      message.error(result.error?.message || "Failed to delete department");
     } catch (err) {
       message.error("Failed to delete department");
     }
@@ -371,18 +485,27 @@ const Department = () => {
       setIsReassigning(true);
       setLocalError(null);
 
-      // TODO: Implement reassign functionality in REST API
-      // For now, just show a message
-      message.warning("Reassign functionality needs to be implemented in REST API");
-      setIsReassigning(false);
+      const result = await reassignAndDeleteDepartment(
+        departmentToDelete._id,
+        targetDepartmentId,
+        { showMessage: false }
+      );
 
-      // Placeholder for when reassign is implemented:
-      // const success = await reassignAndDeleteDepartment({
-      //   sourceDepartmentId: departmentToDelete._id,
-      //   targetDepartmentId: targetDepartmentId,
-      // });
+      if (result.success) {
+        await fetchDepartments(filters);
+        hideModal('reassign_delete_modal');
+        setTimeout(() => cleanupModalBackdrops(), 500);
+        setDepartmentToDelete(null);
+        setTargetDepartmentId("");
+        setDeleteDependencyDetails(null);
+        message.success("Department reassigned and deleted successfully");
+        return;
+      }
+
+      setLocalError(result.error?.message || "Failed to reassign and delete department");
     } catch (err) {
       setLocalError("Failed to initiate reassignment");
+    } finally {
       setIsReassigning(false);
     }
   };
@@ -393,6 +516,7 @@ const Department = () => {
     const hasPolicies = (department.policyCount || 0) > 0;
 
     setDepartmentToDelete(department);
+    setDeleteDependencyDetails(null);
 
     if (hasEmployees || hasDesignations || hasPolicies) {
       // Show reassignment modal programmatically
@@ -413,6 +537,13 @@ const Department = () => {
     value: dept._id,
     label: dept.department
   }));
+
+  const dependencySummary = {
+    employees: deleteDependencyDetails?.employees ?? departmentToDelete?.employeeCount ?? 0,
+    designations: deleteDependencyDetails?.designations ?? departmentToDelete?.designationCount ?? 0,
+    policies: deleteDependencyDetails?.policies ?? departmentToDelete?.policyCount ?? 0,
+    promotions: deleteDependencyDetails?.promotions ?? 0
+  };
 
   if (loading && departments.length === 0) {
     return (
@@ -474,22 +605,33 @@ const Department = () => {
                     to="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    style={{ pointerEvents: exporting ? "none" : "auto", opacity: exporting ? 0.6 : 1 }}
                   >
                     <i className="ti ti-file-export me-1" />
-                    Export
+                    {exporting ? "Exporting..." : "Export"}
                   </Link>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <button
+                        type="button"
+                        className="dropdown-item rounded-1"
+                        onClick={() => handleExport("pdf")}
+                        disabled={exporting}
+                      >
                         <i className="ti ti-file-type-pdf me-1" />
                         Export as PDF
-                      </Link>
+                      </button>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <button
+                        type="button"
+                        className="dropdown-item rounded-1"
+                        onClick={() => handleExport("excel")}
+                        disabled={exporting}
+                      >
                         <i className="ti ti-file-type-xls me-1" />
                         Export as Excel{" "}
-                      </Link>
+                      </button>
                     </li>
                   </ul>
                 </div>
@@ -768,6 +910,9 @@ const Department = () => {
                 <i className="ti ti-trash-x fs-36" />
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
+              <p className="mb-1 text-warning fw-medium">
+                This action permanently deletes data and cannot be undone.
+              </p>
               <p className="mb-3">
                 {departmentToDelete
                   ? `Are you sure you want to delete department "${departmentToDelete.department}"? This cannot be undone.`
@@ -777,7 +922,10 @@ const Department = () => {
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
-                  onClick={() => setDepartmentToDelete(null)}
+                  onClick={() => {
+                    setDepartmentToDelete(null);
+                    setDeleteDependencyDetails(null);
+                  }}
                   disabled={loading}
                 >
                   Cancel
@@ -816,6 +964,7 @@ const Department = () => {
                   setShowReassignModal(false);
                   setTargetDepartmentId("");
                   setDepartmentToDelete(null);
+                  setDeleteDependencyDetails(null);
                 }}
               >
                 <i className="ti ti-x" />
@@ -828,21 +977,15 @@ const Department = () => {
                   <strong>Department "{departmentToDelete?.department}" cannot be deleted directly</strong>
                   <p className="mb-0 mt-1">
                     This department has{" "}
-                    {departmentToDelete && (
+                    <strong>{dependencySummary.employees} employee{dependencySummary.employees !== 1 ? 's' : ''}</strong>,
+                    {" "}
+                    <strong>{dependencySummary.designations} designation{dependencySummary.designations !== 1 ? 's' : ''}</strong>,
+                    {" "}
+                    <strong>{dependencySummary.policies} polic{dependencySummary.policies !== 1 ? 'ies' : 'y'}</strong>
+                    {dependencySummary.promotions > 0 && (
                       <>
-                        {departmentToDelete.employeeCount > 0 && (
-                          <strong>{departmentToDelete.employeeCount} employee{departmentToDelete.employeeCount > 1 ? 's' : ''}</strong>
-                        )}
-                        {departmentToDelete.employeeCount > 0 && (departmentToDelete.designationCount > 0 || departmentToDelete.policyCount > 0) && ", "}
-                        {departmentToDelete.designationCount > 0 && (
-                          <strong>{departmentToDelete.designationCount} designation{departmentToDelete.designationCount > 1 ? 's' : ''}</strong>
-                        )}
-                        {departmentToDelete.designationCount > 0 && departmentToDelete.policyCount > 0 && ", and "}
-                        {departmentToDelete.employeeCount === 0 && departmentToDelete.designationCount === 0 && departmentToDelete.policyCount > 0 && ""}
-                        {departmentToDelete.employeeCount > 0 && departmentToDelete.designationCount === 0 && departmentToDelete.policyCount > 0 && " and "}
-                        {departmentToDelete.policyCount > 0 && (
-                          <strong>{departmentToDelete.policyCount} polic{departmentToDelete.policyCount > 1 ? 'ies' : 'y'}</strong>
-                        )}
+                        {", "}
+                        <strong>{dependencySummary.promotions} promotion{dependencySummary.promotions !== 1 ? 's' : ''}</strong>
                       </>
                     )}
                     . Please reassign them to another department before deletion.
@@ -875,6 +1018,7 @@ const Department = () => {
                   setShowReassignModal(false);
                   setTargetDepartmentId("");
                   setDepartmentToDelete(null);
+                  setDeleteDependencyDetails(null);
                 }}
                 disabled={isReassigning}
               >

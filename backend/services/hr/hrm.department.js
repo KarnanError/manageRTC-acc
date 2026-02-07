@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { ObjectId } from "mongodb";
-import { getTenantCollections } from "../../config/db.js";
+import { client, getTenantCollections } from "../../config/db.js";
+import { AppError, buildValidationError } from "../../middleware/errorHandler.js";
 
 const normalizeStatus = (status) => {
   if (!status) return "Active";
@@ -12,6 +13,35 @@ const normalizeStatus = (status) => {
   if (normalized === "terminated") return "Terminated";
   if (normalized === "on leave") return "On Leave";
   return "Active";
+};
+
+const buildDependentRecordsError = (details) => {
+  const err = new AppError(
+    "Dependent records exist. Reassignment is required before deletion.",
+    409,
+    "DEPENDENT_RECORDS"
+  );
+  err.details = [{ requiresReassign: true, ...details }];
+  return err;
+};
+
+const countDepartmentDependencies = async (collections, sourceId, sourceIdStr) => {
+  const [employees, designations, policies, promotions] = await Promise.all([
+    collections.employees.countDocuments({ departmentId: sourceIdStr }),
+    collections.designations.countDocuments({ departmentId: sourceId }),
+    collections.policy.countDocuments({
+      "assignTo.departmentId": sourceId,
+      applyToAll: false,
+    }),
+    collections.promotions.countDocuments({
+      $or: [
+        { "promotionTo.departmentId": sourceIdStr },
+        { "promotionFrom.departmentId": sourceIdStr },
+      ],
+    }),
+  ]);
+
+  return { employees, designations, policies, promotions };
 };
 
 export const allDepartments = async (companyId, hrId) => {
@@ -123,16 +153,42 @@ export const displayDepartment = async (companyId, hrId, filters = {}) => {
       },
       {
         $lookup: {
+          from: "designations",
+          let: { deptId: "$_id" },  // Pass ObjectId directly
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: ["$departmentId", "$$deptId"]  // Compare ObjectId with ObjectId
+                },
+              },
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: "designations",
+        },
+      },
+      {
+        $addFields: {
+          designationIds: {
+            $map: {
+              input: "$designations",
+              as: "des",
+              in: { $toString: "$$des._id" }
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
           from: "employees",
-          let: { deptIdStr: "$departmentIdString" },
+          let: { designationIds: "$designationIds" },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    {
-                      $eq: ["$departmentId", "$$deptIdStr"],
-                    },
+                    { $in: ["$designationId", "$$designationIds"] },
                     {
                       $or: [
                         { $eq: ["$status", "active"] },
@@ -145,32 +201,6 @@ export const displayDepartment = async (companyId, hrId, filters = {}) => {
             },
           ],
           as: "employees",
-        },
-      },
-      {
-        $lookup: {
-          from: "designations",
-          let: { deptId: "$_id" },  // Pass ObjectId directly
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    {
-                      $eq: ["$departmentId", "$$deptId"],  // Compare ObjectId with ObjectId
-                    },
-                    {
-                      $or: [
-                        { $eq: ["$status", "active"] },
-                        { $eq: ["$status", "Active"] }
-                      ]
-                    }
-                  ],
-                },
-              },
-            },
-          ],
-          as: "designations",
         },
       },
       {
@@ -212,7 +242,7 @@ export const displayDepartment = async (companyId, hrId, filters = {}) => {
           policyCount: { $size: "$policies" },
         },
       },
-      { $project: { employees: 0, designations: 0, policies: 0, departmentIdString: 0 } },
+      { $project: { employees: 0, designations: 0, policies: 0, departmentIdString: 0, designationIds: 0 } },
     ];
 
     const departments = await collections.departments
@@ -339,179 +369,126 @@ export const updateDepartment = async (companyId, hrId, payload) => {
   }
 };
 
-export const deleteDepartment = async (companyId, hrId, departmentId) => {
-  try {
-    if (!companyId || !departmentId) {
-      return { done: false, error: "Missing required fields" };
-    }
+export const deleteDepartment = async (companyId, hrId, departmentId, reassignTo = null) => {
+  if (!companyId || !departmentId) {
+    throw buildValidationError("departmentId", "Missing required fields");
+  }
 
-    const collections = getTenantCollections(companyId);
-    const departmentObjId = new ObjectId(departmentId);
+  const collections = getTenantCollections(companyId);
+  const departmentObjId = new ObjectId(departmentId);
 
     // const hrExists = await collections.hr.countDocuments({ userId: hrId });
     // if (!hrExists) {
     //   return { done: false, message: "HR doesn't exist" };
     // }
 
-    const department = await collections.departments.findOne({
-      _id: departmentObjId,
-    });
-    if (!department) {
-      return { done: false, message: "Department not found" };
-    }
-
-    const pipeline = [
-      { $match: { department: department.department } },
-      { $count: "employeeCount" },
-    ];
-    const [employeeCountResult] = await collections.employees
-      .aggregate(pipeline)
-      .toArray();
-    const hasEmployees = employeeCountResult
-      ? employeeCountResult.employeeCount
-      : 0;
-
-    if (hasEmployees > 0) {
-      return {
-        done: false,
-        message: "Cannot delete department with assigned employees",
-        detail: `${hasEmployees} employees found`,
-      };
-    }
-
-    // Check for designations assigned to this department
-    const designationCount = await collections.designations.countDocuments({
-      departmentId: departmentObjId,
-    });
-
-    if (designationCount > 0) {
-      return {
-        done: false,
-        message: "Cannot delete department with assigned designations",
-        detail: `${designationCount} designations found`,
-      };
-    }
-
-    // Check for policies assigned to this department
-    const policyCount = await collections.policy.countDocuments({
-      "assignTo.departmentId": departmentObjId,
-      applyToAll: false,
-    });
-
-    if (policyCount > 0) {
-      return {
-        done: false,
-        message: "Cannot delete department with assigned policies",
-        detail: `${policyCount} policies found`,
-      };
-    }
-
-    const result = await collections.departments.deleteOne({
-      _id: departmentObjId,
-    });
-
-    if (result.deletedCount === 0) {
-      return { done: false, message: "Department not found" };
-    }
-
-    return {
-      done: true,
-      message: "Department deleted successfully",
-    };
-  } catch (error) {
-    return {
-      done: false,
-      error: "Internal server error",
-    };
+  const department = await collections.departments.findOne({
+    _id: departmentObjId,
+  });
+  if (!department) {
+    throw new AppError("Department not found", 404, "NOT_FOUND");
   }
+
+    const dependencyCounts = await countDepartmentDependencies(
+      collections,
+      departmentObjId,
+      departmentObjId.toString()
+    );
+
+    const hasDependencies = Object.values(dependencyCounts).some((count) => count > 0);
+    if (hasDependencies && !reassignTo) {
+      throw buildDependentRecordsError(dependencyCounts);
+    }
+
+    if (reassignTo) {
+      if (!ObjectId.isValid(reassignTo)) {
+        throw buildValidationError("reassignTo", "Invalid target department ID format");
+      }
+      if (reassignTo === departmentObjId.toString()) {
+        throw buildValidationError("reassignTo", "Target department must be different");
+      }
+    }
+
+    const targetDepartment = reassignTo
+      ? await collections.departments.findOne({ _id: new ObjectId(reassignTo) })
+      : null;
+
+    if (reassignTo && !targetDepartment) {
+      throw buildValidationError("reassignTo", "Target department not found");
+    }
+
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        if (reassignTo && targetDepartment) {
+          const targetId = new ObjectId(reassignTo);
+          const sourceIdStr = departmentObjId.toString();
+          const targetIdStr = targetId.toString();
+
+          await collections.employees.updateMany(
+            { departmentId: sourceIdStr },
+            {
+              $set: {
+                departmentId: targetIdStr,
+                department: targetDepartment.department,
+              },
+            },
+            { session }
+          );
+
+          await collections.designations.updateMany(
+            { departmentId: departmentObjId },
+            { $set: { departmentId: targetId } },
+            { session }
+          );
+
+          await collections.policy.updateMany(
+            { "assignTo.departmentId": departmentObjId, applyToAll: false },
+            { $set: { "assignTo.$[elem].departmentId": targetId } },
+            { arrayFilters: [{ "elem.departmentId": departmentObjId }], session }
+          );
+
+          await collections.promotions.updateMany(
+            { "promotionTo.departmentId": sourceIdStr },
+            { $set: { "promotionTo.departmentId": targetIdStr } },
+            { session }
+          );
+          await collections.promotions.updateMany(
+            { "promotionFrom.departmentId": sourceIdStr },
+            { $set: { "promotionFrom.departmentId": targetIdStr } },
+            { session }
+          );
+        }
+
+        const result = await collections.departments.deleteOne(
+          { _id: departmentObjId },
+          { session }
+        );
+
+        if (result.deletedCount === 0) {
+          throw new AppError("Department not found", 404, "NOT_FOUND");
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+  return {
+    done: true,
+    message: reassignTo
+      ? "Department deleted and reassigned successfully"
+      : "Department deleted successfully",
+  };
 };
 
 export const reassignAndDeleteDepartment = async (companyId, hrId, payload) => {
-  try {
-    if (!companyId || !payload || !payload.sourceDepartmentId || !payload.targetDepartmentId) {
-      return { done: false, error: "Missing required fields" };
-    }
-
-    const collections = getTenantCollections(companyId);
-    const sourceId = new ObjectId(payload.sourceDepartmentId);
-    const targetId = new ObjectId(payload.targetDepartmentId);
-
-    // Verify source department exists
-    const sourceDepartment = await collections.departments.findOne({
-      _id: sourceId,
-    });
-    if (!sourceDepartment) {
-      return { done: false, error: "Source department not found" };
-    }
-
-    // Verify target department exists
-    const targetDepartment = await collections.departments.findOne({
-      _id: targetId,
-    });
-    if (!targetDepartment) {
-      return { done: false, error: "Target department not found" };
-    }
-
-    // Reassign employees from source to target department (using ObjectId)
-    const employeeUpdateResult = await collections.employees.updateMany(
-      { departmentId: sourceId.toString() },  // departmentId stored as string of ObjectId
-      { 
-        $set: { 
-          departmentId: targetId.toString(),  // Update to target department ObjectId as string
-          department: targetDepartment.department
-        } 
-      }
-    );
-
-    // Reassign designations from source to target department
-    const designationUpdateResult = await collections.designations.updateMany(
-      { departmentId: sourceId },  // designations store as ObjectId
-      { 
-        $set: { 
-          departmentId: targetId
-        } 
-      }
-    );
-
-    // Reassign policies from source to target department
-    // Policies store assignTo as array of {departmentId: ObjectId, designationIds: ObjectId[]}
-    const policyUpdateResult = await collections.policy.updateMany(
-      { 
-        "assignTo.departmentId": sourceId,  // departmentId stored as ObjectId
-        applyToAll: false  // Only update policies that are not applied to all
-      },
-      { 
-        $set: { 
-          "assignTo.$[elem].departmentId": targetId  // Update departmentId to target ObjectId
-        }
-      },
-      { 
-        arrayFilters: [{ "elem.departmentId": sourceId }]  // Match by ObjectId
-      }
-    );
-
-    // Delete source department
-    const deleteResult = await collections.departments.deleteOne({
-      _id: sourceId,
-    });
-
-    if (deleteResult.deletedCount === 0) {
-      return { done: false, error: "Failed to delete department" };
-    }
-
-    return {
-      done: true,
-      message: "Department deleted and all data reassigned successfully",
-      data: {
-        employeesReassigned: employeeUpdateResult.modifiedCount,
-        designationsReassigned: designationUpdateResult.modifiedCount,
-        policiesReassigned: policyUpdateResult.modifiedCount,
-      },
-    };
-  } catch (error) {
-    return {
-      done: false,
-      error: `Internal server error: ${error.message}`,
-    };
+  if (!companyId || !payload || !payload.sourceDepartmentId || !payload.targetDepartmentId) {
+    throw buildValidationError("departmentId", "Missing required fields");
   }
+  return deleteDepartment(
+    companyId,
+    hrId,
+    payload.sourceDepartmentId,
+    payload.targetDepartmentId
+  );
 };

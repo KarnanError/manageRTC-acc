@@ -11,7 +11,7 @@ import {
   asyncHandler,
   buildForbiddenError,
   buildNotFoundError,
-  buildValidationError
+  buildValidationError,
 } from '../../middleware/errorHandler.js';
 import {
   extractUser,
@@ -55,7 +55,14 @@ function getValidAvatarUrl(employee) {
 export const getCurrentUserProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  console.log('[User Profile Controller] getCurrentUserProfile - userId:', user.userId, 'role:', user.role, 'companyId:', user.companyId);
+  console.log(
+    '[User Profile Controller] getCurrentUserProfile - userId:',
+    user.userId,
+    'role:',
+    user.role,
+    'companyId:',
+    user.companyId
+  );
 
   // Check for admin and hr roles (they may have company info instead of employee record)
   if (user.role === 'admin') {
@@ -67,7 +74,7 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
 
     // Find company by ID in superadmin collection
     const company = await companiesCollection.findOne({
-      _id: new ObjectId(user.companyId)
+      _id: new ObjectId(user.companyId),
     });
 
     if (!company) {
@@ -377,7 +384,12 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-  console.log('[User Profile Controller] updateCurrentUserProfile - userId:', user.userId, 'role:', user.role);
+  console.log(
+    '[User Profile Controller] updateCurrentUserProfile - userId:',
+    user.userId,
+    'role:',
+    user.role
+  );
 
   // Admin role - update company info (limited fields)
   if (user.role === 'admin') {

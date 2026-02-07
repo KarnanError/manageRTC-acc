@@ -13,22 +13,27 @@ interface DateRange {
 interface PredefinedDateRangesProps {
   onChange?: (range: DateRange) => void;
   value?: DateRange;
+  displayFormat?: string;
+  outputFormat?: string;
 }
 
 const PredefinedDateRanges: React.FC<PredefinedDateRangesProps> = ({
   onChange,
   value,
+  displayFormat = "MM/DD/YYYY",
+  outputFormat,
 }) => {
   const defaultStart = moment.utc("1970-01-01T00:00:00Z");
   const defaultEnd = moment.utc();
+  const DATE_FORMAT = outputFormat;
 
   const [range, setRange] = useState<DateRange>(() => {
     if (value) {
       return { start: value.start, end: value.end };
     } else {
       return {
-        start: defaultStart.toISOString(),
-        end: defaultEnd.toISOString(),
+        start: DATE_FORMAT ? defaultStart.format(DATE_FORMAT) : defaultStart.toISOString(),
+        end: DATE_FORMAT ? defaultEnd.format(DATE_FORMAT) : defaultEnd.toISOString(),
       };
     }
   });
@@ -44,15 +49,23 @@ const PredefinedDateRanges: React.FC<PredefinedDateRangesProps> = ({
 
   const handleApply = (event: any, picker: any) => {
     const newRange = {
-      start: picker.startDate.utc().toISOString(),
-      end: picker.endDate.utc().toISOString(),
+      start: DATE_FORMAT
+        ? picker.startDate.utc().format(DATE_FORMAT)
+        : picker.startDate.utc().toISOString(),
+      end: DATE_FORMAT
+        ? picker.endDate.utc().format(DATE_FORMAT)
+        : picker.endDate.utc().toISOString(),
     };
     setRange(newRange);
     onChange?.(newRange);
   };
 
-  const startMoment = moment.utc(range.start);
-  const endMoment = moment.utc(range.end);
+  const startMoment = DATE_FORMAT
+    ? moment.utc(range.start, DATE_FORMAT)
+    : moment.utc(range.start);
+  const endMoment = DATE_FORMAT
+    ? moment.utc(range.end, DATE_FORMAT)
+    : moment.utc(range.end);
 
   const isAllTime =
     startMoment.isSame(defaultStart, "day") &&
@@ -60,7 +73,7 @@ const PredefinedDateRanges: React.FC<PredefinedDateRangesProps> = ({
 
   const label = isAllTime
     ? "All Time"
-    : `${startMoment.format("MM/DD/YYYY")} - ${endMoment.format("MM/DD/YYYY")}`;
+    : `${startMoment.format(displayFormat)} - ${endMoment.format(displayFormat)}`;
 
   return (
     <div className="date-range-container" style={{ minWidth: "250px" }}>

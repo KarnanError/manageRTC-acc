@@ -37,6 +37,26 @@ export interface DepartmentFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface DeleteErrorDetails {
+  code?: string;
+  message: string;
+  details?: any;
+}
+
+export interface DeleteResult {
+  success: boolean;
+  error?: DeleteErrorDetails;
+}
+
+const buildApiError = (err: any, fallbackMessage: string): DeleteErrorDetails => {
+  const apiError = err?.response?.data?.error;
+  return {
+    code: apiError?.code,
+    message: apiError?.message || err?.message || fallbackMessage,
+    details: apiError?.details
+  };
+};
+
 /**
  * Departments REST API Hook
  */
@@ -156,20 +176,64 @@ export const useDepartmentsREST = () => {
    * Delete department
    * REST API: DELETE /api/departments/:id
    */
-  const deleteDepartment = useCallback(async (departmentId: string): Promise<boolean> => {
+  const deleteDepartment = useCallback(async (
+    departmentId: string,
+    options: { showMessage?: boolean } = {}
+  ): Promise<DeleteResult> => {
+    const { showMessage = true } = options;
     try {
       const response: ApiResponse = await del(`/departments/${departmentId}`);
 
       if (response.success) {
-        message.success('Department deleted successfully!');
+        if (showMessage) {
+          message.success('Department deleted successfully!');
+        }
         setDepartments(prev => prev.filter(dept => dept._id !== departmentId));
-        return true;
+        return { success: true };
       }
       throw new Error(response.error?.message || 'Failed to delete department');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete department';
-      message.error(errorMessage);
-      return false;
+      const apiError = buildApiError(err, 'Failed to delete department');
+      if (apiError.code !== 'DEPENDENT_RECORDS') {
+        if (showMessage) {
+          message.error(apiError.message);
+        }
+        setError(apiError.message);
+      }
+      return { success: false, error: apiError };
+    }
+  }, []);
+
+  /**
+   * Reassign and delete department
+   * REST API: DELETE /api/departments/:id (with reassignTo)
+   */
+  const reassignAndDeleteDepartment = useCallback(async (
+    departmentId: string,
+    reassignToId: string,
+    options: { showMessage?: boolean } = {}
+  ): Promise<DeleteResult> => {
+    const { showMessage = true } = options;
+    try {
+      const response: ApiResponse = await del(`/departments/${departmentId}`, { reassignTo: reassignToId });
+
+      if (response.success) {
+        if (showMessage) {
+          message.success('Department reassigned and deleted successfully!');
+        }
+        setDepartments(prev => prev.filter(dept => dept._id !== departmentId));
+        return { success: true };
+      }
+      throw new Error(response.error?.message || 'Failed to reassign and delete department');
+    } catch (err: any) {
+      const apiError = buildApiError(err, 'Failed to reassign and delete department');
+      if (apiError.code !== 'DEPENDENT_RECORDS') {
+        if (showMessage) {
+          message.error(apiError.message);
+        }
+        setError(apiError.message);
+      }
+      return { success: false, error: apiError };
     }
   }, []);
 
@@ -256,6 +320,7 @@ export const useDepartmentsREST = () => {
     createDepartment,
     updateDepartment,
     deleteDepartment,
+    reassignAndDeleteDepartment,
     updateDepartmentStatus,
     searchDepartments,
     getActiveDepartments
