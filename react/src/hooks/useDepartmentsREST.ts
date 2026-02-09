@@ -94,6 +94,7 @@ export const useDepartmentsREST = () => {
           return new Date(d.createdAt) >= sevenDaysAgo;
         }).length;
         setStats({ totalDepartments: total, activeCount, inactiveCount, recentCount });
+        return response.data;
       } else {
         throw new Error(response.error?.message || 'Failed to fetch departments');
       }
