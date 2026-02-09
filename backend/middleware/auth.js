@@ -166,6 +166,24 @@ export const authenticate = async (req, res, next) => {
 
     next();
   } catch (error) {
+    // Check if the error is due to token expiration (normal occurrence)
+    if (error.message && (error.message.includes('expired') || error.message.includes('JWT is expired'))) {
+      console.warn('[Auth Middleware] Token expired (normal) - client should refresh:', {
+        error: error.message,
+        requestId: req.id
+      });
+
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'TOKEN_EXPIRED',
+          message: 'Authentication token has expired. Please refresh your session.',
+          requestId: req.id || 'no-id',
+        },
+      });
+    }
+
+    // Other authentication errors (actual problems)
     console.error('[Auth Middleware Error]', {
       error: error.message,
       stack: error.stack,

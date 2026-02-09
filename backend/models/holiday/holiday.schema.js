@@ -17,6 +17,11 @@ const holidaySchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  holidayTypeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'HolidayType',
+    index: true
+  },
   name: {
     type: String,
     required: true,

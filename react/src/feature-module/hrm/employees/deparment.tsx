@@ -239,8 +239,8 @@ const Department = () => {
     key: dept._id || index.toString(),
   }));
 
-  const buildExportRows = () =>
-    (departments || []).map((dept, index) => ({
+  const buildExportRows = (source: Departments[] = []) =>
+    source.map((dept, index) => ({
       No: index + 1,
       Department: dept.department,
       Employees: dept.employeeCount ?? 0,
@@ -249,8 +249,7 @@ const Department = () => {
       Status: dept.status
     }));
 
-  const exportToPDF = () => {
-    const rows = buildExportRows();
+  const exportToPDF = (rows: ReturnType<typeof buildExportRows>) => {
     const doc = new jsPDF();
     let y = 20;
     doc.setFontSize(14);
@@ -271,25 +270,38 @@ const Department = () => {
     doc.save("departments-export.pdf");
   };
 
-  const exportToExcel = () => {
-    const rows = buildExportRows();
+  const exportToExcel = (rows: ReturnType<typeof buildExportRows>) => {
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Departments");
-    XLSX.writeFile(workbook, "departments-export.xlsx");
+    const workbookOut = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([workbookOut], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "departments-export.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleExport = async (type: "pdf" | "excel") => {
-    if (!departments.length) {
-      message.warning("No departments available to export.");
-      return;
-    }
     try {
       setExporting(true);
+      const freshDepartments = await fetchDepartments(filters);
+      const exportSource = freshDepartments.length ? freshDepartments : departments;
+      if (!exportSource.length) {
+        message.warning("No departments available to export.");
+        return;
+      }
+      const rows = buildExportRows(exportSource);
       if (type === "pdf") {
-        exportToPDF();
+        exportToPDF(rows);
       } else {
-        exportToExcel();
+        exportToExcel(rows);
       }
       message.success(`Departments exported as ${type.toUpperCase()} successfully.`);
     } catch (err) {
