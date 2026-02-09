@@ -1,23 +1,39 @@
-import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import CollapseHeader from "../../core/common/collapse-header/collapse-header";
-import { all_routes } from "../router/all_routes";
-import Table from "../../core/common/dataTable/index";
-import { HolidaysData } from "../../core/data/json/holidaysData";
-import Footer from "../../core/common/footer";
-import { useSocket } from "../../SocketContext";
-import { Socket } from "socket.io-client";
-import { closeModal, cleanupModals, useModalCleanup } from "../../core/hooks/useModalCleanup";
-import { log } from "console";
-import { LogIn } from "react-feather";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import CommonSelect from "../../core/common/commonSelect";
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { Socket } from "socket.io-client";
+import CollapseHeader from "../../core/common/collapse-header/collapse-header";
+import CommonSelect from "../../core/common/commonSelect";
+import Table from "../../core/common/dataTable/index";
+import Footer from "../../core/common/footer";
+import { closeModal, useModalCleanup } from "../../core/hooks/useModalCleanup";
 import HolidayDetailsModal from "../../core/modals/HolidayDetailsModal";
+import { useSocket } from "../../SocketContext";
+import { all_routes } from "../router/all_routes";
 // REST API Hook for Holidays
 import { useHolidaysREST } from "../../hooks/useHolidaysREST";
+
+dayjs.extend(customParseFormat);
+
+const DATE_FORMAT = "DD-MM-YYYY";
+const DATE_FORMAT_REGEX = /^\d{2}-\d{2}-\d{4}$/;
+
+const parseDisplayDate = (value?: string | null) => {
+  if (!value) return null;
+  const strict = dayjs(value, DATE_FORMAT, true);
+  if (strict.isValid()) return strict;
+  const fallback = dayjs(value);
+  return fallback.isValid() ? fallback : null;
+};
+
+const formatDisplayDate = (value?: string | null) => {
+  const parsed = parseDisplayDate(value || "");
+  return parsed ? parsed.format(DATE_FORMAT) : "";
+};
 
 interface Holidays {
   _id: string;
@@ -65,6 +81,8 @@ const Holidays = () => {
   const [editingHoliday, setEditingHoliday] = useState<Holidays | null>(null);
   const [deletingHoliday, setDeletingHoliday] = useState<Holidays | null>(null);
   const [viewingHoliday, setViewingHoliday] = useState<Holidays | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Dropdown options (matching employeesList.tsx pattern)
   const statusOptions = [
@@ -121,6 +139,8 @@ const Holidays = () => {
   });
 
   const socket = useSocket() as Socket | null;
+  const socketListenersAttachedRef = useRef(false);
+  const socketIdRef = useRef<string | null>(null);
 
   // REST API Hooks for Holidays and Holiday Types
   const {
@@ -141,22 +161,24 @@ const Holidays = () => {
   // Calculate holiday statistics
   const calculateStats = () => {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
     const totalHolidays = holiday.length;
 
     const upcomingCount = holiday.filter(h => {
-      if (!h.date) return false;
-      const holidayDate = new Date(h.date);
-      return holidayDate > now;
+      if (!h.date || h.status !== "Active") return false;
+      const holidayDate = parseDisplayDate(h.date);
+      return holidayDate ? holidayDate.isAfter(dayjs(now), "day") : false;
     }).length;
 
     const thisMonthCount = holiday.filter(h => {
-      if (!h.date) return false;
-      const holidayDate = new Date(h.date);
-      return holidayDate.getMonth() === currentMonth &&
-             holidayDate.getFullYear() === currentYear;
+      if (!h.date || h.status !== "Active") return false;
+      const holidayDate = parseDisplayDate(h.date);
+      return holidayDate
+        ? holidayDate.month() === currentMonth && holidayDate.year() === currentYear
+        : false;
     }).length;
 
     const totalTypesCount = holidayTypes.length;
@@ -205,24 +227,25 @@ const Holidays = () => {
     fetchInitialData();
 
     // Real-time broadcast listeners (KEEP - for real-time updates from backend)
-    const handleHolidayCreated = (data: any) => {
+    const handleHolidayCreated = () => {
       console.log("[Holidays] Real-time: Holiday created");
       fetchHolidays();
     };
-    const handleHolidayUpdated = (data: any) => {
+    const handleHolidayUpdated = () => {
       console.log("[Holidays] Real-time: Holiday updated");
       fetchHolidays();
     };
-    const handleHolidayDeleted = (data: any) => {
+    const handleHolidayDeleted = () => {
       console.log("[Holidays] Real-time: Holiday deleted");
       fetchHolidays();
     };
 
-    // Only set up socket listeners if socket is available
-    if (socket) {
+    if (socket && (!socketListenersAttachedRef.current || socketIdRef.current !== socket.id)) {
       socket.on("holiday:created", handleHolidayCreated);
       socket.on("holiday:updated", handleHolidayUpdated);
       socket.on("holiday:deleted", handleHolidayDeleted);
+      socketListenersAttachedRef.current = true;
+      socketIdRef.current = socket.id;
     }
 
     return () => {
@@ -233,6 +256,8 @@ const Holidays = () => {
         socket.off("holiday:updated", handleHolidayUpdated);
         socket.off("holiday:deleted", handleHolidayDeleted);
       }
+      socketListenersAttachedRef.current = false;
+      socketIdRef.current = null;
     };
   }, [socket, fetchHolidays, fetchHolidayTypes]);
 
@@ -240,6 +265,7 @@ const Holidays = () => {
   useEffect(() => {
     const transformedHolidays: Holidays[] = apiHolidays.map(holiday => ({
       ...holiday,
+      date: formatDisplayDate(holiday.date),
       description: holiday.description || '',
     }));
     setHoliday(transformedHolidays);
@@ -356,6 +382,8 @@ const Holidays = () => {
 
     if (!entry.date) {
       errors.date = "Date is required";
+    } else if (!DATE_FORMAT_REGEX.test(entry.date)) {
+      errors.date = "Date must be in DD-MM-YYYY format";
     }
 
     if (!entry.status) {
@@ -387,13 +415,14 @@ const Holidays = () => {
   };
 
   // Handle submit multiple holidays (using REST API)
-  const handleSubmitHolidays = async () => {
+  const handleSubmitHolidays = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
     if (!validateAllEntries()) {
       toast.error("Please fix all validation errors before submitting");
       return;
     }
-
-    setLoading(true);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
     try {
       // Submit each holiday via REST API
@@ -409,20 +438,26 @@ const Holidays = () => {
         return await createHoliday(holidayData);
       });
 
-      await Promise.all(promises);
+      const results = await Promise.all(promises);
+      const allSucceeded = results.every(Boolean);
+
+      if (!allSucceeded) {
+        return;
+      }
+
+      await fetchHolidays();
 
       // Reset form after successful submission
-      setTimeout(() => {
-        resetAddForm();
-        // Close modal
-        const modalElement = document.getElementById("add_holiday");
-        const modal = window.bootstrap?.Modal.getInstance(modalElement);
-        modal?.hide();
-      }, 500);
+      resetAddForm();
+      // Close modal
+      const modalElement = document.getElementById("add_holiday");
+      const modal = window.bootstrap?.Modal.getInstance(modalElement);
+      modal?.hide();
     } catch (error) {
       console.error("[Holidays] Error submitting holidays:", error);
       toast.error("Failed to add holidays. Please try again.");
-      setLoading(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -436,11 +471,11 @@ const Holidays = () => {
   useEffect(() => {
     if (editingHoliday) {
       setEditTitle(editingHoliday.title);
-      setEditDate(editingHoliday.date.split('T')[0]); // Format date for input
+      setEditDate(formatDisplayDate(editingHoliday.date));
       setEditDescription(editingHoliday.description);
       setEditStatus(editingHoliday.status);
       setEditHolidayTypeId(editingHoliday.holidayTypeId || "");
-      setEditRepeatsEveryYear(editingHoliday.repeatsEveryYear || false); // Use existing value or default to false
+      setEditRepeatsEveryYear(editingHoliday.repeatsEveryYear || false);
       setEditValidationErrors({});
     }
   }, [editingHoliday]);
@@ -455,6 +490,8 @@ const Holidays = () => {
 
     if (!editDate) {
       errors.date = "Date is required";
+    } else if (!DATE_FORMAT_REGEX.test(editDate)) {
+      errors.date = "Date must be in DD-MM-YYYY format";
     }
 
     if (!editStatus) {
@@ -470,7 +507,8 @@ const Holidays = () => {
   };
 
   // Handle edit submit (using REST API)
-  const handleEditSubmit = async () => {
+  const handleEditSubmit = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
     if (!validateEditForm()) {
       toast.error("Please fix all validation errors before submitting");
       return;
@@ -481,7 +519,8 @@ const Holidays = () => {
       return;
     }
 
-    setLoading(true);
+    if (isUpdating) return;
+    setIsUpdating(true);
 
     const updatedHoliday = {
       title: editTitle.trim(),
@@ -496,18 +535,18 @@ const Holidays = () => {
       const result = await updateHoliday(editingHoliday._id, updatedHoliday);
 
       if (result) {
+        await fetchHolidays();
         // Close modal
         const modalElement = document.getElementById("edit_holiday");
         const modal = window.bootstrap?.Modal.getInstance(modalElement);
         modal?.hide();
         setEditingHoliday(null);
-      } else {
-        setLoading(false);
       }
     } catch (error) {
       console.error("[Holidays] Error updating holiday:", error);
       toast.error("Failed to update holiday. Please try again.");
-      setLoading(false);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -639,9 +678,9 @@ const Holidays = () => {
   // Validate date range
   const validateDateRange = () => {
     if (filterFromDate && filterToDate) {
-      const fromDate = new Date(filterFromDate);
-      const toDate = new Date(filterToDate);
-      if (fromDate > toDate) {
+      const fromDate = parseDisplayDate(filterFromDate);
+      const toDate = parseDisplayDate(filterToDate);
+      if (fromDate && toDate && fromDate.isAfter(toDate, "day")) {
         toast.error("'From' date cannot be after 'To' date");
         return false;
       }
@@ -672,18 +711,19 @@ const Holidays = () => {
     if (filterFromDate || filterToDate) {
       filtered = filtered.filter(h => {
         if (!h.date) return false;
-        const holidayDate = new Date(h.date);
+        const holidayDate = parseDisplayDate(h.date);
+        if (!holidayDate) return false;
 
         // Check from date
         if (filterFromDate) {
-          const fromDate = new Date(filterFromDate);
-          if (holidayDate < fromDate) return false;
+          const fromDate = parseDisplayDate(filterFromDate);
+          if (fromDate && holidayDate.isBefore(fromDate, "day")) return false;
         }
 
         // Check to date
         if (filterToDate) {
-          const toDate = new Date(filterToDate);
-          if (holidayDate > toDate) return false;
+          const toDate = parseDisplayDate(filterToDate);
+          if (toDate && holidayDate.isAfter(toDate, "day")) return false;
         }
 
         return true;
@@ -712,12 +752,10 @@ const Holidays = () => {
       sorter: (a: any, b: any) => a.Date.length - b.Date.length,
       render: (date: string | Date) => {
         if (!date) return "-";
-        const d = new Date(date);
-        return d.toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric"
-        });
+        if (date instanceof Date) {
+          return dayjs(date).format(DATE_FORMAT);
+        }
+        return formatDisplayDate(date) || "-";
       }
     },
     {
@@ -995,10 +1033,10 @@ const Holidays = () => {
                     getPopupContainer={getModalContainer}
                     placeholder="From Date"
                     style={{ minWidth: "150px" }}
-                    value={filterFromDate ? dayjs(filterFromDate) : null}
+                    value={parseDisplayDate(filterFromDate) || null}
                     onChange={(date) => {
-                      const isoDate = date ? date.toDate().toISOString() : "";
-                      setFilterFromDate(isoDate);
+                      const formattedDate = date ? date.format(DATE_FORMAT) : "";
+                      setFilterFromDate(formattedDate);
                     }}
                   />
                   <span className="input-icon-addon">
@@ -1017,10 +1055,10 @@ const Holidays = () => {
                     getPopupContainer={getModalContainer}
                     placeholder="To Date"
                     style={{ minWidth: "150px" }}
-                    value={filterToDate ? dayjs(filterToDate) : null}
+                    value={parseDisplayDate(filterToDate) || null}
                     onChange={(date) => {
-                      const isoDate = date ? date.toDate().toISOString() : "";
-                      setFilterToDate(isoDate);
+                      const formattedDate = date ? date.format(DATE_FORMAT) : "";
+                      setFilterToDate(formattedDate);
                     }}
                   />
                   <span className="input-icon-addon">
@@ -1139,10 +1177,10 @@ const Holidays = () => {
                                 format="DD-MM-YYYY"
                                 getPopupContainer={getModalContainer}
                                 placeholder="DD-MM-YYYY"
-                                value={entry.date ? dayjs(entry.date) : null}
+                                value={parseDisplayDate(entry.date) || null}
                                 onChange={(date) => {
-                                  const isoDate = date ? date.toDate().toISOString() : "";
-                                  updateHolidayEntry(entry.id, "date", isoDate);
+                                  const formattedDate = date ? date.format(DATE_FORMAT) : "";
+                                  updateHolidayEntry(entry.id, "date", formattedDate);
                                 }}
                               />
                               <span className="input-icon-addon">
@@ -1272,9 +1310,9 @@ const Holidays = () => {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleSubmitHolidays}
-                disabled={loading}
+                disabled={isSubmitting}
               >
-                {loading ? "Submitting..." : "Submit Holidays"}
+                {isSubmitting ? "Saving..." : "Submit Holidays"}
               </button>
             </div>
           </div>
@@ -1338,10 +1376,10 @@ const Holidays = () => {
                         format="DD-MM-YYYY"
                         getPopupContainer={getModalContainer}
                         placeholder="DD-MM-YYYY"
-                        value={editDate ? dayjs(editDate) : null}
+                        value={parseDisplayDate(editDate) || null}
                         onChange={(date) => {
-                          const isoDate = date ? date.toDate().toISOString() : "";
-                          setEditDate(isoDate);
+                          const formattedDate = date ? date.format(DATE_FORMAT) : "";
+                          setEditDate(formattedDate);
                           clearEditError("date");
                         }}
                       />
@@ -1466,9 +1504,9 @@ const Holidays = () => {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleEditSubmit}
-                disabled={loading}
+                disabled={isUpdating}
               >
-                {loading ? "Updating..." : "Update Holiday"}
+                {isUpdating ? "Updating..." : "Update Holiday"}
               </button>
             </div>
           </div>
