@@ -1,7 +1,7 @@
-import { Server as SocketIOServer } from "socket.io";
-import dotenv from "dotenv";
-import router from "./router.js";
 import { clerkClient, verifyToken } from "@clerk/express";
+import dotenv from "dotenv";
+import { Server as SocketIOServer } from "socket.io";
+import router from "./router.js";
 dotenv.config();
 
 // Environment detection for logging purposes
@@ -254,7 +254,20 @@ export const socketHandler = (httpServer) => {
         return next(new Error("Authentication error: Invalid token"));
       }
     } catch (err) {
-      console.error("Token verification failed:", err.message);
+      // Check if the error is due to token expiration (normal occurrence)
+      if (err.message && (err.message.includes('expired') || err.message.includes('JWT is expired'))) {
+        console.warn("[Socket Auth] Token expired (normal) - client should refresh:", {
+          error: err.message,
+          socketId: socket.id
+        });
+        return next(new Error("Authentication error: Token expired - please refresh"));
+      }
+
+      // Other authentication errors (actual problems)
+      console.error("[Socket Auth] Token verification failed:", {
+        error: err.message,
+        socketId: socket.id
+      });
       return next(new Error("Authentication error: Token verification failed"));
     }
   });

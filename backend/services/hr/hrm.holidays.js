@@ -7,6 +7,27 @@ const normalizeStatus = (status) => {
   return normalized === "inactive" ? "Inactive" : "Active";
 };
 
+const DATE_FORMAT_REGEX = /^\d{2}-\d{2}-\d{4}$/;
+
+const parseHolidayDate = (value) => {
+  if (typeof value !== "string" || !DATE_FORMAT_REGEX.test(value)) {
+    return null;
+  }
+
+  const [day, month, year] = value.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+};
+
 export const addHoliday = async (companyId, hrId, holidaydata) => {
   try {
     if (!companyId || !holidaydata) {
@@ -17,6 +38,8 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
     }
 
     const collections = getTenantCollections(companyId);
+
+    const parsedDate = holidaydata.date ? parseHolidayDate(holidaydata.date) : null;
 
     // Validate required fields (description is optional)
     if (
@@ -34,6 +57,16 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
           holidayTypeId: !holidaydata.holidayTypeId ? "Holiday type is required" : undefined,
         },
         message: "Holiday title, date, status, and type are required",
+      };
+    }
+
+    if (!parsedDate) {
+      return {
+        done: false,
+        errors: {
+          date: "Date must be in DD-MM-YYYY format",
+        },
+        message: "Holiday date must be in DD-MM-YYYY format",
       };
     }
 
@@ -55,7 +88,7 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
 
     // Check for duplicate holiday on the same date
     const existingHoliday = await collections.holidays.findOne({
-      date: new Date(holidaydata.date),
+      date: parsedDate,
     });
 
     if (existingHoliday) {
@@ -71,7 +104,7 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
     // Prepare holiday document
     const holidayDocument = {
       title: holidaydata.title,
-      date: new Date(holidaydata.date),
+      date: parsedDate,
       description: holidaydata.description || "", // Optional field
       status: normalizeStatus(holidaydata.status),
       holidayTypeId: new ObjectId(holidaydata.holidayTypeId),
@@ -176,6 +209,8 @@ export const updateHoliday = async (companyId, hrId, payload) => {
       return { done: false, message: "Holiday ID not found" };
     }
 
+    const parsedDate = payload.date ? parseHolidayDate(payload.date) : null;
+
     // Validate required fields (description is optional)
     if (!payload.title || !payload.date || !payload.status || !payload.holidayTypeId) {
       return {
@@ -187,6 +222,16 @@ export const updateHoliday = async (companyId, hrId, payload) => {
           holidayTypeId: !payload.holidayTypeId ? "Holiday type is required" : undefined,
         },
         message: "Title, date, status, and holiday type are required",
+      };
+    }
+
+    if (!parsedDate) {
+      return {
+        done: false,
+        errors: {
+          date: "Date must be in DD-MM-YYYY format",
+        },
+        message: "Holiday date must be in DD-MM-YYYY format",
       };
     }
 
@@ -208,7 +253,7 @@ export const updateHoliday = async (companyId, hrId, payload) => {
 
     // Check for duplicate holiday on the same date (excluding current holiday)
     const existingHoliday = await collections.holidays.findOne({
-      date: new Date(payload.date),
+      date: parsedDate,
       _id: { $ne: new ObjectId(holidayId) },
     });
 
@@ -225,7 +270,7 @@ export const updateHoliday = async (companyId, hrId, payload) => {
     // Prepare update document
     const updateDoc = {
       title: payload.title,
-      date: new Date(payload.date),
+      date: parsedDate,
       description: payload.description || "", // Optional field
       status: normalizeStatus(payload.status),
       holidayTypeId: new ObjectId(payload.holidayTypeId),
