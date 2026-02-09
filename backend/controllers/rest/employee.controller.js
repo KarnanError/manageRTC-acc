@@ -27,8 +27,8 @@ import {
 } from '../../utils/avatarUtils.js';
 import { formatDDMMYYYY, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/dateFormat.js';
 import { sendEmployeeCredentialsEmail } from '../../utils/emailer.js';
+import { devError, devLog } from '../../utils/logger.js';
 import { broadcastEmployeeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
-import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
  * Generate secure random password for new employees
@@ -266,6 +266,27 @@ export const getEmployees = asyncHandler(async (req, res) => {
             then: { $toObjectId: '$designationId' },
             else: null
           }
+        },
+        reportingToObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$reportingTo', null] }, { $ne: ['$reportingTo', ''] }] },
+            then: { $toObjectId: '$reportingTo' },
+            else: null
+          }
+        },
+        shiftObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$shiftId', null] }, { $ne: ['$shiftId', ''] }] },
+            then: { $toObjectId: '$shiftId' },
+            else: null
+          }
+        },
+        batchObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$batchId', null] }, { $ne: ['$batchId', ''] }] },
+            then: { $toObjectId: '$batchId' },
+            else: null
+          }
         }
       }
     },
@@ -286,9 +307,43 @@ export const getEmployees = asyncHandler(async (req, res) => {
       }
     },
     {
+      $lookup: {
+        from: 'employees',
+        let: { reportingToObjId: '$reportingToObjId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$_id', '$$reportingToObjId'] },
+              isDeleted: { $ne: true }
+            }
+          }
+        ],
+        as: 'reportingToInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'shifts',
+        localField: 'shiftObjId',
+        foreignField: '_id',
+        as: 'shiftInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'batches',
+        localField: 'batchObjId',
+        foreignField: '_id',
+        as: 'batchInfo'
+      }
+    },
+    {
       $addFields: {
         department: { $arrayElemAt: ['$departmentInfo', 0] },
         designation: { $arrayElemAt: ['$designationInfo', 0] },
+        reportingToManager: { $arrayElemAt: ['$reportingToInfo', 0] },
+        shiftData: { $arrayElemAt: ['$shiftInfo', 0] },
+        batchData: { $arrayElemAt: ['$batchInfo', 0] },
         // Assign default avatar for employees without profile image
         profileImage: {
           $cond: {
@@ -308,11 +363,65 @@ export const getEmployees = asyncHandler(async (req, res) => {
       }
     },
     {
+      $addFields: {
+        // Reporting Manager Name from populated manager
+        reportingManagerName: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: {
+              $concat: [
+                { $ifNull: ['$reportingToManager.firstName', ''] },
+                ' ',
+                { $ifNull: ['$reportingToManager.lastName', ''] }
+              ]
+            },
+            else: null
+          }
+        },
+        // Shift information from populated shift
+        shiftName: { $ifNull: ['$shiftData.name', null] },
+        shiftColor: { $ifNull: ['$shiftData.color', null] },
+        shiftTiming: {
+          $cond: {
+            if: { $and: [{ $ne: ['$shiftData', null] }, { $ne: ['$shiftData.startTime', null] }, { $ne: ['$shiftData.endTime', null] }] },
+            then: {
+              $concat: [
+                { $ifNull: ['$shiftData.startTime', ''] },
+                ' - ',
+                { $ifNull: ['$shiftData.endTime', ''] }
+              ]
+            },
+            else: null
+          }
+        },
+        // Batch information from populated batch
+        batchName: { $ifNull: ['$batchData.name', null] },
+        batchShiftName: { $ifNull: ['$batchData.currentShiftName', null] },
+        batchShiftTiming: { $ifNull: ['$batchData.currentShiftTiming', null] },
+        batchShiftColor: { $ifNull: ['$batchData.currentShiftColor', null] },
+        // Flatten personal info to root level for frontend compatibility
+        passport: '$personal.passport',
+        religion: '$personal.religion',
+        maritalStatus: '$personal.maritalStatus',
+        employmentOfSpouse: '$personal.employmentOfSpouse',
+        noOfChildren: '$personal.noOfChildren'
+      }
+    },
+    {
       $project: {
         departmentObjId: 0,
         designationObjId: 0,
+        reportingToObjId: 0,
+        shiftObjId: 0,
+        batchObjId: 0,
         departmentInfo: 0,
         designationInfo: 0,
+        reportingToInfo: 0,
+        reportingToManager: 0,
+        shiftInfo: 0,
+        batchInfo: 0,
+        shiftData: 0,
+        batchData: 0,
         salary: 0,
         bank: 0,
         emergencyContacts: 0,
@@ -431,9 +540,45 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
     },
     {
       $addFields: {
+        shiftObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$shiftId', null] }, { $ne: ['$shiftId', ''] }] },
+            then: { $toObjectId: '$shiftId' },
+            else: null
+          }
+        },
+        batchObjId: {
+          $cond: {
+            if: { $and: [{ $ne: ['$batchId', null] }, { $ne: ['$batchId', ''] }] },
+            then: { $toObjectId: '$batchId' },
+            else: null
+          }
+        }
+      }
+    },
+    {
+      $lookup: {
+        from: 'shifts',
+        localField: 'shiftObjId',
+        foreignField: '_id',
+        as: 'shiftInfo'
+      }
+    },
+    {
+      $lookup: {
+        from: 'batches',
+        localField: 'batchObjId',
+        foreignField: '_id',
+        as: 'batchInfo'
+      }
+    },
+    {
+      $addFields: {
         department: { $arrayElemAt: ['$departmentInfo', 0] },
         designation: { $arrayElemAt: ['$designationInfo', 0] },
-        reportingTo: { $arrayElemAt: ['$reportingToInfo', 0] },
+        reportingToManager: { $arrayElemAt: ['$reportingToInfo', 0] },
+        shiftData: { $arrayElemAt: ['$shiftInfo', 0] },
+        batchData: { $arrayElemAt: ['$batchInfo', 0] },
         // Assign default avatar for employees without profile image
         profileImage: {
           $cond: {
@@ -453,13 +598,67 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
       }
     },
     {
+      $addFields: {
+        // Reporting Manager Name from populated manager
+        reportingManagerName: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: {
+              $concat: [
+                { $ifNull: ['$reportingToManager.firstName', ''] },
+                ' ',
+                { $ifNull: ['$reportingToManager.lastName', ''] }
+              ]
+            },
+            else: null
+          }
+        },
+        // Shift information from populated shift
+        shiftName: { $ifNull: ['$shiftData.name', null] },
+        shiftColor: { $ifNull: ['$shiftData.color', null] },
+        shiftTiming: {
+          $cond: {
+            if: { $and: [{ $ne: ['$shiftData', null] }, { $ne: ['$shiftData.startTime', null] }, { $ne: ['$shiftData.endTime', null] }] },
+            then: {
+              $concat: [
+                { $ifNull: ['$shiftData.startTime', ''] },
+                ' - ',
+                { $ifNull: ['$shiftData.endTime', ''] }
+              ]
+            },
+            else: null
+          }
+        },
+        // Batch information from populated batch
+        batchName: { $ifNull: ['$batchData.name', null] },
+        batchShiftName: { $ifNull: ['$batchData.currentShiftName', null] },
+        batchShiftTiming: { $ifNull: ['$batchData.currentShiftTiming', null] },
+        batchShiftColor: { $ifNull: ['$batchData.currentShiftColor', null] },
+        // Keep reportingTo as just the ID for consistency
+        reportingTo: '$reportingTo',
+        // Flatten personal info to root level for frontend compatibility
+        passport: '$personal.passport',
+        religion: '$personal.religion',
+        maritalStatus: '$personal.maritalStatus',
+        employmentOfSpouse: '$personal.employmentOfSpouse',
+        noOfChildren: '$personal.noOfChildren'
+      }
+    },
+    {
       $project: {
         departmentObjId: 0,
         designationObjId: 0,
         reportingToObjId: 0,
+        shiftObjId: 0,
+        batchObjId: 0,
         departmentInfo: 0,
         designationInfo: 0,
-        reportingToInfo: 0
+        reportingToInfo: 0,
+        reportingToManager: 0,
+        shiftInfo: 0,
+        batchInfo: 0,
+        shiftData: 0,
+        batchData: 0
       }
     }
   ];
@@ -506,15 +705,16 @@ export const createEmployee = asyncHandler(async (req, res) => {
   const normalizedData = {
     ...restEmployeeData,
     // Extract email from root level or contact object (for backward compatibility)
-    email: restEmployeeData.email || restEmployeeData.contact?.email,
+    // Use ?? instead of || to preserve empty strings
+    email: restEmployeeData.email ?? restEmployeeData.contact?.email,
     // Extract phone from root level or contact object (for backward compatibility)
-    phone: restEmployeeData.phone || restEmployeeData.contact?.phone,
+    phone: restEmployeeData.phone ?? restEmployeeData.contact?.phone,
     // Extract dateOfBirth from root level or personal.birthday (for backward compatibility)
-    dateOfBirth: restEmployeeData.dateOfBirth || restEmployeeData.personal?.birthday,
+    dateOfBirth: restEmployeeData.dateOfBirth ?? restEmployeeData.personal?.birthday,
     // Extract gender from root level or personal.gender (for backward compatibility)
-    gender: restEmployeeData.gender || restEmployeeData.personal?.gender,
+    gender: restEmployeeData.gender ?? restEmployeeData.personal?.gender,
     // Extract address from root level or personal.address (for backward compatibility)
-    address: restEmployeeData.address || restEmployeeData.personal?.address,
+    address: restEmployeeData.address ?? restEmployeeData.personal?.address,
   };
 
   const normalizedWithDates = normalizeEmployeeDates(normalizedData);
@@ -673,10 +873,21 @@ export const createEmployee = asyncHandler(async (req, res) => {
     status: normalizeStatus(normalizedWithDates.status || 'Active')
   };
 
-  // ✅ CRITICAL: Remove duplicate nested objects before saving to DB
-  // Keep only canonical root-level fields: email, phone, dateOfBirth, gender, address
-  delete employeeToInsert.contact;  // Remove nested contact (email, phone already at root)
-  delete employeeToInsert.personal;  // Remove nested personal (gender, dateOfBirth, address already at root)
+  // ✅ CRITICAL: Handle nested objects correctly
+  // Remove nested contact (email, phone already at root)
+  delete employeeToInsert.contact;
+
+  // Handle personal object: keep passport, religion, maritalStatus, employmentOfSpouse, noOfChildren
+  // but remove duplicated fields (gender, birthday, address) that are now at root level
+  if (employeeToInsert.personal && typeof employeeToInsert.personal === 'object') {
+    const cleanPersonal = { ...employeeToInsert.personal };
+    // Remove fields that have root-level equivalents
+    delete cleanPersonal.gender;
+    delete cleanPersonal.birthday;
+    delete cleanPersonal.address;
+    // Keep the cleaned personal object with passport, religion, maritalStatus, etc.
+    employeeToInsert.personal = cleanPersonal;
+  }
 
   // Create employee
   const result = await collections.employees.insertOne(employeeToInsert);
@@ -799,17 +1010,18 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   const normalizedData = {
     ...updateData,
     // Extract email from root level or contact object (for backward compatibility)
-    email: updateData.email || updateData.contact?.email,
+    // Use ?? instead of || to preserve empty strings
+    email: updateData.email ?? updateData.contact?.email,
     // Extract phone from root level or contact object (for backward compatibility)
-    phone: updateData.phone || updateData.contact?.phone,
+    phone: updateData.phone ?? updateData.contact?.phone,
     // Extract dateOfBirth from root level or personal.birthday (for backward compatibility)
-    dateOfBirth: updateData.dateOfBirth || updateData.personal?.birthday,
+    dateOfBirth: updateData.dateOfBirth ?? updateData.personal?.birthday,
     // Extract gender from root level or personal.gender (for backward compatibility)
-    gender: updateData.gender || updateData.personal?.gender,
+    gender: updateData.gender ?? updateData.personal?.gender,
     // Extract address from root level or personal.address (for backward compatibility)
-    address: updateData.address || updateData.personal?.address,
+    address: updateData.address ?? updateData.personal?.address,
     // Map avatarUrl to profileImage for frontend compatibility
-    profileImage: updateData.avatarUrl || updateData.profileImage,
+    profileImage: updateData.avatarUrl ?? updateData.profileImage,
   };
 
   const normalizedUpdateData = normalizeEmployeeDates(normalizedData);
@@ -819,10 +1031,21 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   normalizedUpdateData.updatedAt = new Date();
   normalizedUpdateData.updatedBy = user.userId;
 
-  // ✅ CRITICAL: Remove duplicate nested objects before updating DB
-  // Keep only canonical root-level fields: email, phone, dateOfBirth, gender, address
-  delete normalizedUpdateData.contact;  // Remove nested contact (email, phone already at root)
-  delete normalizedUpdateData.personal;  // Remove nested personal (gender, dateOfBirth, address already at root)
+  // ✅ CRITICAL: Handle nested objects correctly
+  // Remove nested contact (email, phone already at root)
+  delete normalizedUpdateData.contact;
+
+  // Handle personal object: keep passport, religion, maritalStatus, employmentOfSpouse, noOfChildren
+  // but remove duplicated fields (gender, birthday, address) that are now at root level
+  if (normalizedUpdateData.personal && typeof normalizedUpdateData.personal === 'object') {
+    const cleanPersonal = { ...normalizedUpdateData.personal };
+    // Remove fields that have root-level equivalents
+    delete cleanPersonal.gender;
+    delete cleanPersonal.birthday;
+    delete cleanPersonal.address;
+    // Keep the cleaned personal object with passport, religion, maritalStatus, etc.
+    normalizedUpdateData.personal = cleanPersonal;
+  }
 
   // Update employee
   const result = await collections.employees.updateOne(
