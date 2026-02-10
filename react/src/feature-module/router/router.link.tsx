@@ -174,6 +174,7 @@ import Taxes from '../finance-accounts/sales/taxes';
 import Department from '../hrm/employees/deparment';
 import Designations from '../hrm/employees/designations';
 import EmployeeDetails from '../hrm/employees/employeedetails';
+import EmployeesGrid from '../hrm/employees/employeesGrid';
 import EmployeeList from '../hrm/employees/employeesList';
 import Policy from '../hrm/employees/policy';
 import Holidays from '../hrm/holidays';
@@ -183,12 +184,12 @@ import EmployeeDashboard from '../mainMenu/employeeDashboard/employee-dashboard'
 import HRDashboard from '../mainMenu/hrDashboard';
 import LayoutDemo from '../mainMenu/layout-dashoard';
 import LeadsDasboard from '../mainMenu/leadsDashboard';
+import AdminProfilePage from '../pages/admin-profile';
 import ApiKeys from '../pages/api-keys';
 import Gallery from '../pages/gallery';
 import Pricing from '../pages/pricing';
 import PrivacyPolicy from '../pages/privacy-policy';
 import Profile from '../pages/profile';
-import AdminProfilePage from '../pages/admin-profile';
 import SearchResult from '../pages/search-result';
 import StarterPage from '../pages/starter';
 import TermsCondition from '../pages/terms-condition';
@@ -270,8 +271,8 @@ import Permission from '../userManagement/permission';
 import RolesPermissions from '../userManagement/rolesPermissions';
 
 import Invoices from '../finance-accounts/sales/invoices';
-import AttendanceEmployee from '../hrm/attendance/attendance_employee';
 import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
+import AttendanceEmployee from '../hrm/attendance/attendance_employee';
 import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
 import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
@@ -1757,15 +1758,12 @@ export const publicRoutes = [
     roles: ['admin', 'hr', 'superadmin'],
   },
   {
-<<<<<<< main
-=======
     path: routes.employeeGrid,
     element: <EmployeesGrid />,
     route: Route,
     roles: ['admin', 'hr', 'superadmin'],
   },
   {
->>>>>>> main
     path: routes.departments,
     element: <Department />,
     route: Route,

@@ -8,7 +8,7 @@ import { getTenantCollections } from '../../config/db.js';
 import {
   asyncHandler,
   buildNotFoundError,
-  buildValidationError,
+  buildValidationError
 } from '../../middleware/errorHandler.js';
 import Employee from '../../models/employee/employee.schema.js';
 import Project from '../../models/project/project.schema.js';
@@ -18,12 +18,12 @@ import {
   buildSearchFilter,
   extractUser,
   sendCreated,
-  sendSuccess,
+  sendSuccess
 } from '../../utils/apiResponse.js';
 import { generateProjectId } from '../../utils/idGenerator.js';
+import { devError, devLog } from '../../utils/logger.js';
 import { getTenantModel } from '../../utils/mongooseMultiTenant.js';
 import { broadcastProjectEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
-import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
  * Helper function to get tenant-specific Project model
@@ -56,17 +56,6 @@ export const getProjects = asyncHandler(async (req, res) => {
   };
 
   // Debug logging - lightweight
-<<<<<<< main
-  // console.log('[getProjects] Using database:', user.companyId || 'default');
-  // console.log('[getProjects] User object:', JSON.stringify(user, null, 2));
-  // console.log('[getProjects] User role:', user.role);
-  // console.log('[getProjects] User employeeId:', user.employeeId);
-  // console.log('[getProjects] Initial filter:', JSON.stringify(filter));
-
-  // For employee role, filter projects where they are assigned as team member, leader, or manager
-  if (user.role === 'employee') {
-    console.log('[getProjects] Employee role detected, applying filter');
-=======
   devLog('[getProjects] Using database:', user.companyId || 'default');
   devLog('[getProjects] User object:', JSON.stringify(user, null, 2));
   devLog('[getProjects] User role:', user.role);
@@ -76,7 +65,6 @@ export const getProjects = asyncHandler(async (req, res) => {
   // For employee role, filter projects where they are assigned as team member, leader, or manager (case-insensitive)
   if (user.role?.toLowerCase() === 'employee') {
     devLog('[getProjects] Employee role detected, applying filter');
->>>>>>> main
     const collections = getTenantCollections(user.companyId);
 
     // Find employee's MongoDB _id using their employeeId or clerkUserId
