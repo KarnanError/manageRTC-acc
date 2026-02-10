@@ -1757,15 +1757,6 @@ export const publicRoutes = [
     roles: ['admin', 'hr', 'superadmin'],
   },
   {
-<<<<<<< main
-=======
-    path: routes.employeeGrid,
-    element: <EmployeesGrid />,
-    route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
-  },
-  {
->>>>>>> main
     path: routes.departments,
     element: <Department />,
     route: Route,

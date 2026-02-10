@@ -24,7 +24,6 @@ import {
   sendCreated,
   sendSuccess,
 } from '../../utils/apiResponse.js';
-<<<<<<< main
 import { getTenantModel } from '../../utils/mongooseMultiTenant.js';
 
 /**
@@ -35,29 +34,6 @@ const getClientModel = (companyId) => {
     return Client;
   }
   return getTenantModel(companyId, 'Client', Client.schema);
-=======
-import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
-
-/**
- * Helper function to check if user has required role
- * @param {Object} user - User object from extractUser
- * @param {string[]} allowedRoles - Array of allowed roles
- * @returns {boolean} - True if user has access
- */
-const ensureRole = (user, allowedRoles = []) => {
-  const role = user?.role?.toLowerCase();
-  return allowedRoles.includes(role);
-};
-
-/**
- * Helper function to send 403 Forbidden response
- */
-const sendForbidden = (res, message = 'You do not have permission to access this resource') => {
-  return res.status(403).json({
-    success: false,
-    error: { message }
-  });
->>>>>>> main
 };
 
 /**
@@ -218,17 +194,10 @@ export const updateClient = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-<<<<<<< main
   console.log('=== UPDATE CLIENT DEBUG ===');
   console.log('Received req.body:', JSON.stringify(req.body, null, 2));
   console.log('socialLinks in req.body:', req.body.socialLinks);
   console.log('==========================');
-=======
-  // Role check: Only admin, hr, manager, superadmin can update clients
-  if (!ensureRole(user, ['admin', 'hr', 'manager', 'superadmin'])) {
-    return sendForbidden(res, 'You do not have permission to update clients');
-  }
->>>>>>> main
 
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(id)) {
