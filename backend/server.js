@@ -63,6 +63,7 @@ import syncRoleRoutes from "./routes/api/syncRole.routes.js";
 // RBAC Routes
 import rbacRolesRoutes from "./routes/api/rbac/roles.js";
 import rbacPermissionsRoutes from "./routes/api/rbac/permissions.js";
+import rbacModulesRoutes from "./routes/api/rbac/modules.js";
 import adminUsersRoutes from "./routes/api/admin.users.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -214,6 +215,7 @@ const initializeServer = async () => {
     // RBAC Routes
     app.use("/api/rbac/roles", rbacRolesRoutes);
     app.use("/api/rbac/permissions", rbacPermissionsRoutes);
+    app.use("/api/rbac/modules", rbacModulesRoutes);
     app.use("/api/admin/users", adminUsersRoutes);
 
     // Clerk Webhooks
