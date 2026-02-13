@@ -6,6 +6,7 @@
 import mongoose from 'mongoose';
 import Holiday from '../../../models/holiday/holiday.schema.js';
 import HolidayType from '../../../models/holidayType/holidayType.schema.js';
+import { getTenantCollections } from '../../../config/db.js';
 import { extractUser } from '../../../utils/apiResponse.js';
 import asyncHandler from '../../../utils/asyncHandler.js';
 import { generateId } from '../../../utils/idGenerator.js';
@@ -18,6 +19,36 @@ import { broadcastHolidayEvents, getSocketIO } from '../../../utils/socketBroadc
 import { devLog, devDebug, devWarn, devError } from '../../../utils/logger.js';
 
 const DATE_FORMAT_REGEX = /^\d{2}-\d{2}-\d{4}$/;
+
+const resolveHolidayType = async (holidayTypeId, companyId) => {
+  if (!mongoose.Types.ObjectId.isValid(holidayTypeId)) {
+    return { error: 'Invalid holiday type ID format' };
+  }
+
+  const objectId = new mongoose.Types.ObjectId(holidayTypeId);
+
+  const modelType = await HolidayType.findOne({
+    _id: objectId,
+    companyId,
+    isDeleted: false
+  });
+
+  if (modelType) {
+    return { holidayType: modelType };
+  }
+
+  const collections = getTenantCollections(companyId);
+  const tenantType = await collections.holidayTypes.findOne({
+    _id: objectId,
+    isDeleted: { $ne: true }
+  });
+
+  if (tenantType) {
+    return { holidayType: tenantType };
+  }
+
+  return { holidayType: null };
+};
 
 const parseHolidayDate = (value) => {
   if (typeof value !== 'string' || !DATE_FORMAT_REGEX.test(value)) {
@@ -237,17 +268,14 @@ export const createHoliday = asyncHandler(async (req, res) => {
 
   let holidayType = null;
   if (holidayData.holidayTypeId) {
-    if (!mongoose.Types.ObjectId.isValid(holidayData.holidayTypeId)) {
+    const resolved = await resolveHolidayType(holidayData.holidayTypeId, user.companyId);
+    if (resolved.error) {
       return res.status(400).json({
         success: false,
-        error: { message: 'Invalid holiday type ID format' }
+        error: { message: resolved.error }
       });
     }
-    holidayType = await HolidayType.findOne({
-      _id: holidayData.holidayTypeId,
-      companyId: user.companyId,
-      isDeleted: false
-    });
+    holidayType = resolved.holidayType;
 
     if (!holidayType) {
       return res.status(400).json({
@@ -394,25 +422,20 @@ export const updateHoliday = asyncHandler(async (req, res) => {
   if (updateData.isActive !== undefined) holiday.isActive = updateData.isActive;
 
   if (updateData.holidayTypeId) {
-    if (!mongoose.Types.ObjectId.isValid(updateData.holidayTypeId)) {
+    const resolved = await resolveHolidayType(updateData.holidayTypeId, user.companyId);
+    if (resolved.error) {
       return res.status(400).json({
         success: false,
-        error: { message: 'Invalid holiday type ID format' }
+        error: { message: resolved.error }
       });
     }
-    const holidayType = await HolidayType.findOne({
-      _id: updateData.holidayTypeId,
-      companyId: user.companyId,
-      isDeleted: false
-    });
-
-    if (!holidayType) {
+    if (!resolved.holidayType) {
       return res.status(400).json({
         success: false,
         error: { message: 'Holiday type not found' }
       });
     }
-    holiday.holidayTypeId = holidayType._id;
+    holiday.holidayTypeId = resolved.holidayType._id;
   }
 
   holiday.updatedAt = new Date();
