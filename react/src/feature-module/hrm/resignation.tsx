@@ -12,7 +12,9 @@ import EmployeeNameCell from "../../core/common/EmployeeNameCell";
 import ResignationDetailsModal from "../../core/modals/ResignationDetailsModal";
 import { useSocket } from "../../SocketContext";
 import { all_routes } from "../router/all_routes";
-// REST API Hook for Resignations
+// REST API Hooks
+import { useDepartmentsREST } from "../../hooks/useDepartmentsREST";
+import { useEmployeesREST } from "../../hooks/useEmployeesREST";
 import { useResignationsREST, type Resignation as APIResignation } from "../../hooks/useResignationsREST";
 
 type ResignationRow = {
@@ -60,6 +62,10 @@ const Resignation = () => {
     processResignation
   } = useResignationsREST();
 
+  // REST API Hooks for Departments and Employees
+  const { departments: apiDepartments, fetchDepartments } = useDepartmentsREST();
+  const { employees: apiEmployees, fetchEmployees } = useEmployeesREST();
+
   const [rows, setRows] = useState<ResignationRow[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<{ value: string; label: string }[]>([]);
@@ -106,8 +112,8 @@ const Resignation = () => {
 
   const loadDepartmentList = useCallback(async () => {
     console.log('[Resignation] Loading departments');
-    // Departments loaded from API context
-  }, []);
+    await fetchDepartments();
+  }, [fetchDepartments]);
 
   const loadEmployeesByDepartment = useCallback(async (departmentId: string) => {
     if (!departmentId) {
@@ -115,10 +121,9 @@ const Resignation = () => {
       setEmployeeOptions([]);
       return;
     }
-    console.log("Fetching employees by department via REST API:", departmentId, "type:", typeof departmentId);
-    // Employees will be loaded from employees API
-    setEmployeeOptions([]);
-  }, []);
+    console.log("Fetching employees by department via REST API:", departmentId);
+    await fetchEmployees({ departmentId });
+  }, [fetchEmployees]);
 
   const openEditModal = (row: any) => {
     console.log("[Resignation] openEditModal - row:", row);
@@ -450,6 +455,30 @@ const Resignation = () => {
     setLoading(apiLoading);
   }, [apiResignations, apiStats, apiLoading]);
 
+  // Sync departments to dropdown options
+  useEffect(() => {
+    if (apiDepartments && apiDepartments.length > 0) {
+      const options = apiDepartments.map(dept => ({
+        value: dept._id,
+        label: dept.department
+      }));
+      setDepartmentOptions(options);
+      console.log('[Resignation] Department options updated:', options.length);
+    }
+  }, [apiDepartments]);
+
+  // Sync employees to dropdown options
+  useEffect(() => {
+    if (apiEmployees && apiEmployees.length > 0) {
+      const options = apiEmployees.map(emp => ({
+        value: emp._id,
+        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+      }));
+      setEmployeeOptions(options);
+      console.log('[Resignation] Employee options updated:', options.length);
+    }
+  }, [apiEmployees]);
+
   const toIsoFromDDMMYYYY = (s: string) => {
     // s like "13-09-2025"
     const [dd, mm, yyyy] = s.split("-").map(Number);
@@ -536,7 +565,8 @@ const Resignation = () => {
     if (!socket) return;
     fetchList(filterType, customRange);
     fetchStats();
-  }, [socket, fetchList, fetchStats, filterType, customRange]);
+    loadDepartmentList(); // Fetch departments on mount
+  }, [socket, fetchList, fetchStats, filterType, customRange, loadDepartmentList]);
 
   // Calculate stats when resignation data changes
   useEffect(() => {

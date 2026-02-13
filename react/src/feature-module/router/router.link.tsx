@@ -272,8 +272,8 @@ import Permission from '../userManagement/permission';
 import RolesPermissions from '../userManagement/rolesPermissions';
 
 import Invoices from '../finance-accounts/sales/invoices';
-import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
 import AttendanceEmployee from '../hrm/attendance/attendance_employee';
+import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
 import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
 import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
@@ -355,32 +355,17 @@ export const publicRoutes = [
   {
     path: routes.termination,
     element: <Termination />,
-    roles: ['hr'],
+    roles: ['admin', 'hr'],
   },
   {
     path: routes.resignation,
     element: <Resignation />,
-    roles: ['hr', 'employee'],
+    roles: ['admin', 'hr', 'employee'],
   },
   {
     path: routes.promotion,
     element: <Promotion />,
-    roles: ['hr'],
-  },
-  {
-    path: routes.trainingType,
-    element: <TrainingType />,
-    roles: ['hr'],
-  },
-  {
-    path: routes.trainers,
-    element: <Trainers />,
-    roles: ['hr'],
-  },
-  {
-    path: routes.trainingList,
-    element: <TrainingList />,
-    roles: ['hr'],
+    roles: ['admin', 'hr'],
   },
 
   //Application

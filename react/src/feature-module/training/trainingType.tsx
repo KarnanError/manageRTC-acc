@@ -193,7 +193,15 @@ const TrainingType = () => {
     };
 
     socket.emit("hr/trainingTypes/add-trainingTypes", payload);
-    // modal has data-bs-dismiss; optional: reset form
+
+    // Close modal programmatically
+    const modal = document.getElementById('new_trainingtype');
+    const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+    if (modalInstance) {
+      modalInstance.hide();
+    }
+
+    // Reset form
     setAddForm({
       trainingType: "",
       desc: "",
@@ -218,7 +226,15 @@ const TrainingType = () => {
     };
 
     socket.emit("hr/trainingTypes/update-trainingTypes", payload);
-    // modal has data-bs-dismiss; optional: reset form
+
+    // Close modal programmatically
+    const modal = document.getElementById('edit_trainingtype');
+    const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+    if (modalInstance) {
+      modalInstance.hide();
+    }
+
+    // Reset form
     setEditForm({
       trainingType: "",
       desc: "",
@@ -489,7 +505,6 @@ const TrainingType = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleAddSave}
                   >
@@ -571,7 +586,6 @@ const TrainingType = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleEditSave}
                   >

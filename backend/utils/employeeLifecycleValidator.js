@@ -93,7 +93,7 @@ export const validateEmployeeLifecycle = async (
     // Check termination (status: pending or processed)
     if (excludeProcess !== 'termination') {
       const terminationQuery = {
-        employeeId: employeeObjectId,
+        employeeId: employeeId.toString(),
         status: { $in: ["pending", "processed"] }
       };
       

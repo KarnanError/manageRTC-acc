@@ -148,15 +148,54 @@ export const socketHandler = (httpServer) => {
         // Check for both 'companyId' and 'company' field names in metadata
         let companyId = user.publicMetadata?.companyId || user.publicMetadata?.company || null;
 
-        // SECURITY FIX REMOVED: Hardcoded companyId assignment has been removed
-        // All users must have a valid companyId in their Clerk metadata
-        // This prevents cross-tenant data access in both development and production
-        if (!companyId && (role === "admin" || role === "hr" || role === "employee")) {
+        // DEBUG: Log role detection details
+        console.log(`[DEBUG] Role detection:`, {
+          rawRole: user.publicMetadata?.role,
+          normalizedRole: role,
+          roleType: typeof user.publicMetadata?.role,
+          isAdminVerified: user.publicMetadata?.isAdminVerified,
+          isAdminVerifiedType: typeof user.publicMetadata?.isAdminVerified,
+          isDevelopment,
+          environment: isDevelopment ? "development" : "production",
+        });
+
+        // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
+        // In development mode, if admin/hr users don't have a companyId, use the DEV_COMPANY_ID from env
+        // This is a TEMPORARY FIX that MUST be removed before production deployment!
+        // This matches the REST API authentication behavior
+        if (!companyId && (role === "admin" || role === "hr")) {
+          if (isDevelopment) {
+            const devCompanyId = process.env.DEV_COMPANY_ID;
+            if (devCompanyId) {
+              companyId = devCompanyId;
+              console.warn(
+                `🔧 DEVELOPMENT WORKAROUND: Using DEV_COMPANY_ID ${companyId} for ${role} user`
+              );
+            } else {
+              console.error(
+                `❌ SECURITY ERROR: Admin/HR user missing companyId and DEV_COMPANY_ID not set in environment!`
+              );
+              return next(
+                new Error("Authentication error: Company ID required for this role")
+              );
+            }
+          } else {
+            console.error(
+              `❌ SECURITY: User ${user.id} with role '${role}' missing required companyId`
+            );
+            return next(
+              new Error("Authentication error: Company ID required for this role")
+            );
+          }
+        }
+
+        // Employee role still requires companyId in all environments
+        if (!companyId && role === "employee") {
           console.error(
-            `❌ SECURITY: User ${user.id} with role '${role}' missing required companyId`
+            `❌ SECURITY: User ${user.id} with role 'employee' missing required companyId`
           );
           return next(
-            new Error("Authentication error: Company ID required for this role")
+            new Error("Authentication error: Company ID required for employees")
           );
         }
 
@@ -193,22 +232,39 @@ export const socketHandler = (httpServer) => {
         }
 
         // SECURITY CHECK: Verify admin role is legitimate
-        // Admin access requires both companyId and verification flag in all environments
+        // In production, admin access requires both companyId and verification flag
+        // In development, we allow admins without isAdminVerified flag (matches REST API behavior)
         if (role === "admin") {
-          console.log(`Checking admin access for user ${user.id}...`);
+          console.log(`[ADMIN CHECK] Checking admin access for user ${user.id}...`, {
+            role,
+            isDevelopment,
+            isAdminVerifiedValue: user.publicMetadata?.isAdminVerified,
+            isAdminVerifiedType: typeof user.publicMetadata?.isAdminVerified,
+            checkResult: !isDevelopment && !user.publicMetadata?.isAdminVerified,
+          });
 
-          // All environments require the same security for admin access
-          if (!companyId || !user.publicMetadata?.isAdminVerified) {
+          // CompanyId is always required (may have been set via DEV_COMPANY_ID workaround above)
+          if (!companyId) {
             console.error(
-              `❌ SECURITY: Unauthorized admin access attempt by user ${user.id}`
+              `❌ SECURITY: Unauthorized admin access attempt by user ${user.id} - missing companyId`
             );
-            console.error(`Missing: ${!companyId ? 'companyId ' : ''}${!user.publicMetadata?.isAdminVerified ? 'isAdminVerified flag' : ''}`);
             return next(
-              new Error("Unauthorized: Admin access requires companyId and verification")
+              new Error("Unauthorized: Admin access requires companyId")
             );
           }
+
+          // In production, require isAdminVerified flag
+          if (!isDevelopment && !user.publicMetadata?.isAdminVerified) {
+            console.error(
+              `❌ SECURITY: Unauthorized admin access attempt by user ${user.id} - missing isAdminVerified flag`
+            );
+            return next(
+              new Error("Unauthorized: Admin access requires verification in production")
+            );
+          }
+
           console.log(
-            `✅ Verified admin access for user ${user.id} with companyId: ${companyId}`
+            `✅ Verified admin access for user ${user.id} with companyId: ${companyId}${isDevelopment ? ' (dev mode)' : ''}`
           );
         }
 

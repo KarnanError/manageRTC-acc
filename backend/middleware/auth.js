@@ -102,6 +102,16 @@ export const authenticate = async (req, res, next) => {
     let companyId = user.publicMetadata?.companyId || user.publicMetadata?.company || null;
     let employeeId = user.publicMetadata?.employeeId || null;
 
+    // DEBUG: Log role detection details
+    console.log('[Auth Middleware] Role detection:', {
+      rawRole: user.publicMetadata?.role,
+      normalizedRole: role,
+      roleType: typeof user.publicMetadata?.role,
+      isAdminVerified: user.publicMetadata?.isAdminVerified,
+      isAdminVerifiedType: typeof user.publicMetadata?.isAdminVerified,
+      isDevelopment,
+    });
+
     console.log('[Auth Middleware] User metadata:', {
       userId: user.id,
       role,

@@ -38,9 +38,9 @@ router.get('/:id', requireRole('admin', 'hr', 'superadmin'), validateParams(comm
 /**
  * @route   POST /api/terminations
  * @desc    Create new termination
- * @access  Private (Admin, Superadmin)
+ * @access  Private (Admin, HR, Superadmin)
  */
-router.post('/', requireRole('admin', 'superadmin'), validateBody(terminationSchemas.create), terminationController.createTermination);
+router.post('/', requireRole('admin', 'hr', 'superadmin'), validateBody(terminationSchemas.create), terminationController.createTermination);
 
 /**
  * @route   PUT /api/terminations/:id
