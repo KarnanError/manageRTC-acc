@@ -393,6 +393,7 @@ export const all_routes = {
   modules: "/super-admin/modules",
   assetCategories: "/asset-categories",
   assetList: "/assets",
+  employeeAsset: "/asset/employee-asset",
   //Report
   expensesreport: '/expenses-report',
   invoicereport: '/invoice-report',
