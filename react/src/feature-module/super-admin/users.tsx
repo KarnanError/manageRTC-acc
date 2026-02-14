@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { all_routes } from "../router/all_routes";
+import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import CommonSelect from "../../core/common/commonSelect";
 import Table from "../../core/common/dataTable/index";
-import ImageWithBasePath from "../../core/common/imageWithBasePath";
 import PredefinedDateRanges from "../../core/common/datePicker";
-import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
-import { get, post, put, del } from "../../services/api";
+import ImageWithBasePath from "../../core/common/imageWithBasePath";
+import { del, get, post, put } from "../../services/api";
+import { all_routes } from "../router/all_routes";
 
 interface User {
   _id: string;
@@ -196,7 +196,7 @@ const Users = () => {
       if (result.success) {
         setData(result.data || []);
       } else {
-        setError(result.error?.message || result.error || 'Failed to fetch users');
+        setError(typeof result.error === 'string' ? result.error : result.error?.message || 'Failed to fetch users');
       }
     } catch (error) {
       console.error('Error fetching users:', error);
