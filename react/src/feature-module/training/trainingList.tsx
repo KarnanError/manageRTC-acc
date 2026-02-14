@@ -406,6 +406,14 @@ const TrainingList = () => {
       console.log("📤 Payload being sent:", payload);
 
       socket.emit("hr/trainingList/add-trainingList", payload);
+
+      // Close modal programmatically
+      const modal = document.getElementById('new_training');
+      const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+
       // Reset form after submission
       resetAddForm();
     };
@@ -452,6 +460,14 @@ const TrainingList = () => {
       console.log("📤 Update payload being sent:", payload);
 
       socket.emit("hr/trainingList/update-trainingList", payload);
+
+      // Close modal programmatically
+      const modal = document.getElementById('edit_training');
+      const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+
       // Reset form after submission
       resetEditForm();
     };
@@ -962,7 +978,6 @@ const TrainingList = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleAddSave}
                   >
@@ -1135,7 +1150,6 @@ const TrainingList = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleEditSave}
                   >

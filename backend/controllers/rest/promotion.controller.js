@@ -141,19 +141,7 @@ export const createPromotion = asyncHandler(async (req, res) => {
     throw buildValidationError('promotionDate', 'Promotion date is required');
   }
 
-  // Check for overlapping pending promotions
-  // Use employee's _id for consistency in promotions collection
-  const existingPromotion = await collections.promotions.findOne({
-    employeeId: employee._id.toString(),
-    status: 'pending',
-    isDeleted: { $ne: true }
-  });
-
-  if (existingPromotion) {
-    throw buildConflictError('Employee already has a pending promotion');
-  }
-
-  // Get current employee data to store current position
+  // Get current employee data to store current position FIRST
   // Check if employeeId is ObjectId format or string employeeId
   let employee;
   if (ObjectId.isValid(promotionData.employeeId)) {
@@ -172,6 +160,18 @@ export const createPromotion = asyncHandler(async (req, res) => {
 
   if (!employee) {
     throw buildNotFoundError('Employee', promotionData.employeeId);
+  }
+
+  // Check for overlapping pending promotions
+  // Use employee's _id for consistency in promotions collection
+  const existingPromotion = await collections.promotions.findOne({
+    employeeId: employee._id.toString(),
+    status: 'pending',
+    isDeleted: { $ne: true }
+  });
+
+  if (existingPromotion) {
+    throw buildConflictError('Employee already has a pending promotion');
   }
 
   // Prepare promotion data with current position

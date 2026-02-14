@@ -171,7 +171,10 @@ const Trainers = () => {
 
     const onEmployeesResponse = useCallback((res: any) => {
       if (res?.done && res.data) {
-        setEmployees(res.data);
+        // Filter only employees (exclude clients)
+        const employeesOnly = res.data.filter((user: any) => user.role === 'Employee');
+        console.log(`📋 Fetched ${employeesOnly.length} employees from ${res.data.length} total users`);
+        setEmployees(employeesOnly);
       }
     }, []);
 
@@ -308,6 +311,13 @@ const Trainers = () => {
       console.log("📤 Adding trainer:", payload);
       socket.emit("hr/trainers/add-trainers", payload);
 
+      // Close modal
+      const modal = document.getElementById('new_trainer');
+      const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+
       // Reset form
       setAddForm({
         trainer: "",
@@ -374,6 +384,13 @@ const Trainers = () => {
       console.log("📤 Updating trainer:", payload);
       socket.emit("hr/trainers/update-trainers", payload);
 
+      // Close modal
+      const modal = document.getElementById('edit_trainer');
+      const modalInstance = (window as any).bootstrap?.Modal?.getInstance(modal);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+
       // Reset form
       setEditForm({
         trainer: "",
@@ -382,7 +399,9 @@ const Trainers = () => {
         desc: "",
         status: "Active",
         trainerId:"",
-        trainerType: "Internal",        employeeId: "",      });
+        trainerType: "Internal",
+        employeeId: "",
+      });
     };
 
     const fetchStats = useCallback(() => {
@@ -674,6 +693,11 @@ const Trainers = () => {
                               } : null}
                               onChange={handleEmployeeSelect}
                             />
+                            {employees.length === 0 && (
+                              <small className="text-muted">
+                                No employees available. Please ensure employees are added to the system.
+                              </small>
+                            )}
                           </div>
                         </div>
                       </>
@@ -761,7 +785,6 @@ const Trainers = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleAddSave}
                   >
@@ -908,7 +931,6 @@ const Trainers = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
                     className="btn btn-primary"
                     onClick={handleEditSave}
                   >

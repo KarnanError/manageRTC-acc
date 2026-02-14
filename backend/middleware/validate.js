@@ -1612,6 +1612,9 @@ export const resignationSchemas = {
     resignationDate: commonSchemas.isoDate.required().messages({
       'any.required': 'Resignation date is required',
     }),
+    noticeDate: commonSchemas.isoDate.required().messages({
+      'any.required': 'Notice date is required',
+    }),
     noticePeriodDays: Joi.number().integer().min(0).max(180).default(30).optional().messages({
       'number.min': 'Notice period cannot be negative',
       'number.max': 'Notice period cannot exceed 180 days',
@@ -1708,6 +1711,9 @@ export const terminationSchemas = {
     }),
     terminationDate: commonSchemas.isoDate.required().messages({
       'any.required': 'Termination date is required',
+    }),
+    noticeDate: commonSchemas.isoDate.required().messages({
+      'any.required': 'Notice date is required',
     }),
     terminationType: Joi.string()
       .valid('Voluntary', 'Involuntary', 'Mutual Agreement', 'Contract End', 'Retirement')

@@ -12,7 +12,9 @@ import EmployeeNameCell from "../../core/common/EmployeeNameCell";
 import TerminationDetailsModal from "../../core/modals/TerminationDetailsModal";
 import { useSocket } from "../../SocketContext";
 import { all_routes } from "../router/all_routes";
-// REST API Hook for Terminations
+// REST API Hooks
+import { useDepartmentsREST } from "../../hooks/useDepartmentsREST";
+import { useEmployeesREST } from "../../hooks/useEmployeesREST";
 import { useTerminationsREST } from "../../hooks/useTerminationsREST";
 
 type TerminationRow = {
@@ -62,6 +64,10 @@ const Termination = () => {
     processTermination,
     cancelTermination
   } = useTerminationsREST();
+
+  // REST API Hooks for Departments and Employees
+  const { departments: apiDepartments, fetchDepartments } = useDepartmentsREST();
+  const { employees: apiEmployees, fetchEmployees } = useEmployeesREST();
 
   const [rows, setRows] = useState<TerminationRow[]>([]);
   const [rowsDepartments, setRowsDepartments] = useState<DepartmentRow[]>([]);
@@ -113,9 +119,8 @@ const Termination = () => {
       return;
     }
     console.log("[Termination] Fetching employees for department via REST API:", departmentId);
-    // Employees will be loaded from employees API
-    setEmployeeOptions([]);
-  }, []);
+    await fetchEmployees({ departmentId });
+  }, [fetchEmployees]);
 
   const openEditModal = (row: any) => {
     console.log("[Termination] openEditModal - row:", row);
@@ -399,6 +404,30 @@ const Termination = () => {
     }
     setLoading(apiLoading);
   }, [apiTerminations, apiStats, apiLoading]);
+
+  // Sync departments to dropdown options
+  useEffect(() => {
+    if (apiDepartments && apiDepartments.length > 0) {
+      const options = apiDepartments.map(dept => ({
+        value: dept._id,
+        label: dept.department
+      }));
+      setDepartmentOptions(options);
+      console.log('[Termination] Department options updated:', options.length);
+    }
+  }, [apiDepartments]);
+
+  // Sync employees to dropdown options
+  useEffect(() => {
+    if (apiEmployees && apiEmployees.length > 0) {
+      const options = apiEmployees.map(emp => ({
+        value: emp._id,
+        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+      }));
+      setEmployeeOptions(options);
+      console.log('[Termination] Employee options updated:', options.length);
+    }
+  }, [apiEmployees]);
 
   const toIsoFromDDMMYYYY = (s: string) => {
     // s like "13-09-2025"
@@ -696,14 +725,9 @@ const Termination = () => {
   }, [fetchTerminationStats]);
 
   const fetchDepartmentsList = useCallback(async () => {
-    try {
-      // Fetch departments from API if available
-      // For now, keep empty array or use cached data
-      setDepartmentOptions([]);
-    } catch (error) {
-      console.error('[Termination] Failed to fetch departments:', error);
-    }
-  }, []);
+    console.log('[Termination] Loading departments');
+    await fetchDepartments();
+  }, [fetchDepartments]);
 
   // initial + reactive fetch
   useEffect(() => {

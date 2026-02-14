@@ -20,9 +20,9 @@ import { useDepartmentsREST } from '../../../hooks/useDepartmentsREST';
 import { useDesignationsREST } from '../../../hooks/useDesignationsREST';
 import { useEmployeesREST } from '../../../hooks/useEmployeesREST';
 import {
-    usePoliciesREST,
-    type Policy,
-    type PolicyAssignment
+  usePoliciesREST,
+  type Policy,
+  type PolicyAssignment
 } from '../../../hooks/usePoliciesREST';
 import { usePromotionsREST, type Promotion } from '../../../hooks/usePromotionsREST';
 import { useResignationsREST, type Resignation } from '../../../hooks/useResignationsREST';
@@ -3300,14 +3300,11 @@ const EmployeeDetails = () => {
                                               <div className="d-flex align-items-center gap-3 mt-3">
                                                 <span className="badge bg-light text-dark">
                                                   <i className="ti ti-calendar me-1"></i>
-                                                  Effective:{' '}
-                                                  {new Date(
-                                                    policy.effectiveDate
-                                                  ).toLocaleDateString('en-US', {
-                                                    year: 'numeric',
-                                                    month: 'short',
-                                                    day: 'numeric',
-                                                  })}
+                                                  In-effect Date:{' '}
+                                                  {(() => {
+                                                    const parsed = toDayjsDate(policy.effectiveDate);
+                                                    return parsed ? parsed.format('DD-MM-YYYY') : '-';
+                                                  })()}
                                                 </span>
                                                 <span className="badge bg-success-transparent">
                                                   <i className="ti ti-check me-1"></i>
@@ -4666,11 +4663,10 @@ const EmployeeDetails = () => {
                     </div>
                     <div className="ps-4">
                       <p className="fs-16 mb-0">
-                        {new Date(viewingPolicy.effectiveDate).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
+                        {(() => {
+                          const parsed = toDayjsDate(viewingPolicy.effectiveDate);
+                          return parsed ? parsed.format('DD-MM-YYYY') : '-';
+                        })()}
                       </p>
                     </div>
                   </div>
