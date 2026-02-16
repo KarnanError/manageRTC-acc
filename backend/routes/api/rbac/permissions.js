@@ -16,6 +16,13 @@ const router = express.Router();
 router.get('/grouped', permissionController.getGroupedPermissions);
 
 /**
+ * @route   GET /api/rbac/permissions/hierarchical
+ * @desc    Get hierarchical permissions structure (category -> L1 -> L2 -> pages)
+ * @access  Private
+ */
+router.get('/hierarchical', permissionController.getHierarchicalPermissions);
+
+/**
  * @route   GET /api/rbac/permissions
  * @desc    Get all permissions (flat list or filtered)
  * @access  Private

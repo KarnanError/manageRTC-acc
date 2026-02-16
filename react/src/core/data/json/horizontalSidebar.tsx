@@ -77,6 +77,11 @@ export const HorizontalSidebarData = [
             base2: 'packages-grid',
           },
           {
+            menuValue: 'Modules',
+            route: routes.superAdminModules,
+            base: 'modules',
+          },
+          {
             menuValue: 'Domain',
             route: routes.superAdminDomain,
             base: 'domain',
@@ -85,6 +90,46 @@ export const HorizontalSidebarData = [
             menuValue: 'Purchase Transaction',
             route: routes.superAdminPurchaseTransaction,
             base: 'purchase-transaction',
+          },
+        ],
+      },
+      {
+        menuValue: 'Users & Permissions',
+        hasSubRoute: true,
+        showSubRoute: false,
+        icon: 'user-star',
+        base: 'users-permissions',
+        roles: ['superadmin'],
+        subMenus: [
+          {
+            menuValue: 'Users',
+            route: routes.users,
+            base: 'users',
+          },
+          {
+            menuValue: 'Roles & Permissions',
+            route: routes.rolePermission,
+            base: 'roles-permissions',
+          },
+          {
+            menuValue: 'Permission',
+            route: routes.permissionpage,
+            base: 'permission',
+          },
+          {
+            menuValue: 'Mandatory Permissions',
+            route: routes.mandatoryPermissions,
+            base: 'mandatory-permissions',
+          },
+          {
+            menuValue: 'Pages',
+            route: routes.superAdminPages,
+            base: 'super-admin-pages',
+          },
+          {
+            menuValue: 'Super Admins',
+            route: routes.superAdminUsers,
+            base: 'super-admin-users',
           },
         ],
       },

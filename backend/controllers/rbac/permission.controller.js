@@ -26,6 +26,26 @@ export const getGroupedPermissions = async (req, res) => {
 };
 
 /**
+ * Get hierarchical permissions structure (same as pages tree structure)
+ * @route GET /api/rbac/permissions/hierarchical
+ */
+export const getHierarchicalPermissions = async (req, res) => {
+  const result = await permissionService.getHierarchicalPermissions();
+
+  if (!result.success) {
+    return res.status(400).json({
+      success: false,
+      error: { message: result.error },
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: result.data,
+  });
+};
+
+/**
  * Get all permissions (flat list or filtered by category)
  * @route GET /api/rbac/permissions
  */
@@ -290,6 +310,7 @@ export const updateRolePermissionAction = async (req, res) => {
 
 export default {
   getGroupedPermissions,
+  getHierarchicalPermissions,
   getAllPermissions,
   getPermissionsByCategory,
   getPermissionById,

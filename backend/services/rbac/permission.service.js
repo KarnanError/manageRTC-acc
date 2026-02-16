@@ -30,6 +30,139 @@ export async function getGroupedPermissions() {
 }
 
 /**
+ * Get hierarchical permissions structure (same as pages tree structure)
+ * Returns permissions organized by category with L1/L2 menu groups and children
+ */
+export async function getHierarchicalPermissions() {
+  try {
+    const PageCategory = (await import('../../models/rbac/pageCategory.schema.js')).default;
+    const RolePermission = (await import('../../models/rbac/rolePermission.schema.js')).default;
+
+    const categories = await PageCategory.find({ isActive: true })
+      .sort({ sortOrder: 1 })
+      .lean();
+
+    const tree = await Promise.all(
+      categories.map(async (cat) => {
+        // Get L1 menu groups with category populated
+        const Page = (await import('../../models/rbac/page.schema.js')).default;
+        const l1Groups = await Page.find({
+          category: cat._id,
+          isMenuGroup: true,
+          menuGroupLevel: 1,
+          isActive: true,
+        }).populate('category', 'identifier displayName label icon')
+          .sort({ sortOrder: 1 })
+          .lean();
+
+        const enrichedL1Groups = await Promise.all(
+          l1Groups.map(async (l1) => {
+            // Get L2 groups under this L1 with category populated
+            const l2Groups = await Page.find({
+              parentPage: l1._id,
+              isMenuGroup: true,
+              menuGroupLevel: 2,
+              isActive: true,
+            }).populate('category', 'identifier displayName label icon')
+              .sort({ sortOrder: 1 })
+              .lean();
+
+            // Enrich L2 groups with their children (with category populated)
+            const enrichedL2Groups = await Promise.all(
+              l2Groups.map(async (l2) => {
+                const l2Children = await Page.find({
+                  parentPage: l2._id,
+                  isMenuGroup: false,
+                  isActive: true,
+                }).populate('category', 'identifier displayName label icon')
+                  .sort({ sortOrder: 1 })
+                  .lean();
+
+                // Get permissions for L2 children
+                const childrenWithPerms = await Promise.all(
+                  l2Children.map(async (child) => {
+                    const permission = await Permission.findOne({ pageId: child._id, isActive: true }).lean();
+                    return {
+                      ...child,
+                      permission: permission || null,
+                    };
+                  })
+                );
+
+                return { ...l2, children: childrenWithPerms };
+              })
+            );
+
+            // L1 direct children (not under L2 groups) with category populated
+            const l1DirectChildren = await Page.find({
+              parentPage: l1._id,
+              isMenuGroup: false,
+              isActive: true,
+            }).populate('category', 'identifier displayName label icon')
+              .sort({ sortOrder: 1 })
+              .lean();
+
+            // Get permissions for L1 direct children
+            const l1DirectChildrenWithPerms = await Promise.all(
+              l1DirectChildren.map(async (child) => {
+                const permission = await Permission.findOne({ pageId: child._id, isActive: true }).lean();
+                return {
+                  ...child,
+                  permission: permission || null,
+                };
+              })
+            );
+
+            return {
+              ...l1,
+              l2Groups: enrichedL2Groups,
+              directChildren: l1DirectChildrenWithPerms
+            };
+          })
+        );
+
+        // Direct children of category (no L1 parent) with category populated
+        const directChildren = await Page.find({
+          category: cat._id,
+          parentPage: null,
+          isMenuGroup: false,
+          isActive: true,
+        }).populate('category', 'identifier displayName label icon')
+          .sort({ sortOrder: 1 })
+          .lean();
+
+        // Get permissions for direct children
+        const directChildrenWithPerms = await Promise.all(
+          directChildren.map(async (child) => {
+            const permission = await Permission.findOne({ pageId: child._id, isActive: true }).lean();
+            return {
+              ...child,
+              permission: permission || null,
+            };
+          })
+        );
+
+        return {
+          ...cat,
+          l1MenuGroups: enrichedL1Groups,
+          directChildren: directChildrenWithPerms
+        };
+      })
+    );
+
+    return {
+      success: true,
+      data: tree,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
  * Get all permissions (flat list)
  */
 export async function getAllPermissions(filters = {}) {
@@ -194,6 +327,7 @@ export async function deletePermission(permissionId) {
 /**
  * Get role permissions with full permission details
  * PRIMARY METHOD - Uses Junction Table (role_permissions)
+ * Returns mandatory permissions for frontend enforcement
  */
 export async function getRolePermissions(roleId) {
   try {
@@ -209,9 +343,18 @@ export async function getRolePermissions(roleId) {
     // Get permissions from Junction Table
     const result = await RolePermission.getRolePermissionsGrouped(roleId);
 
+    // Include mandatory permissions for frontend UI enforcement
+    const mandatoryPermissions = (role.mandatoryPermissions || []).map(m => ({
+      pageId: m.pageId?.toString(),
+      actions: m.actions || [],
+    }));
+
     return {
       success: true,
-      data: result,
+      data: {
+        ...result,
+        mandatoryPermissions: mandatoryPermissions,
+      },
     };
   } catch (error) {
     return {
@@ -224,6 +367,7 @@ export async function getRolePermissions(roleId) {
 /**
  * Set permissions for a role
  * PRIMARY METHOD - Updates Junction Table (role_permissions)
+ * ENFORCES MANDATORY PERMISSIONS - Backend enforcement that cannot be bypassed
  */
 export async function setRolePermissions(roleId, permissionsData, userId = null) {
   try {
@@ -277,7 +421,83 @@ export async function setRolePermissions(roleId, permissionsData, userId = null)
     }));
 
     // Filter out null entries
-    const validFormattedPermissions = formattedPermissions.filter(p => p !== null);
+    let validFormattedPermissions = formattedPermissions.filter(p => p !== null);
+
+    // ============================================
+    // ENFORCE MANDATORY PERMISSIONS
+    // ============================================
+    // Get role's mandatory permissions from database
+    const mandatoryPermissions = role.mandatoryPermissions || [];
+    const allActionKeys = ['all', 'read', 'create', 'write', 'delete', 'import', 'export', 'approve', 'assign'];
+
+    if (mandatoryPermissions.length > 0) {
+      // Create a map of current permissions by pageId for easy lookup
+      const permissionsMap = new Map(
+        validFormattedPermissions.map(p => [p.pageId?.toString(), p])
+      );
+
+      // Process each mandatory permission
+      for (const mandatory of mandatoryPermissions) {
+        const mandatoryPageId = mandatory.pageId?.toString();
+        const mandatoryActions = mandatory.actions || [];
+
+        // Find or create permission entry for this page
+        let permEntry = permissionsMap.get(mandatoryPageId);
+
+        if (!permEntry) {
+          // If permission doesn't exist, we need to create it
+          // First check if there's a page and permission for this
+          const page = await Page.findById(mandatory.pageId);
+          if (!page) {
+            console.warn(`Mandatory permission page not found: ${mandatoryPageId}`);
+            continue;
+          }
+
+          const permission = await Permission.findOne({ pageId: page._id, isActive: true });
+          if (!permission) {
+            console.warn(`Mandatory permission not found in permissions collection: ${mandatoryPageId}`);
+            continue;
+          }
+
+          permEntry = {
+            pageId: page._id,
+            permissionId: permission._id,
+            module: permission.module,
+            displayName: permission.displayName,
+            category: permission.category,
+            route: page.route,
+            actions: { all: false, read: false, create: false, write: false, delete: false, import: false, export: false, approve: false, assign: false }
+          };
+
+          permissionsMap.set(mandatoryPageId, permEntry);
+        }
+
+        // Ensure mandatory actions are always enabled
+        if (mandatoryActions.includes('all')) {
+          // All actions are mandatory - enable everything
+          allActionKeys.forEach(action => {
+            permEntry.actions[action] = true;
+          });
+        } else {
+          // Specific actions are mandatory
+          mandatoryActions.forEach(action => {
+            if (action !== 'all') {
+              permEntry.actions[action] = true;
+            }
+          });
+
+          // Check if all individual mandatory actions are enabled, then enable 'all' too
+          const individualActions = allActionKeys.filter(a => a !== 'all');
+          const allIndividualEnabled = individualActions.every(a => permEntry.actions[a] === true);
+          if (allIndividualEnabled) {
+            permEntry.actions.all = true;
+          }
+        }
+      }
+
+      // Convert map back to array
+      validFormattedPermissions = Array.from(permissionsMap.values());
+    }
 
     // Save to Junction Table
     await RolePermission.setRolePermissions(roleId, validFormattedPermissions, userId);
@@ -510,6 +730,7 @@ export async function migrateAllRolesToJunctionTable() {
 
 export default {
   getGroupedPermissions,
+  getHierarchicalPermissions,
   getAllPermissions,
   getPermissionsByCategory,
   getPermissionById,

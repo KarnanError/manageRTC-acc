@@ -98,11 +98,6 @@ const useSidebarData = () => {
                   link: routes.superAdminModules,
                   base: "modules",
                 },
-                {
-                  label: "Pages",
-                  link: routes.superAdminPages,
-                  base: "pages",
-                },
                 // {
                 //   label: "Purchase Transaction",
                 //   link: routes.superAdminPurchaseTransaction,
@@ -408,6 +403,29 @@ const useSidebarData = () => {
             {
               label: 'Permission',
               link: routes.permissionpage,
+              submenu: false,
+              showSubRoute: false,
+              roles: ['superadmin'],
+            },
+            {
+              label: 'Mandatory Permissions',
+              link: routes.mandatoryPermissions,
+              submenu: false,
+              showSubRoute: false,
+              roles: ['superadmin'],
+            },
+            {
+              label: 'Pages',
+              link: routes.superAdminPages,
+              base: 'super-admin-pages',
+              submenu: false,
+              showSubRoute: false,
+              roles: ['superadmin'],
+            },
+            {
+              label: 'Super Admins',
+              link: routes.superAdminUsers,
+              base: 'super-admin-users',
               submenu: false,
               showSubRoute: false,
               roles: ['superadmin'],
@@ -1290,15 +1308,6 @@ const useSidebarData = () => {
           showAsTab: false,
           separateRoute: false,
           submenuItems: [
-            {
-              label: 'Pages',
-              link: routes.pages,
-              base: 'pages',
-              submenu: false,
-              showSubRoute: false,
-              icon: 'box-multiple',
-              submenuItems: [],
-            },
             {
               label: 'Blogs',
               submenu: true,
@@ -5497,15 +5506,6 @@ const useSidebarData = () => {
           showAsTab: false,
           separateRoute: false,
           submenuItems: [
-            {
-              label: 'Pages',
-              link: routes.pages,
-              base: 'pages',
-              submenu: false,
-              showSubRoute: false,
-              icon: 'box-multiple',
-              submenuItems: [],
-            },
             {
               label: 'Blogs',
               submenu: true,

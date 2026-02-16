@@ -126,6 +126,8 @@ import RolesPermission from '../super-admin/rolePermission';
 import Users from '../super-admin/users';
 import Modules from '../super-admin/modules';
 import Pages from '../super-admin/pages';
+import MandatoryPermissionsPage from '../super-admin/mandatory-permissions';
+import SuperAdminUsers from '../super-admin/superadmin-users';
 import IncomingCall from '../application/call/incomingcall';
 import OutgoingCalls from '../application/call/outgingcalls';
 import Videocallss from '../application/call/videocalls';
@@ -1387,6 +1389,11 @@ export const publicRoutes = [
     roles: ['superadmin'],
   },
   {
+    path: routes.mandatoryPermissions,
+    element: <MandatoryPermissionsPage />,
+    roles: ['superadmin'],
+  },
+  {
     path: routes.expensesreport,
     element: <ExpensesReport />,
     roles: ['public'],
@@ -1522,6 +1529,11 @@ export const publicRoutes = [
   {
     path: routes.superAdminPages,
     element: <Pages />,
+    roles: ['superadmin'],
+  },
+  {
+    path: routes.superAdminUsers,
+    element: <SuperAdminUsers />,
     roles: ['superadmin'],
   },
   {

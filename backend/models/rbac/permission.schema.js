@@ -27,8 +27,7 @@ const permissionSchema = new mongoose.Schema({
     type: String,
     required: false, // Made optional for migration
     trim: true,
-    unique: true,
-    sparse: true,
+    sparse: true, // Allows null/undefined values
   },
 
   // Display Name (synced from Page if pageId is set)
@@ -38,28 +37,14 @@ const permissionSchema = new mongoose.Schema({
     trim: true,
   },
 
-  // Category (for grouping in UI, synced from Page.moduleCategory)
+  // Category (for grouping in UI, synced from Page.category.label)
+  // Uses PageCategory label (e.g., 'main-menu', 'users-permissions', 'hrm', etc.)
   category: {
     type: String,
     required: true,
-    enum: [
-      'super-admin',
-      'users-permissions',
-      'applications',
-      'hrm',
-      'projects',
-      'crm',
-      'recruitment',
-      'finance',
-      'administration',
-      'content',
-      'pages',
-      'auth',
-      'ui',
-      'extras',
-      'dashboards',
-      'reports',
-    ],
+    trim: true,
+    lowercase: true,
+    // No strict enum - uses dynamic PageCategory labels
   },
 
   // Description
@@ -121,7 +106,6 @@ const permissionSchema = new mongoose.Schema({
 permissionSchema.index({ category: 1, sortOrder: 1 });
 permissionSchema.index({ isActive: 1 });
 permissionSchema.index({ pageId: 1 }, { unique: true, sparse: true });
-permissionSchema.index({ module: 1 }, { unique: true, sparse: true });
 
 // Pre-save middleware
 permissionSchema.pre('save', function(next) {

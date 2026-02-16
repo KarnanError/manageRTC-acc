@@ -16,7 +16,6 @@ export interface PersonalInfo {
   nationality?: string;
   religion?: string;
   maritalStatus?: string;
-  employmentOfSpouse?: string;
   noOfChildren?: number;
 }
 
@@ -353,16 +352,6 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           </div>
         </PermissionField>
 
-        {/* Employment of Spouse */}
-        <PermissionField field="personal.employmentOfSpouse" editMode={false}>
-          <div className="col-md-4 mb-3">
-            <label className="text-muted small">Employment of Spouse</label>
-            <p className="mb-0 fw-medium">
-              {personalInfo?.employmentOfSpouse || 'N/A'}
-            </p>
-          </div>
-        </PermissionField>
-
         {/* No. of Children */}
         <PermissionField field="personal.noOfChildren" editMode={false}>
           <div className="col-md-4 mb-3">
@@ -490,26 +479,6 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
                   options={maritalStatusOptions}
                   defaultValue={maritalStatusOptions.find(s => s.value === personalInfo?.maritalStatus) || maritalStatusOptions[0]}
                   onChange={(option: any) => onChange('personal.maritalStatus', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-        </PermissionField>
-
-        {/* Employment of Spouse */}
-        <PermissionField field="personal.employmentOfSpouse" editMode={true}>
-          <div className="col-md-4">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Employment of Spouse</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  value={personalInfo?.employmentOfSpouse || ''}
-                  onChange={(e) => onChange('personal.employmentOfSpouse', e.target.value)}
-                  placeholder="Employer name / Not Employed"
                 />
               </div>
             </div>
