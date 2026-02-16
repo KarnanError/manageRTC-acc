@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSocket } from '../../../SocketContext';
-import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { Socket } from 'socket.io-client';
 import type { Candidate } from '../../../hooks/useCandidates';
+import { useSocket } from '../../../SocketContext';
 
 interface CandidateFormData {
   _id: string;
@@ -24,7 +24,7 @@ interface CandidateFormData {
   country: string;
   linkedinProfile: string;
   portfolio: string;
-  
+
   // Professional Information
   currentRole: string;
   currentCompany: string;
@@ -36,7 +36,7 @@ interface CandidateFormData {
   qualifications: string;
   certifications: string;
   languages: string;
-  
+
   // Application Information
   appliedRole: string;
   appliedDate: string;
@@ -44,12 +44,12 @@ interface CandidateFormData {
   recruiterName: string;
   source: string;
   referredBy: string;
-  
+
   // Documents
   resume: string;
   coverLetter: string;
   portfolioDoc: string;
-  
+
   // Status
   status: string;
 }
@@ -87,7 +87,7 @@ const EditCandidate = () => {
     country: '',
     linkedinProfile: '',
     portfolio: '',
-    
+
     // Professional Information
     currentRole: '',
     currentCompany: '',
@@ -99,7 +99,7 @@ const EditCandidate = () => {
     qualifications: '',
     certifications: '',
     languages: '',
-    
+
     // Application Information
     appliedRole: '',
     appliedDate: '',
@@ -107,12 +107,12 @@ const EditCandidate = () => {
     recruiterName: '',
     source: 'Direct',
     referredBy: '',
-    
+
     // Documents
     resume: '',
     coverLetter: '',
     portfolioDoc: '',
-    
+
     // Status
     status: 'New Application'
   });
@@ -156,7 +156,7 @@ const EditCandidate = () => {
           country: candidate.personalInfo?.country || '',
           linkedinProfile: candidate.personalInfo?.linkedinProfile || '',
           portfolio: candidate.personalInfo?.portfolio || '',
-          
+
           // Professional Information
           currentRole: candidate.professionalInfo?.currentRole || '',
           currentCompany: candidate.professionalInfo?.currentCompany || '',
@@ -168,22 +168,22 @@ const EditCandidate = () => {
           qualifications: candidate.professionalInfo?.qualifications?.join(', ') || '',
           certifications: candidate.professionalInfo?.certifications?.join(', ') || '',
           languages: candidate.professionalInfo?.languages?.join(', ') || '',
-          
+
           // Application Information
           appliedRole: candidate.applicationInfo?.appliedRole || '',
-          appliedDate: candidate.applicationInfo?.appliedDate 
-            ? new Date(candidate.applicationInfo.appliedDate).toISOString().split('T')[0] 
+          appliedDate: candidate.applicationInfo?.appliedDate
+            ? new Date(candidate.applicationInfo.appliedDate).toISOString().split('T')[0]
             : '',
           recruiterId: candidate.applicationInfo?.recruiterId || '',
           recruiterName: candidate.applicationInfo?.recruiterName || '',
           source: candidate.applicationInfo?.source || 'Direct',
           referredBy: candidate.applicationInfo?.referredBy || '',
-          
+
           // Documents
           resume: candidate.documents?.resume || '',
           coverLetter: candidate.documents?.coverLetter || '',
           portfolioDoc: candidate.documents?.portfolio || '',
-          
+
           // Status
           status: candidate.status || 'New Application'
         });
@@ -294,8 +294,8 @@ const EditCandidate = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'experienceYears' || name === 'currentSalary' || name === 'expectedSalary' 
-        ? Number(value) || 0 
+      [name]: name === 'experienceYears' || name === 'currentSalary' || name === 'expectedSalary'
+        ? Number(value) || 0
         : value
     }));
 
@@ -439,11 +439,11 @@ const EditCandidate = () => {
       modal.classList.remove('show');
       modal.setAttribute('aria-hidden', 'true');
       modal.removeAttribute('aria-modal');
-      
+
       // Remove backdrop
       const backdrops = document.querySelectorAll('.modal-backdrop');
       backdrops.forEach(backdrop => backdrop.remove());
-      
+
       // Remove modal-open class from body
       document.body.classList.remove('modal-open');
       document.body.style.overflow = '';
@@ -524,6 +524,7 @@ const EditCandidate = () => {
                   className="form-control"
                   name="dateOfBirth"
                   value={formData.dateOfBirth}
+                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 15)).toISOString().split('T')[0]}
                   onChange={handleInputChange}
                 />
               </div>
@@ -808,7 +809,7 @@ const EditCandidate = () => {
         return (
           <div>
             <h6 className="mb-3">Documents & Links</h6>
-            
+
             {/* Resume Upload */}
             <div className="mb-3">
               <label className="form-label">Resume</label>

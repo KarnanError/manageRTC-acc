@@ -93,4 +93,11 @@ router.patch('/:roleId/permissions/:pageId', permissionController.updateRolePerm
  */
 router.get('/:roleId/check-permission', permissionController.checkRolePermission);
 
+/**
+ * @route   PUT /api/rbac/roles/:roleId/mandatory-permissions
+ * @desc    Update mandatory permissions for a role
+ * @access  Private (Super Admin only)
+ */
+router.put('/:roleId/mandatory-permissions', roleController.updateMandatoryPermissions);
+
 export default router;

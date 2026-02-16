@@ -32,6 +32,8 @@ export const all_routes = {
   superAdminDomain: '/super-admin/domain',
   superAdminPurchaseTransaction: '/super-admin/purchase-transaction',
   superAdminModules: '/super-admin/modules',
+  superAdminPages: '/super-admin/pages',
+  superAdminUsers: '/super-admin/superadmins',
 
   calendar: '/calendar',
   dataTables: '/data-tables',
@@ -388,8 +390,8 @@ export const all_routes = {
   users: "/users",
   rolePermission: "/roles-permissions",
   permissionpage: "/permission",
+  mandatoryPermissions: "/mandatory-permissions",
   //SuperAdmin Pages
-  superAdminPages: "/super-admin/pages",
   modules: "/super-admin/modules",
   assetCategories: "/asset-categories",
   assetList: "/assets",

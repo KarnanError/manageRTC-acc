@@ -8,19 +8,19 @@ import * as pageController from '../../../controllers/rbac/page.controller.js';
 
 const router = express.Router();
 
-// Get all pages with optional filtering
-router.get('/', pageController.getAllPages);
+// Get all pages flattened with hierarchy info (MUST be before /:id)
+router.get('/flattened', pageController.getAllPagesFlattened);
 
-// Get pages grouped by category
+// Get pages grouped by category (MUST be before /:id)
 router.get('/grouped', pageController.getPagesGroupedByCategory);
 
-// Get page statistics
+// Get page statistics (MUST be before /:id)
 router.get('/stats', pageController.getPageStats);
 
-// Get pages by module category
-router.get('/category/:category', pageController.getPagesByModule);
+// Get hierarchical tree structure (MUST be before /:id)
+router.get('/tree-structure', pageController.getTreeStructure);
 
-// Get a single page
+// Get a single page (MUST be last to avoid catching other routes)
 router.get('/:id', pageController.getPageById);
 
 // Create a new page

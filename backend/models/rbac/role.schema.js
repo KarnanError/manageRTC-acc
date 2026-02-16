@@ -63,6 +63,22 @@ const roleSchema = new mongoose.Schema({
     default: 0,
   },
 
+  // Mandatory Permissions (always enabled, cannot be revoked)
+  // These permissions are enforced by the backend API
+  mandatoryPermissions: [{
+    pageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Page',
+      required: true,
+    },
+    // Actions that are mandatory (e.g., ["all"] or ["read", "create"])
+    // If "all" is present, all available actions for the page are mandatory
+    actions: [{
+      type: String,
+      enum: ['all', 'read', 'create', 'write', 'delete', 'import', 'export', 'approve', 'assign'],
+    }],
+  }],
+
   // Soft Delete
   isDeleted: {
     type: Boolean,

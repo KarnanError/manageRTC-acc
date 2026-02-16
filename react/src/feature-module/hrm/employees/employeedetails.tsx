@@ -20,9 +20,9 @@ import { useDepartmentsREST } from '../../../hooks/useDepartmentsREST';
 import { useDesignationsREST } from '../../../hooks/useDesignationsREST';
 import { useEmployeesREST } from '../../../hooks/useEmployeesREST';
 import {
-  usePoliciesREST,
-  type Policy,
-  type PolicyAssignment
+    usePoliciesREST,
+    type Policy,
+    type PolicyAssignment
 } from '../../../hooks/usePoliciesREST';
 import { usePromotionsREST, type Promotion } from '../../../hooks/usePromotionsREST';
 import { useResignationsREST, type Resignation } from '../../../hooks/useResignationsREST';
@@ -179,8 +179,6 @@ interface PersonalInfo {
   gender: string;
   birthday: string; // DD-MM-YYYY
   maritalStatus: string;
-  religion: string;
-  employmentOfSpouse: boolean;
   noOfChildren: number;
   passport: Passport;
   address: Address;
@@ -352,12 +350,7 @@ const EmployeeDetails = () => {
     phone: '',
   });
   const [personalFormData, setPersonalFormData] = useState({
-    passportNo: '',
-    passportExpiryDate: null as any,
-    nationality: '',
-    religion: '',
     maritalStatus: 'Select',
-    employmentOfSpouse: false,
     noOfChildren: 0,
   });
   const [educationFormData, setEducationFormData] = useState<{
@@ -398,6 +391,7 @@ const EmployeeDetails = () => {
   const [educationFormLoading, setEducationFormLoading] = useState(false);
   const [experienceFormLoading, setExperienceFormLoading] = useState(false);
   const [personalFormLoading, setPersonalFormLoading] = useState(false);
+  const [showBankDetails, setShowBankDetails] = useState(false);
 
   const DATE_FORMAT = 'DD-MM-YYYY';
   const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
@@ -412,6 +406,12 @@ const EmployeeDetails = () => {
     }
     const fallback = dayjs(value);
     return fallback.isValid() ? fallback : null;
+  };
+
+  // Helper function to mask sensitive bank information
+  const maskBankValue = (value: string | undefined) => {
+    if (!value || value === '-') return '-';
+    return '••••••••••';
   };
   // Handle Next button click
   const handleNext = () => {
@@ -926,13 +926,7 @@ const EmployeeDetails = () => {
     if (personalFormLoading) return;
 
     // Validate required fields
-    if (
-      !personalFormData.passportNo ||
-      !personalFormData.passportExpiryDate ||
-      !personalFormData.nationality ||
-      !personalFormData.religion ||
-      personalFormData.maritalStatus === 'Select'
-    ) {
+    if (personalFormData.maritalStatus === 'Select') {
       console.log('Validation failed - missing required fields');
       toast.error('Please fill all required fields!', {
         position: 'top-right',
@@ -953,19 +947,8 @@ const EmployeeDetails = () => {
 
     // Submit personal details to backend using REST API
     const personalData = {
-      passport: {
-        ...(employee.passport || {}),
-        number: personalFormData.passportNo,
-        expiryDate: personalFormData.passportExpiryDate
-          ? dayjs(personalFormData.passportExpiryDate).format(DATE_FORMAT)
-          : '',
-        country: personalFormData.nationality,
-      },
-      religion: personalFormData.religion,
       maritalStatus: personalFormData.maritalStatus,
-      employmentOfSpouse:
-        personalFormData.maritalStatus === 'Yes' ? personalFormData.employmentOfSpouse : false,
-      noOfChildren: personalFormData.maritalStatus === 'Yes' ? personalFormData.noOfChildren : 0,
+      noOfChildren: personalFormData.noOfChildren,
     };
 
     try {
@@ -1002,14 +985,7 @@ const EmployeeDetails = () => {
   };
   const resetPersonalForm = () => {
     setPersonalFormData({
-      passportNo: employee.passport?.number || '',
-      passportExpiryDate: employee.passport?.expiryDate
-        ? toDayjsDate(employee.passport.expiryDate)
-        : null,
-      nationality: employee.passport?.country || '',
-      religion: (employee as any).religion || '',
       maritalStatus: (employee as any).maritalStatus || 'Select',
-      employmentOfSpouse: !!(employee as any).employmentOfSpouse,
       noOfChildren: (employee as any).noOfChildren || 0,
     });
   };
@@ -1464,14 +1440,7 @@ const EmployeeDetails = () => {
 
       // Initialize personal form data
       setPersonalFormData({
-        passportNo: employee.passport?.number || '',
-        passportExpiryDate: employee.passport?.expiryDate
-          ? toDayjsDate(employee.passport.expiryDate)
-          : null,
-        nationality: employee.passport?.country || '',
-        religion: (employee as any).religion || '',
         maritalStatus: (employee as any).maritalStatus || 'Select',
-        employmentOfSpouse: !!(employee as any).employmentOfSpouse,
         noOfChildren: (employee as any).noOfChildren || 0,
       });
 
@@ -2106,8 +2075,12 @@ const EmployeeDetails = () => {
   // via socket events and stored in state variables: department, designation
   const martialstatus = [
     { value: 'Select', label: 'Select' },
-    { value: 'Yes', label: 'Yes' },
-    { value: 'No', label: 'No' },
+    { value: 'Single', label: 'Single' },
+    { value: 'Married', label: 'Married' },
+    { value: 'Divorced', label: 'Divorced' },
+    { value: 'Widowed', label: 'Widowed' },
+    { value: 'Separated', label: 'Separated' },
+    { value: 'Prefer not to say', label: 'Prefer not to say' },
   ];
   const salaryChoose = [
     { value: 'Select', label: 'Select' },
@@ -2470,15 +2443,6 @@ const EmployeeDetails = () => {
                   <div className="p-3 border-bottom">
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <h6>Personal Information</h6>
-                      <Link
-                        to="#"
-                        className="btn btn-icon btn-sm"
-                        data-bs-toggle="modal"
-                        data-inert={true}
-                        data-bs-target="#edit_personal"
-                      >
-                        <i className="ti ti-edit" />
-                      </Link>
                     </div>
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <span className="d-inline-flex align-items-center">
@@ -2503,106 +2467,105 @@ const EmployeeDetails = () => {
                       </span>
                       <p className="text-dark text-end">{employee?.passport?.country || '-'}</p>
                     </div>
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <span className="d-inline-flex align-items-center">
-                        <i className="ti ti-bookmark-plus me-2" />
-                        Religion
-                      </span>
-                      <p className="text-dark text-end">{(employee as any)?.religion || '-'}</p>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <span className="d-inline-flex align-items-center">
-                        <i className="ti ti-hotel-service me-2" />
-                        Marital status
-                      </span>
-                      <p className="text-dark text-end">
-                        {(employee as any)?.maritalStatus || '-'}
-                      </p>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <span className="d-inline-flex align-items-center">
-                        <i className="ti ti-briefcase-2 me-2" />
-                        Employment of spouse
-                      </span>
-                      <p className="text-dark text-end">
-                        {(employee as any)?.employmentOfSpouse || '-'}
-                      </p>
-                    </div>
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <span className="d-inline-flex align-items-center">
-                        <i className="ti ti-baby-bottle me-2" />
-                        No. of children
-                        {employee?.bank?.bankName || '-'}
-                      </span>
-                      <p className="text-dark text-end">{(employee as any)?.noOfChildren || '-'}</p>
-                    </div>
 
-                    {/* Emergency Contact Number Section - Now inside Personal Information */}
+                    {/* Marital Information Subsection */}
                     <div className="border-top mt-3 pt-3">
                       <div className="d-flex align-items-center justify-content-between mb-2">
-                        <h6 className="mb-0">Emergency Contact Number</h6>
+                        <h6 className="mb-0">Marital Information</h6>
                         <Link
                           to="#"
                           className="btn btn-icon btn-sm"
                           data-bs-toggle="modal"
                           data-inert={true}
-                          data-bs-target="#edit_emergency"
+                          data-bs-target="#edit_personal"
                         >
                           <i className="ti ti-edit" />
                         </Link>
                       </div>
-                      {getEmergencyContact() ? (
-                        <div>
-                          <div className="mb-3">
-                            <div className="d-flex align-items-center gap-3 mb-2">
-                              <span className="d-inline-flex align-items-center">
-                                <i className="ti ti-e-passport me-2" />
-                                Name:
-                              </span>
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <span className="d-inline-flex align-items-center">
+                          <i className="ti ti-hotel-service me-2" />
+                          Marital status
+                        </span>
+                        <p className="text-dark text-end">
+                          {(employee as any)?.maritalStatus || '-'}
+                        </p>
+                      </div>
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <span className="d-inline-flex align-items-center">
+                          <i className="ti ti-baby-bottle me-2" />
+                          No. of children
+                        </span>
+                        <p className="text-dark text-end">{(employee as any)?.noOfChildren || '-'}</p>
+                      </div>
+                    </div>
+                  </div>
 
-                              <p className="text-dark mb-0">{getEmergencyContact()?.name || '-'}</p>
-                            </div>
-                          </div>
-                          <div className="mb-3">
-                            <div className="d-flex align-items-center gap-3 mb-2">
-                              <span className="d-inline-flex align-items-center">
-                                <i className="ti ti-e-passport me-2" />
-                                Relationship:
-                              </span>
+                  {/* Emergency Contact Number Section */}
+                  <div className="p-3 border-bottom">
+                    <div className="d-flex align-items-center justify-content-between mb-2">
+                      <h6 className="mb-0">Emergency Contact Number</h6>
+                      <Link
+                        to="#"
+                        className="btn btn-icon btn-sm"
+                        data-bs-toggle="modal"
+                        data-inert={true}
+                        data-bs-target="#edit_emergency"
+                      >
+                        <i className="ti ti-edit" />
+                      </Link>
+                    </div>
+                    {getEmergencyContact() ? (
+                      <div>
+                        <div className="mb-3">
+                          <div className="d-flex align-items-center gap-3 mb-2">
+                            <span className="d-inline-flex align-items-center">
+                              <i className="ti ti-e-passport me-2" />
+                              Name:
+                            </span>
 
-                              <p className="text-dark mb-0">
-                                {getEmergencyContact()?.relationship || '-'}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="mb-3">
-                            <div className="d-flex align-items-center gap-3 mb-2">
-                              <span className="d-inline-flex align-items-center">
-                                <i className="ti ti-e-passport me-2" />
-                                Phone Number1:
-                              </span>
-                              <p className="text-dark mb-0">
-                                {getEmergencyContact()?.phone?.[0] || '-'}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="mb-3">
-                            <div className="d-flex align-items-center gap-3 mb-2">
-                              <span className="d-inline-flex align-items-center">
-                                <i className="ti ti-e-passport me-2" />
-                                Phone Number2:
-                              </span>
-
-                              <p className="text-dark mb-0">
-                                {getEmergencyContact()?.phone?.[1] || '-'}
-                              </p>
-                            </div>
+                            <p className="text-dark mb-0">{getEmergencyContact()?.name || '-'}</p>
                           </div>
                         </div>
-                      ) : (
-                        <p className="text-muted">No emergency contacts available</p>
-                      )}
-                    </div>
+                        <div className="mb-3">
+                          <div className="d-flex align-items-center gap-3 mb-2">
+                            <span className="d-inline-flex align-items-center">
+                              <i className="ti ti-e-passport me-2" />
+                              Relationship:
+                            </span>
+
+                            <p className="text-dark mb-0">
+                              {getEmergencyContact()?.relationship || '-'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <div className="d-flex align-items-center gap-3 mb-2">
+                            <span className="d-inline-flex align-items-center">
+                              <i className="ti ti-e-passport me-2" />
+                              Phone Number1:
+                            </span>
+                            <p className="text-dark mb-0">
+                              {getEmergencyContact()?.phone?.[0] || '-'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <div className="d-flex align-items-center gap-3 mb-2">
+                            <span className="d-inline-flex align-items-center">
+                              <i className="ti ti-e-passport me-2" />
+                              Phone Number2:
+                            </span>
+
+                            <p className="text-dark mb-0">
+                              {getEmergencyContact()?.phone?.[1] || '-'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-muted">No emergency contacts available</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2654,9 +2617,20 @@ const EmployeeDetails = () => {
                           <div className="accordion-button">
                             <div className="d-flex align-items-center flex-fill">
                               <h5>Bank Information</h5>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon ms-auto"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setShowBankDetails(!showBankDetails);
+                                }}
+                                title={showBankDetails ? 'Hide bank details' : 'Show bank details'}
+                              >
+                                <i className={showBankDetails ? 'ti ti-eye-off' : 'ti ti-eye'} />
+                              </button>
                               <Link
                                 to="#"
-                                className="btn btn-sm btn-icon ms-auto"
+                                className="btn btn-sm btn-icon"
                                 data-bs-toggle="modal"
                                 data-inert={true}
                                 data-bs-target="#edit_bank"
@@ -2689,7 +2663,10 @@ const EmployeeDetails = () => {
                                 Account Holder Name
                               </span>
                               <p className="text-dark">
-                                {employee?.bank?.accountHolderName || '-'}
+                                {showBankDetails
+                                  ? (employee?.bank?.accountHolderName || '-')
+                                  : maskBankValue(employee?.bank?.accountHolderName)
+                                }
                               </p>
                             </div>
                             <div className="d-flex align-items-center justify-content-between mb-2">
@@ -2697,28 +2674,48 @@ const EmployeeDetails = () => {
                                 <i className="ti ti-e-passport me-2" />
                                 Bank Name
                               </span>
-                              <p className="text-dark">{employee?.bank?.bankName || '-'}</p>
+                              <p className="text-dark">
+                                {showBankDetails
+                                  ? (employee?.bank?.bankName || '-')
+                                  : maskBankValue(employee?.bank?.bankName)
+                                }
+                              </p>
                             </div>
                             <div className="d-flex align-items-center justify-content-between mb-2">
                               <span className="d-inline-flex align-items-center">
                                 <i className="ti ti-id me-2" />
                                 Account Number
                               </span>
-                              <p className="text-dark">{employee?.bank?.accountNumber || '-'}</p>
+                              <p className="text-dark">
+                                {showBankDetails
+                                  ? (employee?.bank?.accountNumber || '-')
+                                  : maskBankValue(employee?.bank?.accountNumber)
+                                }
+                              </p>
                             </div>
                             <div className="d-flex align-items-center justify-content-between mb-2">
                               <span className="d-inline-flex align-items-center">
                                 <i className="ti ti-id me-2" />
                                 IFSC Code
                               </span>
-                              <p className="text-dark">{employee?.bank?.ifscCode || '-'}</p>
+                              <p className="text-dark">
+                                {showBankDetails
+                                  ? (employee?.bank?.ifscCode || '-')
+                                  : maskBankValue(employee?.bank?.ifscCode)
+                                }
+                              </p>
                             </div>
                             <div className="d-flex align-items-center justify-content-between mb-2">
                               <span className="d-inline-flex align-items-center">
                                 <i className="ti ti-map-pin-check me-2" />
                                 Branch
                               </span>
-                              <p className="text-dark">{employee?.bank?.branch || '-'}</p>
+                              <p className="text-dark">
+                                {showBankDetails
+                                  ? (employee?.bank?.branch || '-')
+                                  : maskBankValue(employee?.bank?.branch)
+                                }
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -3503,80 +3500,6 @@ const EmployeeDetails = () => {
             <form onSubmit={handlePersonalFormSubmit}>
               <div className="modal-body pb-0">
                 <div className="row">
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Passport No <span className="text-danger"> *</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={personalFormData.passportNo}
-                        onChange={(e) =>
-                          setPersonalFormData((prev) => ({ ...prev, passportNo: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Passport Expiry Date <span className="text-danger"> *</span>
-                      </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: 'DD-MM-YYYY',
-                            type: 'mask',
-                          }}
-                          getPopupContainer={() =>
-                            document.getElementById('edit_personal') || document.body
-                          }
-                          placeholder="DD-MM-YYYY"
-                          value={personalFormData.passportExpiryDate}
-                          onChange={(date) =>
-                            setPersonalFormData((prev) => ({ ...prev, passportExpiryDate: date }))
-                          }
-                          required
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Nationality <span className="text-danger"> *</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={personalFormData.nationality}
-                        onChange={(e) =>
-                          setPersonalFormData((prev) => ({ ...prev, nationality: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Religion</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={personalFormData.religion}
-                        onChange={(e) =>
-                          setPersonalFormData((prev) => ({ ...prev, religion: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">
@@ -3601,46 +3524,23 @@ const EmployeeDetails = () => {
                       />
                     </div>
                   </div>
-                  {personalFormData.maritalStatus === 'Yes' && (
-                    <>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Employment spouse</label>
-                          <select
-                            className="form-control"
-                            value={personalFormData.employmentOfSpouse ? 'Yes' : 'No'}
-                            onChange={(e) =>
-                              setPersonalFormData((prev) => ({
-                                ...prev,
-                                employmentOfSpouse: e.target.value === 'Yes',
-                              }))
-                            }
-                            required
-                          >
-                            <option value="Yes">Yes</option>
-                            <option value="No">No</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">No. of children</label>
-                          <input
-                            type="number"
-                            className="form-control"
-                            value={personalFormData.noOfChildren}
-                            onChange={(e) =>
-                              setPersonalFormData((prev) => ({
-                                ...prev,
-                                noOfChildren: parseInt(e.target.value) || 0,
-                              }))
-                            }
-                            required
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">No. of children</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={personalFormData.noOfChildren}
+                        onChange={(e) =>
+                          setPersonalFormData((prev) => ({
+                            ...prev,
+                            noOfChildren: parseInt(e.target.value) || 0,
+                          }))
+                        }
+                        required
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="modal-footer">

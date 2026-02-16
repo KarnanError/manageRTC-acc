@@ -7,11 +7,11 @@ import CommonSelect from '../../../core/common/commonSelect';
 import Footer from '../../../core/common/footer';
 import { Profile, useProfileRest } from '../../../hooks/useProfileRest';
 import { all_routes } from '../../router/all_routes';
-import { PersonalInfoSection } from './components/PersonalInfoSection';
 import { BankInfoSection } from './components/BankInfoSection';
 import { EducationSection } from './components/EducationSection';
 import { ExperienceSection } from './components/ExperienceSection';
 import { FamilySection } from './components/FamilySection';
+import { PersonalInfoSection } from './components/PersonalInfoSection';
 
 type PasswordField = 'oldPassword' | 'newPassword' | 'confirmPassword' | 'currentPassword';
 
@@ -245,7 +245,6 @@ const ProfilePage = () => {
           nationality: currentUserProfile.personal?.nationality || '',
           religion: currentUserProfile.personal?.religion || '',
           maritalStatus: currentUserProfile.personal?.maritalStatus || '',
-          employmentOfSpouse: currentUserProfile.personal?.employmentOfSpouse || '',
           noOfChildren: currentUserProfile.personal?.noOfChildren || 0
         },
         bankDetails: {
@@ -436,7 +435,6 @@ const ProfilePage = () => {
           nationality: currentUserProfile.personal?.nationality || '',
           religion: currentUserProfile.personal?.religion || '',
           maritalStatus: currentUserProfile.personal?.maritalStatus || '',
-          employmentOfSpouse: currentUserProfile.personal?.employmentOfSpouse || '',
           noOfChildren: currentUserProfile.personal?.noOfChildren || 0
         },
         bankDetails: {
@@ -964,6 +962,7 @@ const ProfilePage = () => {
                   className="form-control"
                   name="dateOfBirth"
                   value={formData.dateOfBirth || ''}
+                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 15)).toISOString().split('T')[0]}
                   onChange={handleInputChange}
                 />
               </div>

@@ -1,6 +1,7 @@
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
 import React, { useEffect, useRef, useState } from "react";
+import { GetCountries, GetState } from "react-country-state-city";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useBatchesREST } from "../../hooks/useBatchesREST";
@@ -23,6 +24,12 @@ interface Address {
   country: string;
 }
 
+interface Passport {
+  number?: string;
+  expiryDate?: string | null;
+  country?: string;
+}
+
 interface FormData {
   employeeId: string;
   avatarUrl: string;
@@ -30,6 +37,7 @@ interface FormData {
   lastName: string;
   dateOfJoining: string;
   email: string;
+  phoneCode: string;
   phone: string;
   account: {
     role: string;
@@ -37,6 +45,8 @@ interface FormData {
   gender: string;
   dateOfBirth: string | null;
   address: Address;
+  nationality: string;
+  passport: Passport;
   companyName: string;
   designationId: string;
   departmentId: string;
@@ -92,6 +102,7 @@ const initialFormDataState = (): FormData => ({
   lastName: "",
   dateOfJoining: "",
   email: "",
+  phoneCode: "+1",
   phone: "",
   account: {
     role: "",
@@ -103,6 +114,12 @@ const initialFormDataState = (): FormData => ({
     city: "",
     state: "",
     postalCode: "",
+    country: "",
+  },
+  nationality: "",
+  passport: {
+    number: "",
+    expiryDate: null,
     country: "",
   },
   companyName: "",
@@ -150,7 +167,12 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [selectedDesignation, setSelectedDesignation] = useState<string>("");
   const [isDesignationDisabled, setIsDesignationDisabled] = useState<boolean>(true);
+  const [loadingDesignations, setLoadingDesignations] = useState<boolean>(false);
   const [managers, setManagers] = useState<Option[]>([]);
+  const [selectedCountryId, setSelectedCountryId] = useState<number | null>(null);
+  const [countries, setCountries] = useState<any[]>([]);
+  const [states, setStates] = useState<any[]>([]);
+  const [phoneCodeOptions, setPhoneCodeOptions] = useState<Option[]>([]);
   const [shiftAssignmentOptions, setShiftAssignmentOptions] = useState<{
     directShifts: Array<{ value: string; label: string; type: 'shift'; data?: any }>;
     shiftBatches: Array<{ value: string; label: string; type: 'batch'; data?: BatchOption }>;
@@ -181,6 +203,16 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     fetchDepartments();
     fetchBatches();
     fetchActiveEmployeesList();
+    // Load countries for address dropdown
+    GetCountries().then((result: any) => {
+      setCountries(result);
+      // Also populate phone code options
+      const phoneCodes = result.map((country: any) => {
+        const phoneCode = country.phone_code.startsWith('+') ? country.phone_code : `+${country.phone_code}`;
+        return { value: phoneCode, label: phoneCode };
+      });
+      setPhoneCodeOptions(phoneCodes);
+    });
   }, [fetchDepartments, fetchBatches, fetchActiveEmployeesList]);
 
   const getEmployeeOptionLabel = (emp: any) => {
@@ -225,6 +257,11 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         label: d.designation,
       }));
       setDesignation(mappedDesignations);
+      setLoadingDesignations(false);
+    } else if (designations && designations.length === 0) {
+      // Empty designations array received - stop loading
+      setDesignation([]);
+      setLoadingDesignations(false);
     }
   }, [designations]);
 
@@ -272,6 +309,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setSelectedDepartment("");
     setSelectedDesignation("");
     setIsDesignationDisabled(true);
+    setLoadingDesignations(false);
     setSelectedShiftAssignment({ type: null, value: '' });
     setEmailValidation({ checking: false, available: false, error: '' });
   };
@@ -338,6 +376,11 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         // Set errors immediately for email field (after async validation completes)
         setFieldErrors((prev) => ({ ...prev, ...errors }));
         return; // Early return for email to avoid setting errors twice
+      case "phoneCode":
+        if (!value || value.trim() === "") {
+          errors.phoneCode = "Phone code is required";
+        }
+        break;
       case "phone":
         if (!value || value.trim() === "") {
           errors.phone = "Phone number is required";
@@ -362,6 +405,17 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         break;
       case "birthday":
         if (!value) errors.birthday = "Birthday is required";
+        break;
+      case "nationality":
+        if (!value || value.trim() === "") {
+          errors.nationality = "Nationality is required";
+        }
+        break;
+      case "passportNo":
+        // Passport number is optional, no validation needed
+        break;
+      case "passportExpiryDate":
+        // Passport expiry date validation is handled in handleSubmit
         break;
     }
 
@@ -432,6 +486,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     }
 
     if (!formData.email?.trim()) errors.email = "Email is required";
+    if (!formData.phoneCode?.trim()) errors.phoneCode = "Phone code is required";
     if (!formData.phone?.trim()) errors.phone = "Phone number is required";
     if (!formData.account.role) errors.role = "Role is required";
     if (!formData.departmentId) errors.departmentId = "Department is required";
@@ -439,6 +494,12 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     if (!formData.dateOfJoining) errors.dateOfJoining = "Date of joining is required";
     if (!formData.gender) errors.gender = "Gender is required";
     if (!formData.dateOfBirth) errors.birthday = "Date of birth is required";
+    if (!formData.nationality?.trim()) errors.nationality = "Nationality is required";
+
+    // Passport expiry date is required only if passport number is filled
+    if (formData.passport?.number?.trim() && !formData.passport?.expiryDate) {
+      errors.passportExpiryDate = "Passport expiry date is required when passport number is provided";
+    }
 
     // Shift assignment validation (only if not explicitly set to 'none')
     if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !formData.shiftId && !formData.batchId) {
@@ -783,17 +844,37 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
-                            name="phone"
-                            value={formData.phone}
-                            onChange={(e) => {
-                              setFormData((prev) => ({ ...prev, phone: e.target.value }));
-                              clearFieldError("phone");
-                            }}
-                            onBlur={(e) => handleFieldBlur("phone", e.target.value)}
-                          />
+                          <div className="row g-2">
+                            <div className="col-4">
+                              <CommonSelect
+                                options={phoneCodeOptions}
+                                value={phoneCodeOptions.find(opt => opt.value === formData.phoneCode)}
+                                onChange={(option: any) => {
+                                  if (option) {
+                                    setFormData((prev) => ({ ...prev, phoneCode: option.value }));
+                                    clearFieldError("phoneCode");
+                                    handleFieldBlur("phoneCode", option.value);
+                                  }
+                                }}
+                                className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
+                              />
+                            </div>
+                            <div className="col-8">
+                              <input
+                                type="text"
+                                className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
+                                name="phone"
+                                placeholder="Enter phone number"
+                                value={formData.phone}
+                                onChange={(e) => {
+                                  setFormData((prev) => ({ ...prev, phone: e.target.value }));
+                                  clearFieldError("phone");
+                                }}
+                                onBlur={(e) => handleFieldBlur("phone", e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
                           {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
                         </div>
                       </div>
@@ -826,6 +907,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                               placeholder="DD-MM-YYYY"
                               name="birthday"
                               value={formData.dateOfBirth ? toDayjsDate(formData.dateOfBirth) : null}
+                              maxDate={dayjs().subtract(15, 'year')}
                               onFocus={() => clearFieldError("birthday")}
                               onChange={(_date, dateString) => {
                                 const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
@@ -841,81 +923,187 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                       <div className="col-md-12">
                         <div className="mb-3">
                           <label className="form-label">Address</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Street"
-                            name="street"
-                            value={formData.address?.street || ""}
-                            onChange={(e) =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                address: { ...prev.address, street: e.target.value },
-                              }))
-                            }
-                          />
-                          <div className="row mt-3">
+                          <div className="mb-3">
+                            <label className="form-label">Street</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Enter street address"
+                              name="street"
+                              value={formData.address?.street || ""}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  address: { ...prev.address, street: e.target.value },
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="row">
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="City"
-                                name="city"
-                                value={formData.address?.city || ""}
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    address: { ...prev.address, city: e.target.value },
-                                  }))
-                                }
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">City</label>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder="Enter city"
+                                  name="city"
+                                  value={formData.address?.city || ""}
+                                  onChange={(e) =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      address: { ...prev.address, city: e.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
                             </div>
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="State"
-                                name="state"
-                                value={formData.address?.state || ""}
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    address: { ...prev.address, state: e.target.value },
-                                  }))
-                                }
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">Country</label>
+                                <select
+                                  className="form-control"
+                                  value={selectedCountryId || ""}
+                                  onChange={(e) => {
+                                    const countryId = e.target.value ? parseInt(e.target.value) : null;
+                                    setSelectedCountryId(countryId);
+                                    const selectedCountry = countries.find((c) => c.id === countryId);
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      address: { ...prev.address, country: selectedCountry?.name || "", state: "" },
+                                    }));
+                                    // Load states for selected country
+                                    if (countryId) {
+                                      GetState(countryId).then((result: any) => {
+                                        setStates(result);
+                                      });
+                                    } else {
+                                      setStates([]);
+                                    }
+                                  }}
+                                >
+                                  <option value="">Select Country</option>
+                                  {countries.map((country) => (
+                                    <option key={country.id} value={country.id}>
+                                      {country.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
-                          <div className="row mt-3">
+                          <div className="row">
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Postal Code"
-                                name="postalCode"
-                                value={formData.address?.postalCode || ""}
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    address: { ...prev.address, postalCode: e.target.value },
-                                  }))
-                                }
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">State</label>
+                                <select
+                                  className="form-control"
+                                  value={formData.address?.state || ""}
+                                  disabled={!selectedCountryId}
+                                  onChange={(e) =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      address: { ...prev.address, state: e.target.value },
+                                    }))
+                                  }
+                                >
+                                  <option value="">Select State</option>
+                                  {states.map((state) => (
+                                    <option key={state.id} value={state.name}>
+                                      {state.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Country"
-                                name="country"
-                                value={formData.address?.country || ""}
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    address: { ...prev.address, country: e.target.value },
-                                  }))
-                                }
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">Postal Code</label>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder="Enter postal code"
+                                  name="postalCode"
+                                  value={formData.address?.postalCode || ""}
+                                  onChange={(e) =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      address: { ...prev.address, postalCode: e.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Nationality <span className="text-danger"> *</span></label>
+                                <input
+                                  type="text"
+                                  className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
+                                  placeholder="Enter nationality"
+                                  name="nationality"
+                                  value={formData.nationality || ""}
+                                  onChange={(e) => {
+                                    setFormData((prev) => ({ ...prev, nationality: e.target.value }));
+                                    clearFieldError("nationality");
+                                  }}
+                                  onBlur={(e) => handleFieldBlur("nationality", e.target.value)}
+                                />
+                                {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Passport No</label>
+                                <input
+                                  type="text"
+                                  className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
+                                  placeholder="Enter passport number"
+                                  name="passportNo"
+                                  value={formData.passport?.number || ""}
+                                  onChange={(e) => {
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      passport: { ...prev.passport, number: e.target.value },
+                                    }));
+                                    clearFieldError("passportNo");
+                                  }}
+                                  onBlur={(e) => handleFieldBlur("passportNo", e.target.value)}
+                                />
+                                {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">
+                                  Passport Expiry Date
+                                  {formData.passport?.number && <span className="text-danger"> *</span>}
+                                </label>
+                                <div className="input-icon-end position-relative">
+                                  <DatePicker
+                                    className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
+                                    format={{ format: "DD-MM-YYYY", type: "mask" }}
+                                    getPopupContainer={getModalContainer}
+                                    placeholder="DD-MM-YYYY"
+                                    value={formData.passport?.expiryDate ? toDayjsDate(formData.passport.expiryDate) : null}
+                                    onChange={(_date, dateString) => {
+                                      const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        passport: { ...prev.passport, expiryDate: dateValue || null },
+                                      }));
+                                      clearFieldError("passportExpiryDate");
+                                    }}
+                                    disabled={!formData.passport?.number}
+                                  />
+                                  <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
+                                </div>
+                                {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -947,6 +1135,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                                     setSelectedDepartment(option.value);
                                     setIsDesignationDisabled(false);
                                     if (option.value) {
+                                      setLoadingDesignations(true);
+                                      setDesignation([]);
                                       fetchDesignations({ departmentId: option.value });
                                     }
                                   }
@@ -960,7 +1150,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">Designation <span className="text-danger"> *</span></label>
-                          {designation.length === 0 && !isDesignationDisabled ? (
+                          {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
                             <div>
                               <button
                                 type="button"
@@ -978,6 +1168,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                                 className="select"
                                 options={designation}
                                 disabled={isDesignationDisabled}
+                                isLoading={loadingDesignations}
                                 defaultValue={designation.find((opt) => opt.value === formData.designationId)}
                                 onChange={(option: any) => {
                                   if (option) {

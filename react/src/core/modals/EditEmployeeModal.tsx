@@ -2,6 +2,7 @@ import { DatePicker } from "antd";
 import { Modal } from "bootstrap";
 import dayjs from "dayjs";
 import React, { useEffect, useRef, useState } from "react";
+import { GetCountries, GetState } from "react-country-state-city";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useBatchesREST } from "../../hooks/useBatchesREST";
@@ -43,6 +44,12 @@ interface Address {
   country: string;
 }
 
+interface Passport {
+  number?: string;
+  expiryDate?: string | null;
+  country?: string;
+}
+
 interface Employee {
   _id: string;
   employeeId: string;
@@ -54,10 +61,13 @@ interface Employee {
     role: string;
   };
   email: string;
+  phoneCode?: string;
   phone: string;
   gender?: string;
   dateOfBirth?: string;
   address?: Address;
+  nationality?: string;
+  passport?: Passport;
   companyName: string;
   departmentId: string;
   designationId: string;
@@ -144,7 +154,12 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   const [filteredDesignations, setFilteredDesignations] = useState<Option[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [isDesignationDisabled, setIsDesignationDisabled] = useState<boolean>(true);
+  const [loadingDesignations, setLoadingDesignations] = useState<boolean>(false);
   const [managers, setManagers] = useState<Option[]>([]);
+  const [selectedCountryId, setSelectedCountryId] = useState<number | null>(null);
+  const [countries, setCountries] = useState<any[]>([]);
+  const [states, setStates] = useState<any[]>([]);
+  const [phoneCodeOptions, setPhoneCodeOptions] = useState<Option[]>([]);
   const [lifecycleStatus, setLifecycleStatus] = useState<{
     hasLifecycleRecord: boolean;
     canChangeStatus: boolean;
@@ -177,6 +192,16 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     fetchDepartments();
     fetchBatches();
     fetchActiveEmployeesList();
+    // Load countries for address dropdown
+    GetCountries().then((result: any) => {
+      setCountries(result);
+      // Also populate phone code options
+      const phoneCodes = result.map((country: any) => {
+        const phoneCode = country.phone_code.startsWith('+') ? country.phone_code : `+${country.phone_code}`;
+        return { value: phoneCode, label: phoneCode };
+      });
+      setPhoneCodeOptions(phoneCodes);
+    });
   }, [fetchDepartments, fetchBatches, fetchActiveEmployeesList]);
 
   // Sync departments from REST hook
@@ -200,6 +225,12 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       setAllDesignations(mappedDesignations);
       // Also update the designation state used for rendering
       setDesignation(mappedDesignations);
+      setLoadingDesignations(false);
+    } else if (designations && designations.length === 0) {
+      // Empty designations array received - stop loading
+      setAllDesignations([]);
+      setDesignation([]);
+      setLoadingDesignations(false);
     }
   }, [designations]);
 
@@ -250,6 +281,22 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     }
   }, [allShifts, batches]);
 
+  // Handle pre-population of country/state when editing employee
+  useEffect(() => {
+    if (editingEmployee?.address?.country && countries.length > 0) {
+      const matchingCountry = countries.find(
+        (c) => c.name.toLowerCase() === editingEmployee.address.country.toLowerCase()
+      );
+      if (matchingCountry) {
+        setSelectedCountryId(matchingCountry.id);
+        // Load states for this country
+        GetState(matchingCountry.id).then((result: any) => {
+          setStates(result);
+        });
+      }
+    }
+  }, [editingEmployee?.address?.country, countries]);
+
   // Initialize editingEmployee when employee prop changes
   useEffect(() => {
     // Only open modal if employee prop changed from null to a value
@@ -261,11 +308,13 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       const departmentId = employee.departmentId || (employee as any).department?._id || "";
       const designationId = employee.designationId || (employee as any).designation?._id || "";
       const reportingTo = employee.reportingTo || "";
+      const phoneCode = employee.phoneCode || "+1"; // Default to +1 if not set
 
-      setEditingEmployee({ ...employee, departmentId, designationId, reportingTo });
+      setEditingEmployee({ ...employee, departmentId, designationId, reportingTo, phoneCode });
       setSelectedDepartment(departmentId);
       if (departmentId) {
         setIsDesignationDisabled(false);
+        setLoadingDesignations(true);
         fetchDesignations({ departmentId });
       }
 
@@ -340,6 +389,8 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       setTimeout(() => {
         setEditingEmployee(null);
         previousEmployeeRef.current = null;
+        setLoadingDesignations(false);
+        setIsDesignationDisabled(true);
       }, 50);
     };
 
@@ -498,16 +549,10 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       setSelectedDepartment(option.value);
       setIsDesignationDisabled(false);
 
-      // Filter designations by department
-      if (allDesignations.length > 0) {
-        const filtered = allDesignations.filter((d) => {
-          // Assuming designations have a departmentId field
-          return true; // Adjust this filter based on actual designation structure
-        });
-        setFilteredDesignations(filtered);
-      }
-
       if (option.value) {
+        setLoadingDesignations(true);
+        setDesignation([]);
+        setFilteredDesignations([]);
         fetchDesignations({ departmentId: option.value });
       }
     }
@@ -548,6 +593,7 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     }
 
     if (!editingEmployee.email?.trim()) errors.email = "Email is required";
+    if (!editingEmployee.phoneCode?.trim()) errors.phoneCode = "Phone code is required";
     if (!editingEmployee.phone?.trim()) errors.phone = "Phone number is required";
     if (!editingEmployee.account?.role) errors.role = "Role is required";
     if (!editingEmployee.departmentId) errors.departmentId = "Department is required";
@@ -555,6 +601,12 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     if (!editingEmployee.dateOfJoining) errors.dateOfJoining = "Date of joining is required";
     if (!editingEmployee.gender) errors.gender = "Gender is required";
     if (!editingEmployee.dateOfBirth) errors.birthday = "Date of birth is required";
+    if (!editingEmployee.nationality?.trim()) errors.nationality = "Nationality is required";
+
+    // Passport expiry date is required only if passport number is filled
+    if (editingEmployee.passport?.number?.trim() && !editingEmployee.passport?.expiryDate) {
+      errors.passportExpiryDate = "Passport expiry date is required when passport number is provided";
+    }
 
     // Shift assignment validation (only if not explicitly set to 'none')
     if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !editingEmployee.shiftId && !editingEmployee.batchId) {
@@ -945,6 +997,7 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
                               value={editingEmployee?.dateOfBirth ? toDayjsDate(editingEmployee.dateOfBirth) : null}
+                              maxDate={dayjs().subtract(15, 'year')}
                               onChange={(_date, dateString) => {
                                 const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
                                 setEditingEmployee((prev) =>
@@ -962,101 +1015,220 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       <div className="col-md-12">
                         <div className="mb-3">
                           <label className="form-label">Address</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Street"
-                            value={editingEmployee?.address?.street || ""}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? {
-                                  ...prev,
-                                  address: {
-                                    ...prev.address,
-                                    street: e.target.value,
-                                  },
-                                } : prev
-                              );
-                            }}
-                          />
-                          <div className="row mt-3">
+                          <div className="mb-3">
+                            <label className="form-label">Street</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Enter street address"
+                              value={editingEmployee?.address?.street || ""}
+                              onChange={(e) => {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    address: {
+                                      ...prev.address,
+                                      street: e.target.value,
+                                    },
+                                  } : prev
+                                );
+                              }}
+                            />
+                          </div>
+                          <div className="row">
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="City"
-                                value={editingEmployee?.address?.city || ""}
-                                onChange={(e) => {
-                                  setEditingEmployee((prev) =>
-                                    prev ? {
-                                      ...prev,
-                                      address: {
-                                        ...prev.address,
-                                        city: e.target.value,
-                                      },
-                                    } : prev
-                                  );
-                                }}
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">City</label>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder="Enter city"
+                                  value={editingEmployee?.address?.city || ""}
+                                  onChange={(e) => {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        address: {
+                                          ...prev.address,
+                                          city: e.target.value,
+                                        },
+                                      } : prev
+                                    );
+                                  }}
+                                />
+                              </div>
                             </div>
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="State"
-                                value={editingEmployee?.address?.state || ""}
-                                onChange={(e) => {
-                                  setEditingEmployee((prev) =>
-                                    prev ? {
-                                      ...prev,
-                                      address: {
-                                        ...prev.address,
-                                        state: e.target.value,
-                                      },
-                                    } : prev
-                                  );
-                                }}
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">Country</label>
+                                <select
+                                  className="form-control"
+                                  value={selectedCountryId || ""}
+                                  onChange={(e) => {
+                                    const countryId = e.target.value ? parseInt(e.target.value) : null;
+                                    setSelectedCountryId(countryId);
+                                    const selectedCountry = countries.find((c) => c.id === countryId);
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        address: {
+                                          ...prev.address,
+                                          country: selectedCountry?.name || "",
+                                          state: "",
+                                        },
+                                      } : prev
+                                    );
+                                    // Load states for selected country
+                                    if (countryId) {
+                                      GetState(countryId).then((result: any) => {
+                                        setStates(result);
+                                      });
+                                    } else {
+                                      setStates([]);
+                                    }
+                                  }}
+                                >
+                                  <option value="">Select Country</option>
+                                  {countries.map((country) => (
+                                    <option key={country.id} value={country.id}>
+                                      {country.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
-                          <div className="row mt-3">
+                          <div className="row">
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Postal Code"
-                                value={editingEmployee?.address?.postalCode || ""}
-                                onChange={(e) => {
-                                  setEditingEmployee((prev) =>
-                                    prev ? {
-                                      ...prev,
-                                      address: {
-                                        ...prev.address,
-                                        postalCode: e.target.value,
-                                      },
-                                    } : prev
-                                  );
-                                }}
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">State</label>
+                                <select
+                                  className="form-control"
+                                  value={editingEmployee?.address?.state || ""}
+                                  onChange={(e) => {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        address: {
+                                          ...prev.address,
+                                          state: e.target.value,
+                                        },
+                                      } : prev
+                                    );
+                                  }}
+                                  disabled={!selectedCountryId}
+                                >
+                                  <option value="">Select State</option>
+                                  {states.map((state) => (
+                                    <option key={state.id} value={state.name}>
+                                      {state.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                             <div className="col-md-6">
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Country"
-                                value={editingEmployee?.address?.country || ""}
-                                onChange={(e) => {
-                                  setEditingEmployee((prev) =>
-                                    prev ? {
-                                      ...prev,
-                                      address: {
-                                        ...prev.address,
-                                        country: e.target.value,
-                                      },
-                                    } : prev
-                                  );
-                                }}
-                              />
+                              <div className="mb-3">
+                                <label className="form-label">Postal Code</label>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder="Enter postal code"
+                                  value={editingEmployee?.address?.postalCode || ""}
+                                  onChange={(e) => {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        address: {
+                                          ...prev.address,
+                                          postalCode: e.target.value,
+                                        },
+                                      } : prev
+                                    );
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Nationality <span className="text-danger"> *</span></label>
+                                <input
+                                  type="text"
+                                  className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
+                                  placeholder="Enter nationality"
+                                  value={editingEmployee?.nationality || ""}
+                                  onChange={(e) => {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        nationality: e.target.value,
+                                      } : prev
+                                    );
+                                  }}
+                                />
+                                {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">Passport No</label>
+                                <input
+                                  type="text"
+                                  className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
+                                  placeholder="Enter passport number"
+                                  value={editingEmployee?.passport?.number || ""}
+                                  onChange={(e) => {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        passport: {
+                                          ...(prev.passport || { number: "", expiryDate: null, country: "" }),
+                                          number: e.target.value,
+                                        },
+                                      } : prev
+                                    );
+                                  }}
+                                />
+                                {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="mb-3">
+                                <label className="form-label">
+                                  Passport Expiry Date
+                                  {editingEmployee?.passport?.number && <span className="text-danger"> *</span>}
+                                </label>
+                                <div className="input-icon-end position-relative">
+                                  <DatePicker
+                                    className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
+                                    format={{ format: "DD-MM-YYYY", type: "mask" }}
+                                    getPopupContainer={() =>
+                                      document.getElementById("edit_employee") || document.body
+                                    }
+                                    placeholder="DD-MM-YYYY"
+                                    value={editingEmployee?.passport?.expiryDate ? toDayjsDate(editingEmployee.passport.expiryDate) : null}
+                                    onChange={(_date, dateString) => {
+                                      const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                                      setEditingEmployee((prev) =>
+                                        prev ? {
+                                          ...prev,
+                                          passport: {
+                                            ...(prev.passport || { number: "", expiryDate: null, country: "" }),
+                                            expiryDate: dateValue || null,
+                                          },
+                                        } : prev
+                                      );
+                                    }}
+                                    disabled={!editingEmployee?.passport?.number}
+                                  />
+                                  <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
+                                </div>
+                                {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1064,19 +1236,43 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            value={editingEmployee?.phone || ""}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? {
-                                  ...prev,
-                                  phone: e.target.value,
-                                } : prev
-                              );
-                            }}
-                          />
+                          <div className="row g-2">
+                            <div className="col-4">
+                              <CommonSelect
+                                options={phoneCodeOptions}
+                                value={phoneCodeOptions.find(opt => opt.value === (editingEmployee?.phoneCode || "+1"))}
+                                onChange={(option: any) => {
+                                  if (option) {
+                                    setEditingEmployee((prev) =>
+                                      prev ? {
+                                        ...prev,
+                                        phoneCode: option.value,
+                                      } : prev
+                                    );
+                                  }
+                                }}
+                                className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
+                              />
+                            </div>
+                            <div className="col-8">
+                              <input
+                                type="text"
+                                className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
+                                placeholder="Enter phone number"
+                                value={editingEmployee?.phone || ""}
+                                onChange={(e) => {
+                                  setEditingEmployee((prev) =>
+                                    prev ? {
+                                      ...prev,
+                                      phone: e.target.value,
+                                    } : prev
+                                  );
+                                }}
+                              />
+                            </div>
+                          </div>
+                          {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
+                          {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -1110,7 +1306,7 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       <div className="col-md-6">
                         <div className="mb-3">
                           <label className="form-label">Designation <span className="text-danger"> *</span></label>
-                          {designation.length === 0 && !isDesignationDisabled ? (
+                          {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
                             <div>
                               <button
                                 type="button"
@@ -1128,6 +1324,7 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                 className="select"
                                 options={designation}
                                 disabled={isDesignationDisabled}
+                                isLoading={loadingDesignations}
                                 defaultValue={designation.find((opt) => opt.value === editingEmployee?.designationId)}
                                 onChange={handleDesignationChange}
                               />

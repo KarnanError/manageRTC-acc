@@ -64,12 +64,15 @@ import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
 
 // RBAC Routes
-import rbacRolesRoutes from "./routes/api/rbac/roles.js";
-import rbacPermissionsRoutes from "./routes/api/rbac/permissions.js";
-import rbacModulesRoutes from "./routes/api/rbac/modules.js";
-import rbacPagesRoutes from "./routes/api/rbac/pages.js";
 import adminUsersRoutes from "./routes/api/admin.users.js";
+import rbacModulesRoutes from "./routes/api/rbac/modules.js";
+import rbacPageCategoriesRoutes from "./routes/api/rbac/pageCategories.routes.js";
+import rbacPagesRoutes from "./routes/api/rbac/pages.js";
+import rbacPagesHierarchyRoutes from "./routes/api/rbac/pagesHierarchy.js";
+import rbacPermissionsRoutes from "./routes/api/rbac/permissions.js";
+import rbacRolesRoutes from "./routes/api/rbac/roles.js";
 import superadminCompaniesRoutes from "./routes/api/superadmin.companies.js";
+import superadminRoutes from "./routes/api/superadmin.routes.js";
 import debugRoutes from "./routes/debug/auth-debug.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -230,14 +233,17 @@ const initializeServer = async () => {
     app.use('/api/sync-role', syncRoleRoutes);
 
     // RBAC Routes
+    app.use("/api/rbac/categories", rbacPageCategoriesRoutes);
     app.use("/api/rbac/roles", rbacRolesRoutes);
     app.use("/api/rbac/permissions", rbacPermissionsRoutes);
     app.use("/api/rbac/modules", rbacModulesRoutes);
     app.use("/api/rbac/pages", rbacPagesRoutes);
+    app.use("/api/rbac/pages-hierarchy", rbacPagesHierarchyRoutes);
     app.use("/api/admin/users", adminUsersRoutes);
 
     // Superadmin Routes
     app.use("/api/superadmin", superadminCompaniesRoutes);
+    app.use("/api/superadmin/users", superadminRoutes);
 
     // Clerk Webhooks
     app.use('/api/webhooks', clerkWebhookRoutes);

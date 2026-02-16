@@ -39,11 +39,11 @@ function clearCache(pattern = null) {
  */
 export async function getAllPages(filters = {}) {
   try {
-    const { isActive, moduleCategory, search } = filters;
+    const { isActive, category, search } = filters;
     const query = {};
 
     if (isActive !== undefined) query.isActive = isActive === 'true';
-    if (moduleCategory) query.moduleCategory = moduleCategory;
+    if (category) query.category = category;
     if (search) {
       query.$or = [
         { displayName: { $regex: search, $options: 'i' } },
@@ -53,10 +53,50 @@ export async function getAllPages(filters = {}) {
     }
 
     const pages = await Page.find(query)
-      .select('_id name displayName description route icon moduleCategory sortOrder isSystem isActive availableActions')
-      .sort({ moduleCategory: 1, sortOrder: 1 })
+      .populate('category', 'identifier displayName label icon')
+      .populate('parentPage', 'displayName name')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions hierarchyPath')
+      .sort({ category: 1, sortOrder: 1 })
       .lean()
-      .maxTimeMS(5000); // 5 second timeout
+      .maxTimeMS(10000); // 10 second timeout
+
+    return {
+      success: true,
+      data: pages,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Get all pages flattened with hierarchy info (for UI list)
+ */
+export async function getAllPagesFlattened(filters = {}) {
+  try {
+    const { isActive, category, search } = filters;
+    const query = {};
+
+    if (isActive !== undefined) query.isActive = isActive === 'true';
+    if (category) query.category = category;
+    if (search) {
+      query.$or = [
+        { displayName: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { route: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const pages = await Page.find(query)
+      .populate('category', 'identifier displayName label icon')
+      .populate('parentPage', 'displayName name')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions')
+      .sort({ category: 1, sortOrder: 1 })
+      .lean()
+      .maxTimeMS(10000);
 
     return {
       success: true,
@@ -102,7 +142,9 @@ export async function getPagesGroupedByCategory() {
 export async function getPageById(pageId) {
   try {
     const page = await Page.findById(pageId)
-      .select('_id name displayName description route icon moduleCategory sortOrder isSystem isActive availableActions')
+      .populate('category', 'identifier displayName label icon')
+      .populate('parentPage', 'displayName name')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions')
       .lean();
 
     if (!page) {
@@ -366,8 +408,19 @@ export async function getPageStats() {
           customPages: [{ $match: { isSystem: false } }, { $count: 'count' }],
           byCategory: [
             {
+              $lookup: {
+                from: 'pagecategories',
+                localField: 'category',
+                foreignField: '_id',
+                as: 'categoryData'
+              }
+            },
+            { $unwind: '$categoryData' },
+            {
               $group: {
-                _id: '$moduleCategory',
+                _id: '$categoryData._id',
+                label: { $first: '$categoryData.label' },
+                displayName: { $first: '$categoryData.displayName' },
                 count: { $sum: 1 }
               }
             }
@@ -427,6 +480,7 @@ export async function updatePageOrders(pageOrders) {
 
 export default {
   getAllPages,
+  getAllPagesFlattened,
   getPagesGroupedByCategory,
   getPageById,
   getPageByName,

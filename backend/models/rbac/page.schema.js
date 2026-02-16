@@ -1,11 +1,21 @@
 /**
- * Page Schema
- * Represents individual pages/routes that can be assigned to modules
+ * Page Schema - Updated for Multi-Level Hierarchy
+ * Represents individual pages/routes with support for recursive parent-child relationships
+ *
+ * Hierarchy Structure:
+ * Level -1: Category (I-XII) - 12 total
+ *   Level 0: L1 Parent Menu or Direct Child Page
+ *     Level 1: L2 Parent Menu or Child Page
+ *       Level 2: Child Page (with route)
  */
 
 import mongoose from 'mongoose';
 
 const pageSchema = new mongoose.Schema({
+  // ============================================
+  // BASIC FIELDS
+  // ============================================
+
   // Unique page identifier (e.g., "hrm.employees", "projects.tasks")
   name: {
     type: String,
@@ -27,9 +37,10 @@ const pageSchema = new mongoose.Schema({
   },
 
   // Route path (e.g., "/hrm/employees", "/projects/tasks")
+  // Can be NULL for menu groups
   route: {
     type: String,
-    required: true,
+    default: null,
   },
 
   // Icon (Tabler icon class)
@@ -38,20 +49,88 @@ const pageSchema = new mongoose.Schema({
     default: 'ti ti-file',
   },
 
-  // Module this page belongs to (for organization, not required)
-  moduleCategory: {
-    type: String,
-    enum: ['super-admin', 'users-permissions', 'applications', 'hrm', 'projects',
-           'crm', 'recruitment', 'finance', 'administration', 'content',
-           'pages', 'auth', 'ui', 'extras', 'dashboards', 'reports', null],
+  // ============================================
+  // HIERARCHY FIELDS - NEW
+  // ============================================
+
+  // Link to PageCategory (replaces moduleCategory enum)
+  category: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PageCategory',
+    required: true,
   },
 
-  // Parent page (for nested pages)
+  // Recursive parent reference
+  // Points to parent page (can be L1 or L2 menu group)
   parentPage: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Page',
     default: null,
   },
+
+  // Hierarchy level (1-3)
+  // 1 = Direct child of category
+  // 2 = Child of L1 parent
+  // 3 = Child of L2 parent
+  level: {
+    type: Number,
+    default: 1,
+    min: 1,
+    max: 3,
+  },
+
+  // Depth from category (1-4)
+  // Category = 0 (not stored)
+  // Direct child of category = 1
+  // Child of L1 = 2
+  // Child of L2 = 3
+  depth: {
+    type: Number,
+    default: 1,
+    min: 1,
+    max: 4,
+  },
+
+  // Full path from category to this page
+  // Used for efficient hierarchy queries
+  // [categoryId, l1ParentId?, l2ParentId?]
+  hierarchyPath: {
+    type: [mongoose.Schema.Types.ObjectId],
+    default: [],
+  },
+
+  // Is this a menu group (any level)?
+  // Menu groups don't have routes and serve as navigation parents
+  isMenuGroup: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  // Menu group level (1 or 2)
+  // 1 = L1 menu group (direct child of category)
+  // 2 = L2 menu group (child of L1 menu group)
+  // null = Not a menu group
+  menuGroupLevel: {
+    type: Number,
+    default: null,
+    enum: [1, 2, null],
+  },
+
+  // ============================================
+  // DEPRECATED: Module Category (kept for backward compatibility)
+  // ============================================
+  moduleCategory: {
+    type: String,
+    enum: ['super-admin', 'users-permissions', 'applications', 'hrm', 'projects',
+           'crm', 'recruitment', 'finance', 'administration', 'content',
+           'pages', 'auth', 'ui', 'extras', 'dashboards', 'reports', null],
+    description: 'DEPRECATED: Use category (ObjectId) instead',
+  },
+
+  // ============================================
+  // DISPLAY FIELDS
+  // ============================================
 
   // Sort order for display
   sortOrder: {
@@ -72,7 +151,7 @@ const pageSchema = new mongoose.Schema({
   },
 
   // ============================================
-  // AVAILABLE ACTIONS - NEW FIELD FOR RBAC
+  // AVAILABLE ACTIONS - RBAC
   // ============================================
   // Defines which actions can be performed on this page
   // This field determines what permission checkboxes are shown
@@ -82,7 +161,9 @@ const pageSchema = new mongoose.Schema({
     enum: ['all', 'read', 'create', 'write', 'delete', 'import', 'export', 'approve', 'assign'],
   },
 
+  // ============================================
   // SEO / Display metadata
+  // ============================================
   meta: {
     title: String,
     keywords: [String],
@@ -94,11 +175,10 @@ const pageSchema = new mongoose.Schema({
   },
 
   // ============================================
-  // ENHANCED ACCESS CONTROL FIELDS
+  // ACCESS CONTROL FIELDS
   // ============================================
 
   // API Routes for automatic route protection
-  // Maps page to API endpoints for middleware-based access control
   apiRoutes: [{
     method: {
       type: String,
@@ -210,6 +290,9 @@ const pageSchema = new mongoose.Schema({
     }],
   },
 
+  // ============================================
+  // AUDIT FIELDS
+  // ============================================
   // Created/Updated by
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -223,23 +306,40 @@ const pageSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Index for faster queries
+// ============================================
+// INDEXES
+// ============================================
+
+// Unique name
 pageSchema.index({ name: 1 }, { unique: true });
-pageSchema.index({ moduleCategory: 1, sortOrder: 1 });
-pageSchema.index({ isActive: 1 });
-pageSchema.index({ parentPage: 1 });
-// Compound index for filtered queries
-pageSchema.index({ isActive: 1, moduleCategory: 1, sortOrder: 1 });
-// Index for search queries
+
+// Hierarchy queries
+pageSchema.index({ category: 1, isActive: 1, sortOrder: 1 });
+pageSchema.index({ category: 1, isMenuGroup: 1, menuGroupLevel: 1, isActive: 1 });
+pageSchema.index({ parentPage: 1, isActive: 1, sortOrder: 1 });
+pageSchema.index({ category: 1, hierarchyPath: 1, isActive: 1 });
+pageSchema.index({ category: 1, level: 1, isActive: 1 });
+pageSchema.index({ category: 1, depth: 1, isActive: 1 });
+
+// Legacy support
+pageSchema.index({ moduleCategory: 1, isActive: 1 });
+
+// Search
 pageSchema.index({ displayName: 'text', name: 'text', route: 'text' });
-// Index for route lookup
-pageSchema.index({ route: 1 });
-// Index for API route lookups
+
+// API routes
 pageSchema.index({ 'apiRoutes.path': 1, 'apiRoutes.method': 1 });
-// Index for feature flag lookups
+
+// Feature flags
 pageSchema.index({ 'featureFlags.requiresFeature': 1 });
 
-// Static method to get pages by module category
+// ============================================
+// STATIC METHODS - Legacy Support
+// ============================================
+
+/**
+ * Get pages by module category (LEGACY - for backward compatibility)
+ */
 pageSchema.statics.getByModule = function(moduleCategory) {
   return this.find({
     moduleCategory,
@@ -248,7 +348,9 @@ pageSchema.statics.getByModule = function(moduleCategory) {
   }).sort({ sortOrder: 1 });
 };
 
-// Static method to get all pages grouped by module
+/**
+ * Get all pages grouped by module (LEGACY)
+ */
 pageSchema.statics.getGroupedByModule = function() {
   return this.aggregate([
     { $match: { isActive: true } },
@@ -276,73 +378,185 @@ pageSchema.statics.getGroupedByModule = function() {
   ]);
 };
 
-// Static method to get page tree (with nested pages)
-pageSchema.statics.getPageTree = async function() {
-  const allPages = await this.find({ isActive: true })
-    .sort({ moduleCategory: 1, sortOrder: 1 })
-    .lean();
+// ============================================
+// STATIC METHODS - Hierarchy Support
+// ============================================
 
-  const pageMap = new Map();
-  const rootPages = [];
-
-  // First pass: create map
-  allPages.forEach(page => {
-    pageMap.set(page._id.toString(), { ...page, children: [] });
-  });
-
-  // Second pass: build tree
-  allPages.forEach(page => {
-    const pageWithChildren = pageMap.get(page._id.toString());
-    if (page.parentPage) {
-      const parent = pageMap.get(page.parentPage.toString());
-      if (parent) {
-        parent.children.push(pageWithChildren);
+/**
+ * Get full hierarchy tree for a category
+ * Returns all levels: L1 menus, L2 menus, and child pages
+ */
+pageSchema.statics.getHierarchyTree = async function(categoryId) {
+  const pipeline = [
+    // Match active pages in category
+    {
+      $match: {
+        category: mongoose.Types.ObjectId(categoryId),
+        isActive: true
       }
-    } else {
-      rootPages.push(pageWithChildren);
+    },
+    // Sort by hierarchy
+    {
+      $sort: {
+        'hierarchyPath.0': 1,  // First sort by path
+        sortOrder: 1
+      }
+    },
+    // Lookup parent pages
+    {
+      $lookup: {
+        from: 'pages',
+        localField: 'parentPage',
+        foreignField: '_id',
+        as: 'parent'
+      }
+    },
+    {
+      $unwind: {
+        path: '$parent',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Lookup category
+    {
+      $lookup: {
+        from: 'pagecategories',
+        localField: 'category',
+        foreignField: '_id',
+        as: 'categoryData'
+      }
+    },
+    {
+      $unwind: '$categoryData'
     }
-  });
+  ];
 
-  // Group by module category
-  const grouped = rootPages.reduce((acc, page) => {
-    const cat = page.moduleCategory || 'other';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(page);
-    return acc;
-  }, {});
-
-  return Object.entries(grouped).map(([category, pages]) => ({
-    category,
-    pages,
-  }));
+  return await this.aggregate(pipeline);
 };
 
-// Instance method to get full page path
-pageSchema.methods.getFullPath = async function() {
-  const path = [this.route];
-  let current = this;
+/**
+ * Get L1 menu groups for a category
+ * L1 menu groups have isMenuGroup=true and menuGroupLevel=1
+ */
+pageSchema.statics.getL1MenuGroups = async function(categoryId) {
+  return await this.find({
+    category: categoryId,
+    isMenuGroup: true,
+    menuGroupLevel: 1,
+    isActive: true,
+  }).sort({ sortOrder: 1 }).populate('parentPage');
+};
 
-  while (current.parentPage) {
-    current = await mongoose.model('Page').findById(current.parentPage);
-    if (current) path.unshift(current.route);
-    else break;
-  }
+/**
+ * Get L2 menu groups under specific L1 parent
+ * L2 menu groups have isMenuGroup=true and menuGroupLevel=2
+ */
+pageSchema.statics.getL2MenuGroups = async function(l1ParentId) {
+  return await this.find({
+    parentPage: l1ParentId,
+    isMenuGroup: true,
+    menuGroupLevel: 2,
+    isActive: true,
+  }).sort({ sortOrder: 1 }).populate('parentPage');
+};
 
-  return path;
+/**
+ * Get child pages (non-menu groups) for a parent
+ * Returns pages that are not menu groups
+ */
+pageSchema.statics.getChildPages = async function(parentId) {
+  return await this.find({
+    parentPage: parentId,
+    isMenuGroup: false,
+    isActive: true,
+  }).sort({ sortOrder: 1 });
+};
+
+/**
+ * Get all children (including both menu groups and pages)
+ */
+pageSchema.statics.getAllChildren = async function(parentId) {
+  return await this.find({
+    parentPage: parentId,
+    isActive: true,
+  }).sort({ sortOrder: 1 });
+};
+
+/**
+ * Get direct children of category (no parent)
+ */
+pageSchema.statics.getDirectCategoryChildren = async function(categoryId) {
+  return await this.find({
+    category: categoryId,
+    parentPage: null,
+    isActive: true,
+  }).sort({ sortOrder: 1 });
 };
 
 // ============================================
-// ENHANCED STATIC METHODS FOR ACCESS CONTROL
+// INSTANCE METHODS
+// ============================================
+
+/**
+ * Build hierarchy path for a page
+ * Automatically called before save
+ */
+pageSchema.methods.buildHierarchyPath = async function() {
+  const path = [];
+
+  // Add category
+  path.push(this.category);
+
+  // If has parent, add parent's path
+  if (this.parentPage) {
+    const Page = mongoose.model('Page');
+    const parent = await Page.findById(this.parentPage);
+    if (parent && parent.hierarchyPath) {
+      // Add parent's path (excluding category since we already added it)
+      // Parent path is [category, l1Parent?, l2Parent?]
+      // We only want [l1Parent?, l2Parent?] since we have category
+      if (parent.hierarchyPath.length > 1) {
+        path.push(...parent.hierarchyPath.slice(1));
+      } else {
+        path.push(...parent.hierarchyPath);
+      }
+    }
+    path.push(this.parentPage);
+  }
+
+  this.hierarchyPath = path;
+
+  // Calculate depth
+  this.depth = path.length;
+
+  // Calculate level (depth - 1, since category counts as depth 1)
+  // Direct child of category = depth 1 = level 1
+  // Child of L1 = depth 2 = level 2
+  // Child of L2 = depth 3 = level 3
+  this.level = Math.max(1, this.depth - 1);
+};
+
+// ============================================
+// PRE-SAVE HOOK
+// ============================================
+
+// Build hierarchy path before save
+pageSchema.pre('save', async function(next) {
+  if (this.isModified('parentPage') || this.isModified('category')) {
+    await this.buildHierarchyPath();
+  }
+  next();
+});
+
+// ============================================
+// LEGACY STATIC METHODS FOR ACCESS CONTROL
 // ============================================
 
 /**
  * Find page by API route
- * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
- * @param {string} path - API route path
- * @returns {Promise<Object|null>} Page document with matching API route
  */
 pageSchema.statics.findByApiRoute = async function(method, path) {
-  // Normalize path for matching (handle dynamic routes like /api/employees/:id)
+  // Normalize path for matching
   const normalizedPath = path.split('/').map(segment => {
     return segment.match(/^[a-f0-9]{24}$/i) || segment.match(/^\d+$/) ? ':id' : segment;
   }).join('/');
@@ -359,8 +573,7 @@ pageSchema.statics.findByApiRoute = async function(method, path) {
 };
 
 /**
- * Get all pages with their API routes for middleware setup
- * @returns {Promise<Array>} Array of pages with API routes
+ * Get all pages with their API routes
  */
 pageSchema.statics.getPagesWithApiRoutes = async function() {
   return this.find({
@@ -371,8 +584,6 @@ pageSchema.statics.getPagesWithApiRoutes = async function() {
 
 /**
  * Get pages required for a specific plan tier
- * @param {string} tier - Plan tier (free, basic, pro, enterprise)
- * @returns {Promise<Array>} Array of pages available for the tier
  */
 pageSchema.statics.getPagesForTier = async function(tier) {
   const tierOrder = { free: 0, basic: 1, pro: 2, enterprise: 3 };
@@ -391,9 +602,6 @@ pageSchema.statics.getPagesForTier = async function(tier) {
 
 /**
  * Check if a page requires specific features
- * @param {string} pageName - Page name
- * @param {Array<string>} availableFeatures - Features available in user's plan
- * @returns {Promise<Object>} Access check result
  */
 pageSchema.statics.checkFeatureAccess = async function(pageName, availableFeatures = []) {
   const page = await this.findOne({ name: pageName, isActive: true });
@@ -402,12 +610,10 @@ pageSchema.statics.checkFeatureAccess = async function(pageName, availableFeatur
     return { allowed: false, reason: 'Page not found' };
   }
 
-  // Check if enabled for all
   if (page.featureFlags?.enabledForAll) {
     return { allowed: true, page };
   }
 
-  // Check required features
   const requiredFeatures = page.featureFlags?.requiresFeature || [];
   const missingFeatures = requiredFeatures.filter(f => !availableFeatures.includes(f));
 
@@ -425,8 +631,6 @@ pageSchema.statics.checkFeatureAccess = async function(pageName, availableFeatur
 
 /**
  * Get data scope configuration for a page
- * @param {string} pageName - Page name
- * @returns {Promise<Object|null>} Data scope configuration
  */
 pageSchema.statics.getDataScope = async function(pageName) {
   const page = await this.findOne({ name: pageName, isActive: true })
@@ -437,9 +641,6 @@ pageSchema.statics.getDataScope = async function(pageName) {
 
 /**
  * Build MongoDB filter based on data scope
- * @param {string} pageName - Page name
- * @param {Object} context - User context { userId, companyId, departmentId }
- * @returns {Promise<Object>} MongoDB filter object
  */
 pageSchema.statics.buildDataFilter = async function(pageName, context = {}) {
   const dataScope = await this.getDataScope(pageName);

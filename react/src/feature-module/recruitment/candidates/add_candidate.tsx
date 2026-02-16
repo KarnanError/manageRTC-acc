@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSocket } from '../../../SocketContext';
-import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import React, { useRef, useState } from 'react';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { Socket } from 'socket.io-client';
+import { useSocket } from '../../../SocketContext';
 
 interface CandidateFormData {
   // Personal Information
@@ -22,7 +22,7 @@ interface CandidateFormData {
   country: string;
   linkedinProfile: string;
   portfolio: string;
-  
+
   // Professional Information
   currentRole: string;
   currentCompany: string;
@@ -34,7 +34,7 @@ interface CandidateFormData {
   qualifications: string;
   certifications: string;
   languages: string;
-  
+
   // Application Information
   appliedRole: string;
   appliedDate: string;
@@ -42,12 +42,12 @@ interface CandidateFormData {
   recruiterName: string;
   source: string;
   referredBy: string;
-  
+
   // Documents
   resume: string;
   coverLetter: string;
   portfolioDoc: string;
-  
+
   // Status
   status: string;
 }
@@ -84,7 +84,7 @@ const AddCandidate = () => {
     country: '',
     linkedinProfile: '',
     portfolio: '',
-    
+
     // Professional Information
     currentRole: '',
     currentCompany: '',
@@ -96,7 +96,7 @@ const AddCandidate = () => {
     qualifications: '',
     certifications: '',
     languages: '',
-    
+
     // Application Information
     appliedRole: '',
     appliedDate: new Date().toISOString().split('T')[0],
@@ -104,12 +104,12 @@ const AddCandidate = () => {
     recruiterName: '',
     source: 'Direct',
     referredBy: '',
-    
+
     // Documents
     resume: '',
     coverLetter: '',
     portfolioDoc: '',
-    
+
     // Status
     status: 'New Application'
   });
@@ -224,8 +224,8 @@ const AddCandidate = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'experienceYears' || name === 'currentSalary' || name === 'expectedSalary' 
-        ? Number(value) || 0 
+      [name]: name === 'experienceYears' || name === 'currentSalary' || name === 'expectedSalary'
+        ? Number(value) || 0
         : value
     }));
 
@@ -370,11 +370,11 @@ const AddCandidate = () => {
       modal.classList.remove('show');
       modal.setAttribute('aria-hidden', 'true');
       modal.removeAttribute('aria-modal');
-      
+
       // Remove backdrop
       const backdrops = document.querySelectorAll('.modal-backdrop');
       backdrops.forEach(backdrop => backdrop.remove());
-      
+
       // Remove modal-open class from body
       document.body.classList.remove('modal-open');
       document.body.style.overflow = '';
@@ -405,7 +405,7 @@ const AddCandidate = () => {
       country: '',
       linkedinProfile: '',
       portfolio: '',
-      
+
       // Professional Information
       currentRole: '',
       currentCompany: '',
@@ -417,7 +417,7 @@ const AddCandidate = () => {
       qualifications: '',
       certifications: '',
       languages: '',
-      
+
       // Application Information
       appliedRole: '',
       appliedDate: new Date().toISOString().split('T')[0],
@@ -425,18 +425,18 @@ const AddCandidate = () => {
       recruiterName: '',
       source: 'Direct',
       referredBy: '',
-      
+
       // Documents
       resume: '',
       coverLetter: '',
       portfolioDoc: '',
-      
+
       // Status
       status: 'New Application'
     });
     setErrors({});
     setCurrentStep(1);
-    
+
     // Clear file inputs
     Object.values(fileInputRefs).forEach(ref => {
       if (ref.current) {
@@ -513,6 +513,7 @@ const AddCandidate = () => {
                   className="form-control"
                   name="dateOfBirth"
                   value={formData.dateOfBirth}
+                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 15)).toISOString().split('T')[0]}
                   onChange={handleInputChange}
                 />
               </div>
@@ -797,7 +798,7 @@ const AddCandidate = () => {
         return (
           <div>
             <h6 className="mb-3">Documents Upload</h6>
-            
+
             {/* Resume Upload */}
             <div className="mb-3">
               <label className="form-label">Resume</label>

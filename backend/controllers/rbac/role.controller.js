@@ -228,6 +228,31 @@ export const cloneRole = async (req, res) => {
   });
 };
 
+/**
+ * Update mandatory permissions for a role
+ * @route PUT /api/rbac/roles/:roleId/mandatory-permissions
+ */
+export const updateMandatoryPermissions = async (req, res) => {
+  const { roleId } = req.params;
+  const { mandatoryPermissions } = req.body;
+  const userId = req.user?.id;
+
+  const result = await roleService.updateMandatoryPermissions(roleId, mandatoryPermissions, userId);
+
+  if (!result.success) {
+    return res.status(400).json({
+      success: false,
+      error: { message: result.error },
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: result.data,
+    message: result.message,
+  });
+};
+
 export default {
   getAllRoles,
   getRoleById,
@@ -237,4 +262,5 @@ export default {
   getRolesWithSummary,
   toggleRoleStatus,
   cloneRole,
+  updateMandatoryPermissions,
 };

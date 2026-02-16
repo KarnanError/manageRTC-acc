@@ -347,6 +347,60 @@ export async function toggleRoleStatus(roleId) {
   }
 }
 
+/**
+ * Update mandatory permissions for a role
+ * @param {String} roleId - Role ID
+ * @param {Array} mandatoryPermissions - Array of mandatory permissions
+ * @param {String} userId - User ID making the change
+ * @returns {Object} - Result object
+ */
+export async function updateMandatoryPermissions(roleId, mandatoryPermissions, userId) {
+  try {
+    const role = await Role.findById(roleId);
+
+    if (!role) {
+      return {
+        success: false,
+        error: 'Role not found',
+      };
+    }
+
+    // Update mandatory permissions
+    await Role.findByIdAndUpdate(roleId, {
+      mandatoryPermissions: mandatoryPermissions,
+      updatedBy: userId,
+    });
+
+    // After updating mandatory permissions, also update the role's actual permissions
+    // to enforce the new mandatory permissions immediately
+    const permissionService = (await import('./permission.service.js')).default;
+    const currentPermissionsResult = await permissionService.getRolePermissions(roleId);
+
+    if (currentPermissionsResult.success && currentPermissionsResult.data?.flat) {
+      // Re-apply permissions with new mandatory permissions enforced
+      await permissionService.setRolePermissions(
+        roleId,
+        currentPermissionsResult.data.flat,
+        userId
+      );
+    }
+
+    return {
+      success: true,
+      data: {
+        roleId,
+        mandatoryPermissions,
+      },
+      message: `Mandatory permissions updated for role ${role.displayName}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 export default {
   getAllRoles,
   getRoleById,
@@ -356,6 +410,7 @@ export default {
   deleteRole,
   GetRolesWithPermissionSummary,
   toggleRoleStatus,
+  updateMandatoryPermissions,
   // Security helpers
   canCreateRoleWithLevel,
   canAssignRole,

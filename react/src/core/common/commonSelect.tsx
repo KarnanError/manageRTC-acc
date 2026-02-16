@@ -14,6 +14,7 @@ export interface SelectProps {
   onChange?: (selectedOption: Option | null) => void;
   isSearchable?: boolean;
   disabled?: boolean;
+  isLoading?: boolean;
 }
 
   const CommonSelect: React.FC<SelectProps> = ({
@@ -24,6 +25,7 @@ export interface SelectProps {
     onChange,
     isSearchable = true,
     disabled = false,
+    isLoading = false,
   }) => {
   const findOptionByLabel = (label: string): Option | null => {
     return options.find((opt) => opt.label === label) || null;
@@ -37,7 +39,7 @@ export interface SelectProps {
     // Priority: value prop > defaultValue prop
     const propValue = value || defaultValue;
     if (!propValue) return null;
-    
+
     if (typeof propValue === "string") {
       // Try to find by label first, then by value
       return findOptionByLabel(propValue) || findOptionByValue(propValue) || null;
@@ -70,6 +72,7 @@ export interface SelectProps {
       isSearchable={isSearchable}
       className={className}
       isDisabled={disabled}
+      isLoading={isLoading}
       placeholder="Select..."
       isClearable
       // Ensure we never render objects as children
