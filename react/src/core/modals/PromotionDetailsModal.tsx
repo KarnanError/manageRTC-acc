@@ -1,17 +1,35 @@
-import React from "react";
 import dayjs from "dayjs";
-import ImageWithBasePath from "../common/imageWithBasePath";
-import type { Promotion } from "../../hooks/usePromotionsREST";
+import React from "react";
+import type { Department, Promotion } from "../../hooks/usePromotionsREST";
 
 interface PromotionDetailsModalProps {
   promotion: Promotion | null;
+  departments?: Department[];
+  designationLookup?: Record<string, string>;
   modalId?: string;
 }
 
 const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
   promotion,
+  departments = [],
+  designationLookup = {},
   modalId = "view_promotion_details"
 }) => {
+  // Build quick maps for resolving names by ID
+  const departmentMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    departments.forEach((dept) => {
+      if (dept._id) map[dept._id] = dept.department;
+    });
+    return map;
+  }, [departments]);
+
+  const resolveDepartment = (name?: string, id?: string) =>
+    name || (id ? departmentMap[id] : undefined) || "N/A";
+
+  const resolveDesignation = (name?: string, id?: string) =>
+    name || (id ? designationLookup[id] : undefined) || "N/A";
+
   // Always render modal structure, just show empty/loading state when no data
   if (!promotion) {
     return (
@@ -76,7 +94,7 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
                   </div>
                   <div>
                     <h5 className="mb-1">{promotion.employeeName || 'Employee'}</h5>
-                    <p className="text-muted mb-0">{promotion.promotionTo.department || promotion.promotionTo.departmentId}</p>
+                    <p className="text-muted mb-0">{resolveDepartment(promotion.promotionTo.department, promotion.promotionTo.departmentId)}</p>
                   </div>
                 </div>
               </div>
@@ -90,27 +108,27 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
                       <div className="col-md-6 mb-3">
                         <label className="form-label text-muted mb-1">Current Department</label>
                         <p className="fw-medium mb-0">
-                          {promotion.promotionFrom.department || promotion.promotionFrom.departmentId}
+                          {resolveDepartment(promotion.promotionFrom.department, promotion.promotionFrom.departmentId)}
                         </p>
                       </div>
                       <div className="col-md-6 mb-3">
                         <label className="form-label text-muted mb-1">Department To</label>
                         <p className="fw-medium mb-0 text-primary">
                           <i className="ti ti-arrow-right me-1" />
-                          {promotion.promotionTo.department || promotion.promotionTo.departmentId}
+                          {resolveDepartment(promotion.promotionTo.department, promotion.promotionTo.departmentId)}
                         </p>
                       </div>
 
                       {/* Row 2: Previous Designation | Promotion To */}
                       <div className="col-md-6 mb-3">
                         <label className="form-label text-muted mb-1">Previous Designation</label>
-                        <p className="fw-medium mb-0">{promotion.promotionFrom.designation || promotion.promotionFrom.designationId}</p>
+                        <p className="fw-medium mb-0">{resolveDesignation(promotion.promotionFrom.designation, promotion.promotionFrom.designationId)}</p>
                       </div>
                       <div className="col-md-6 mb-3">
                         <label className="form-label text-muted mb-1">Promotion To</label>
                         <p className="fw-medium mb-0 text-success">
                           <i className="ti ti-arrow-up me-1" />
-                          {promotion.promotionTo.designation || promotion.promotionTo.designationId}
+                          {resolveDesignation(promotion.promotionTo.designation, promotion.promotionTo.designationId)}
                         </p>
                       </div>
 

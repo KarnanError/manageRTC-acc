@@ -105,7 +105,6 @@ const permissionSchema = new mongoose.Schema({
 // Indexes
 permissionSchema.index({ category: 1, sortOrder: 1 });
 permissionSchema.index({ isActive: 1 });
-permissionSchema.index({ pageId: 1 }, { unique: true, sparse: true });
 
 // Pre-save middleware
 permissionSchema.pre('save', function(next) {

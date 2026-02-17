@@ -4,9 +4,9 @@
  * Real-time updates still use Socket.IO listeners
  */
 
-import { useState, useCallback } from 'react';
 import { message } from 'antd';
-import { get, post, put, del, buildParams, ApiResponse } from '../services/api';
+import { useCallback, useState } from 'react';
+import { ApiResponse, buildParams, del, get, post, put } from '../services/api';
 
 export interface Termination {
   _id?: string;
@@ -169,7 +169,7 @@ export const useTerminationsREST = () => {
    */
   const deleteTerminations = useCallback(async (terminationIds: string[]): Promise<boolean> => {
     try {
-      const response: ApiResponse = await del('/terminations', { data: { terminationIds } });
+      const response: ApiResponse = await del('/terminations', { terminationIds });
 
       if (response.success) {
         message.success('Termination(s) deleted successfully!');

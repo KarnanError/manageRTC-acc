@@ -99,7 +99,7 @@ const Termination = () => {
     employeeName: "",
     departmentId: "",
     departmentName: "",
-    terminationType: "Lack of skills",
+    terminationType: "Involuntary",
     noticeDate: "", // "DD-MM-YYYY" shown in modal
     reason: "",
     terminationDate: "", // "DD-MM-YYYY" shown in modal
@@ -131,7 +131,7 @@ const Termination = () => {
       employeeName: row.employeeName || "",
       departmentId: row.departmentId || "",
       departmentName: row.department || "",
-      terminationType: row.terminationType || "Lack of skills",
+      terminationType: normalizeTerminationType(row.terminationType),
       noticeDate: row.noticeDate
         ? format(parse(row.noticeDate, "yyyy-MM-dd", new Date()), "dd-MM-yyyy")
         : "",
@@ -184,6 +184,30 @@ const Termination = () => {
     return format(dt, "yyyy-MM-dd");
   };
 
+  const normalizeTerminationType = (value?: string) => {
+    switch ((value || '').trim()) {
+      case 'Insubordination':
+      case 'Lack of skills':
+        return 'Involuntary';
+      case 'Voluntary':
+      case 'Involuntary':
+      case 'Mutual Agreement':
+      case 'Contract End':
+      case 'Retirement':
+        return value as string;
+      default:
+        return 'Involuntary';
+    }
+  };
+
+  const terminationTypeOptions = [
+    { value: 'Voluntary', label: 'Voluntary' },
+    { value: 'Involuntary', label: 'Involuntary' },
+    { value: 'Mutual Agreement', label: 'Mutual Agreement' },
+    { value: 'Contract End', label: 'Contract End' },
+    { value: 'Retirement', label: 'Retirement' },
+  ];
+
   // state near top of component
   const [addForm, setAddForm] = useState({
     employeeId: "",
@@ -191,7 +215,7 @@ const Termination = () => {
     departmentId: "",
     departmentName: "",
     reason: "",
-    terminationType: "Lack of skills", // default of your 3 types
+    terminationType: "Involuntary",
     noticeDate: "", // YYYY-MM-DD from DatePicker
     terminationDate: "",
   });
@@ -391,7 +415,7 @@ const Termination = () => {
       terminationId: termination.terminationId || termination._id || '',
       employeeId: termination.employeeId || '',
       reason: termination.reason || '',
-      terminationType: termination.terminationType || 'Lack of skills',
+      terminationType: normalizeTerminationType(termination.terminationType),
       noticeDate: termination.noticeDate || '',
       terminationDate: termination.terminationDate || '',
       status: termination.status || 'pending',
@@ -653,12 +677,12 @@ const Termination = () => {
 
     const payload = {
       employeeId: addForm.employeeId,
-      employeeName: addForm.employeeName,
-      department: addForm.departmentName,
       terminationType: addForm.terminationType as
-        | "Retirement"
-        | "Insubordination"
-        | "Lack of skills",
+        | "Voluntary"
+        | "Involuntary"
+        | "Mutual Agreement"
+        | "Contract End"
+        | "Retirement",
       noticeDate: noticeIso,
       reason: addForm.reason,
       terminationDate: terIso,
@@ -695,12 +719,12 @@ const Termination = () => {
 
     const updateData = {
       employeeId: editForm.employeeId,
-      employeeName: editForm.employeeName,
-      department: editForm.departmentName,
       terminationType: editForm.terminationType as
-        | "Retirement"
-        | "Insubordination"
-        | "Lack of skills",
+        | "Voluntary"
+        | "Involuntary"
+        | "Mutual Agreement"
+        | "Contract End"
+        | "Retirement",
       noticeDate: noticeIso,
       reason: editForm.reason,
       terminationDate: terIso,
@@ -1232,14 +1256,10 @@ const Termination = () => {
                         </label>
                         <CommonSelect
                           className="select"
-                          options={[
-                            { value: "Retirement", label: "Retirement" },
-                            { value: "Insubordination", label: "Insubordination" },
-                            { value: "Lack of skills", label: "Lack of skills" },
-                          ]}
+                          options={terminationTypeOptions}
                           value={{ value: addForm.terminationType, label: addForm.terminationType }}
                           onChange={(opt: { value: string } | null) => {
-                            setAddForm({ ...addForm, terminationType: opt?.value ?? "Lack of skills" });
+                            setAddForm({ ...addForm, terminationType: opt?.value ?? "Involuntary" });
                             setAddErrors(prev => ({ ...prev, terminationType: "" }));
                           }}
                         />
@@ -1415,14 +1435,10 @@ const Termination = () => {
                           className="select"
                           value={{ value: editForm.terminationType, label: editForm.terminationType }}
                           onChange={(opt: { value: string } | null) => {
-                            setEditForm({ ...editForm, terminationType: opt?.value ?? "Lack of skills" });
+                            setEditForm({ ...editForm, terminationType: opt?.value ?? "Involuntary" });
                             setEditErrors(prev => ({ ...prev, terminationType: "" }));
                           }}
-                          options={[
-                            { value: "Retirement", label: "Retirement" },
-                            { value: "Insubordination", label: "Insubordination" },
-                            { value: "Lack of skills", label: "Lack of skills" },
-                          ]}
+                          options={terminationTypeOptions}
                         />
                         {editErrors.terminationType && (
                           <small className="text-danger">{editErrors.terminationType}</small>

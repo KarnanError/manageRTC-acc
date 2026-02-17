@@ -1,6 +1,6 @@
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { GetCountries, GetState } from "react-country-state-city";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -158,14 +158,14 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   ];
 
   const [formData, setFormData] = useState<FormData>(initialFormDataState);
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [imageUpload, setImageUpload] = useState(false);
+  const [, setImageUpload] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [department, setDepartment] = useState<Option[]>([]);
   const [designation, setDesignation] = useState<Option[]>([]);
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
-  const [selectedDesignation, setSelectedDesignation] = useState<string>("");
+  const [, setSelectedDepartment] = useState<string>("");
+  const [, setSelectedDesignation] = useState<string>("");
   const [isDesignationDisabled, setIsDesignationDisabled] = useState<boolean>(true);
   const [loadingDesignations, setLoadingDesignations] = useState<boolean>(false);
   const [managers, setManagers] = useState<Option[]>([]);
@@ -191,12 +191,14 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     available: false,
     error: ''
   });
+  const [, setEmailTouched] = useState(false);
+  const emailCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { departments, fetchDepartments } = useDepartmentsREST();
   const { designations, fetchDesignations } = useDesignationsREST();
   const { batches, fetchBatches } = useBatchesREST();
   const { shifts: allShifts } = useShiftsREST();
-  const { createEmployee, checkDuplicates, checkEmailAvailability, fetchActiveEmployeesList, employees } = useEmployeesREST();
+  const { createEmployee, checkEmailAvailability, fetchActiveEmployeesList, employees } = useEmployeesREST();
 
   // Load departments, batches, and employees on mount
   useEffect(() => {
@@ -215,7 +217,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     });
   }, [fetchDepartments, fetchBatches, fetchActiveEmployeesList]);
 
-  const getEmployeeOptionLabel = (emp: any) => {
+  const getEmployeeOptionLabel = useCallback((emp: any) => {
     const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.fullName || 'Unknown';
     const id = emp.employeeId ? ` (${emp.employeeId})` : '';
     const departmentLabel = emp.department
@@ -223,7 +225,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       : department.find((dep) => dep.value === emp.departmentId)?.label;
     const departmentText = departmentLabel ? ` - ${departmentLabel}` : '';
     return `${name}${id}${departmentText}`;
-  };
+  }, [department]);
 
   // Sync managers from employees (all active employees)
   useEffect(() => {
@@ -236,7 +238,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         }));
       setManagers([{ value: '', label: 'Select Reporting Manager' }, ...managersList]);
     }
-  }, [employees, department]);
+  }, [employees, department, getEmployeeOptionLabel]);
 
   // Sync departments from REST hook to local state
   useEffect(() => {
@@ -296,6 +298,15 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     }
   }, [initialFormData]);
 
+  // Cleanup pending email availability checks on unmount
+  useEffect(() => {
+    return () => {
+      if (emailCheckTimeoutRef.current) {
+        clearTimeout(emailCheckTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const closeModal = () => {
     const modals = document.querySelectorAll(".modal-backdrop");
     modals.forEach((modal) => modal.remove());
@@ -312,6 +323,11 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setLoadingDesignations(false);
     setSelectedShiftAssignment({ type: null, value: '' });
     setEmailValidation({ checking: false, available: false, error: '' });
+    setEmailTouched(false);
+    if (emailCheckTimeoutRef.current) {
+      clearTimeout(emailCheckTimeoutRef.current);
+      emailCheckTimeoutRef.current = null;
+    }
   };
 
   const clearFieldError = (fieldName: string) => {
@@ -330,6 +346,74 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
   const handleDateChange = (_date: any, dateString: string) => {
     setFormData((prev) => ({ ...prev, dateOfJoining: dateString }));
+  };
+
+  const validateEmail = (value: string, options?: { debounceCheck?: boolean }) => {
+    const { debounceCheck = true } = options || {};
+    setEmailTouched(true);
+
+    const trimmed = (value || "").trim();
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (emailCheckTimeoutRef.current) {
+      clearTimeout(emailCheckTimeoutRef.current);
+      emailCheckTimeoutRef.current = null;
+    }
+
+    if (!trimmed) {
+      setFieldErrors((prev) => ({ ...prev, email: "Email is required" }));
+      setEmailValidation({ checking: false, available: false, error: "" });
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(trimmed)) {
+      setFieldErrors((prev) => ({ ...prev, email: "Please enter a valid email address" }));
+      setEmailValidation({ checking: false, available: false, error: "" });
+      return;
+    }
+
+    setFieldErrors((prev) => {
+      const { email, ...rest } = prev;
+      return rest;
+    });
+
+    const runAvailabilityCheck = async () => {
+      try {
+        const available = await checkEmailAvailability(trimmed);
+        if (available) {
+          setEmailValidation({ checking: false, available: true, error: "" });
+          setFieldErrors((prev) => {
+            const { email, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          setEmailValidation({ checking: false, available: false, error: "Email is already registered" });
+          setFieldErrors((prev) => ({
+            ...prev,
+            email: "This email is already registered. Please use a different email.",
+          }));
+        }
+      } catch (err) {
+        setEmailValidation({ checking: false, available: false, error: "Failed to check availability" });
+        setFieldErrors((prev) => ({
+          ...prev,
+          email: "Failed to check email availability",
+        }));
+      }
+    };
+
+    setEmailValidation({ checking: true, available: false, error: "" });
+
+    if (debounceCheck) {
+      emailCheckTimeoutRef.current = setTimeout(runAvailabilityCheck, 400);
+    } else {
+      runAvailabilityCheck();
+    }
+  };
+
+  const handleEmailInputChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, email: value }));
+    validateEmail(value, { debounceCheck: true });
   };
 
   const handleFieldBlur = async (fieldName: string, value: string) => {
@@ -353,28 +437,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         if (lastNameError) errors.lastName = lastNameError;
         break;
       case "email":
-        if (!value || value.trim() === "") {
-          errors.email = "Email is required";
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-          errors.email = "Please enter a valid email address";
-        } else {
-          // Check email availability asynchronously
-          setEmailValidation({ checking: true, available: false, error: '' });
-          try {
-            const isAvailable = await checkEmailAvailability(value);
-            if (isAvailable) {
-              setEmailValidation({ checking: false, available: true, error: '' });
-            } else {
-              errors.email = "This email is already registered. Please use a different email.";
-              setEmailValidation({ checking: false, available: false, error: 'Email is already registered' });
-            }
-          } catch (err) {
-            errors.email = "Failed to check email availability";
-            setEmailValidation({ checking: false, available: false, error: 'Failed to check availability' });
-          }
-        }
-        // Set errors immediately for email field (after async validation completes)
-        setFieldErrors((prev) => ({ ...prev, ...errors }));
+        validateEmail(value, { debounceCheck: false });
         return; // Early return for email to avoid setting errors twice
       case "phoneCode":
         if (!value || value.trim() === "") {
@@ -816,11 +879,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                               className={`form-control ${fieldErrors.email || emailValidation.error ? "is-invalid" : ""} ${emailValidation.available ? "is-valid" : ""}`}
                               name="email"
                               value={formData.email}
-                              onChange={(e) => {
-                                setFormData((prev) => ({ ...prev, email: e.target.value }));
-                                clearFieldError("email");
-                                setEmailValidation({ checking: false, available: false, error: '' });
-                              }}
+                              onChange={(e) => handleEmailInputChange(e.target.value)}
                               onBlur={(e) => handleFieldBlur("email", e.target.value)}
                             />
                             {formData.email && formData.email.trim() && (
@@ -961,34 +1020,39 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                             <div className="col-md-6">
                               <div className="mb-3">
                                 <label className="form-label">Country</label>
-                                <select
-                                  className="form-control"
-                                  value={selectedCountryId || ""}
-                                  onChange={(e) => {
-                                    const countryId = e.target.value ? parseInt(e.target.value) : null;
-                                    setSelectedCountryId(countryId);
-                                    const selectedCountry = countries.find((c) => c.id === countryId);
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      address: { ...prev.address, country: selectedCountry?.name || "", state: "" },
-                                    }));
-                                    // Load states for selected country
-                                    if (countryId) {
-                                      GetState(countryId).then((result: any) => {
-                                        setStates(result);
-                                      });
-                                    } else {
-                                      setStates([]);
-                                    }
-                                  }}
-                                >
-                                  <option value="">Select Country</option>
-                                  {countries.map((country) => (
-                                    <option key={country.id} value={country.id}>
-                                      {country.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="input-icon-end position-relative">
+                                  <select
+                                    className="form-select"
+                                    value={selectedCountryId || ""}
+                                    onChange={(e) => {
+                                      const countryId = e.target.value ? parseInt(e.target.value) : null;
+                                      setSelectedCountryId(countryId);
+                                      const selectedCountry = countries.find((c) => c.id === countryId);
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        address: { ...prev.address, country: selectedCountry?.name || "", state: "" },
+                                      }));
+                                      // Load states for selected country
+                                      if (countryId) {
+                                        GetState(countryId).then((result: any) => {
+                                          setStates(result);
+                                        });
+                                      } else {
+                                        setStates([]);
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Select Country</option>
+                                    {countries.map((country) => (
+                                      <option key={country.id} value={country.id}>
+                                        {country.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span className="input-icon-addon">
+                                    <i className="ti ti-chevron-down text-gray-7" />
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -996,24 +1060,29 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                             <div className="col-md-6">
                               <div className="mb-3">
                                 <label className="form-label">State</label>
-                                <select
-                                  className="form-control"
-                                  value={formData.address?.state || ""}
-                                  disabled={!selectedCountryId}
-                                  onChange={(e) =>
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      address: { ...prev.address, state: e.target.value },
-                                    }))
-                                  }
-                                >
-                                  <option value="">Select State</option>
-                                  {states.map((state) => (
-                                    <option key={state.id} value={state.name}>
-                                      {state.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="input-icon-end position-relative">
+                                  <select
+                                    className="form-select"
+                                    value={formData.address?.state || ""}
+                                    disabled={!selectedCountryId}
+                                    onChange={(e) =>
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        address: { ...prev.address, state: e.target.value },
+                                      }))
+                                    }
+                                  >
+                                    <option value="">Select State</option>
+                                    {states.map((state) => (
+                                      <option key={state.id} value={state.name}>
+                                        {state.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span className="input-icon-addon">
+                                    <i className="ti ti-chevron-down text-gray-7" />
+                                  </span>
+                                </div>
                               </div>
                             </div>
                             <div className="col-md-6">

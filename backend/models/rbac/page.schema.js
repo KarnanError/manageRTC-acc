@@ -310,9 +310,6 @@ const pageSchema = new mongoose.Schema({
 // INDEXES
 // ============================================
 
-// Unique name
-pageSchema.index({ name: 1 }, { unique: true });
-
 // Hierarchy queries
 pageSchema.index({ category: 1, isActive: 1, sortOrder: 1 });
 pageSchema.index({ category: 1, isMenuGroup: 1, menuGroupLevel: 1, isActive: 1 });

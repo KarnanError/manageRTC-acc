@@ -4,10 +4,9 @@
  */
 
 import express from 'express';
-import { authenticate, requireRole } from '../../middleware/auth.js';
-import { validate, validateBody, validateQuery, validateParams } from '../../middleware/validate.js';
-import { terminationSchemas, commonSchemas } from '../../middleware/validate.js';
 import terminationController from '../../controllers/rest/termination.controller.js';
+import { authenticate, requireRole } from '../../middleware/auth.js';
+import { commonSchemas, terminationSchemas, validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 
 const router = express.Router();
 
@@ -45,7 +44,7 @@ router.post('/', requireRole('admin', 'hr', 'superadmin'), validateBody(terminat
 /**
  * @route   PUT /api/terminations/:id
  * @desc    Update termination
- * @access  Private (Admin, Superadmin)
+ * @access  Private (Admin, HR, Superadmin)
  */
 router.put('/:id', requireRole('admin', 'superadmin'), validateParams(commonSchemas.objectId), validateBody(terminationSchemas.update), terminationController.updateTerminationById);
 
@@ -66,8 +65,8 @@ router.put('/:id/cancel', requireRole('admin', 'hr', 'superadmin'), validatePara
 /**
  * @route   DELETE /api/terminations
  * @desc    Delete terminations (bulk delete)
- * @access  Private (Admin, Superadmin)
+ * @access  Private (Admin, HR, Superadmin)
  */
-router.delete('/', requireRole('admin', 'superadmin'), terminationController.deleteTerminations);
+router.delete('/', requireRole('admin', 'hr', 'superadmin'), terminationController.deleteTerminations);
 
 export default router;

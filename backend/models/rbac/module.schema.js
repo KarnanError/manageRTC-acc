@@ -110,7 +110,6 @@ const moduleSchema = new mongoose.Schema({
 });
 
 // Indexes
-moduleSchema.index({ name: 1 }, { unique: true });
 moduleSchema.index({ sortOrder: 1 });
 moduleSchema.index({ isActive: 1 });
 

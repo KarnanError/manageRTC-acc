@@ -41,7 +41,7 @@ interface Designation {
   departmentId?: string;
 }
 
-interface Promotion {
+interface UIPromotion {
   _id: string;
   promotionId: string; // Required field
   employeeId: string; // Required field
@@ -109,8 +109,6 @@ const Promotion = () => {
     createPromotion,
     updatePromotion,
     deletePromotion,
-    applyPromotion,
-    cancelPromotion,
   } = usePromotionsREST();
 
   // REST API Hook for Employees (for fetching employees by department)
@@ -120,10 +118,11 @@ const Promotion = () => {
   } = useEmployeesREST();
 
   // State management (keeping local state for UI-specific needs)
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [promotions, setPromotions] = useState<UIPromotion[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
+  const [designationLookup, setDesignationLookup] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<PromotionStats>({
     total: 0,
@@ -140,15 +139,17 @@ const Promotion = () => {
     designationToId: "",
     promotionDate: null as Dayjs | null,
     promotionType: "Regular",
+    reason: "",
   });
 
   // Form state for Edit Promotion
-  const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
+  const [editingPromotion, setEditingPromotion] = useState<UIPromotion | null>(null);
   const [editForm, setEditForm] = useState({
     departmentId: "",
     designationToId: "",
     promotionDate: null as Dayjs | null,
     promotionType: "Regular",
+    reason: "",
   });
 
   // State for deletion
@@ -156,6 +157,9 @@ const Promotion = () => {
 
   // State for viewing promotion details - use API type
   const [viewingPromotion, setViewingPromotion] = useState<APIPromotion | null>(null);
+  const [sortBy, setSortBy] = useState<'recent' | 'asc' | 'desc'>('recent');
+  const [dateRange, setDateRange] = useState<{ from: Dayjs | null; to: Dayjs | null }>({ from: null, to: null });
+  const [rangeInput, setRangeInput] = useState('');
 
   // Validation errors for Add Promotion
   const [addErrors, setAddErrors] = useState({
@@ -165,10 +169,11 @@ const Promotion = () => {
     designationToId: "",
     promotionDate: "",
     promotionType: "",
+    reason: "",
   });
 
   // Track employees already promoted (for duplicate check)
-  const [promotedEmployeeIds, setPromotedEmployeeIds] = useState<Set<string>>(new Set());
+  const [promotedEmployeeIds] = useState<Set<string>>(new Set());
 
   // Validation errors for Edit Promotion
   const [editErrors, setEditErrors] = useState({
@@ -176,6 +181,7 @@ const Promotion = () => {
     designationToId: "",
     promotionDate: "",
     promotionType: "",
+    reason: "",
   });
 
   const getModalContainer = () => {
@@ -247,25 +253,28 @@ const Promotion = () => {
     }
   };
 
-  // Calculate stats from current promotion data
+  // Calculate stats from current promotion data (respect status values)
   const calculateStats = useCallback(() => {
-    if (promotions.length > 0) {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
 
-      const calculatedStats: PromotionStats = {
-        total: promotions.length,
-        pending: 0, // Since Promotion interface doesn't have status, assume none pending
-        approved: promotions.length, // Since Promotion interface doesn't have status, assume all approved
-        effectiveThisMonth: promotions.filter(p => {
-          const promDate = new Date(p.promotionDate);
-          return promDate.getMonth() === currentMonth && promDate.getFullYear() === currentYear;
-        }).length,
-      };
-      setStats(calculatedStats);
-      console.log("[Promotion] Calculated stats:", calculatedStats);
-    }
+    const pendingCount = promotions.filter(p => p.status === 'pending').length;
+    const approvedCount = promotions.filter(p => p.status === 'approved' || p.status === 'applied').length;
+    const effectiveThisMonth = promotions.filter(p => {
+      const promDate = new Date(p.promotionDate);
+      return promDate.getMonth() === currentMonth && promDate.getFullYear() === currentYear;
+    }).length;
+
+    const calculatedStats: PromotionStats = {
+      total: promotions.length,
+      pending: pendingCount,
+      approved: approvedCount,
+      effectiveThisMonth,
+    };
+
+    setStats(calculatedStats);
+    console.log("[Promotion] Calculated stats:", calculatedStats);
   }, [promotions]);
 
   // Fetch initial data using REST API
@@ -299,14 +308,14 @@ const Promotion = () => {
     // Setup Socket.IO listeners for real-time broadcasts only
     // REST API handles data fetching, Socket.IO handles real-time updates
 
-    const handlePromotionCreated = (promotion: Promotion) => {
+    const handlePromotionCreated = (promotion: UIPromotion) => {
       console.log("[Promotion] Real-time: Promotion created:", promotion);
       // Refetch from REST to ensure consistency
       fetchPromotions();
       toast.success("Promotion added successfully");
     };
 
-    const handlePromotionUpdated = (promotion: Promotion) => {
+    const handlePromotionUpdated = (promotion: UIPromotion) => {
       console.log("[Promotion] Real-time: Promotion updated:", promotion);
       // Refetch from REST to ensure consistency
       fetchPromotions();
@@ -413,6 +422,17 @@ const Promotion = () => {
     }));
     setDesignations(transformedDesignations as any);
 
+    // Build a lookup map for designation names by ID (merge to keep previously fetched ones)
+    setDesignationLookup((prev) => {
+      const next = { ...prev };
+      (apiDesignations || []).forEach((designation) => {
+        if (designation._id) {
+          next[designation._id] = designation.designation;
+        }
+      });
+      return next;
+    });
+
     if (apiStats) {
       setStats({
         total: apiStats.total || 0,
@@ -448,6 +468,7 @@ const Promotion = () => {
         designationToId: "",
         promotionDate: "",
         promotionType: "",
+        reason: "",
       });
 
       // Reset form to ensure clean state
@@ -458,6 +479,7 @@ const Promotion = () => {
         designationToId: "",
         promotionDate: null,
         promotionType: "Regular",
+        reason: "",
       });
 
       // Clear designations
@@ -635,6 +657,7 @@ const Promotion = () => {
       designationToId: "",
       promotionDate: "",
       promotionType: "",
+      reason: "",
     };
 
     let isValid = true;
@@ -697,6 +720,16 @@ const Promotion = () => {
       }
     }
 
+    // Reason is required by backend (min 10 chars)
+    const trimmedReason = (newPromotion.reason || "").trim();
+    if (!trimmedReason) {
+      errors.reason = "Please enter a reason";
+      isValid = false;
+    } else if (trimmedReason.length < 10) {
+      errors.reason = "Reason must be at least 10 characters";
+      isValid = false;
+    }
+
     setAddErrors(errors);
     return isValid;
   };
@@ -708,6 +741,7 @@ const Promotion = () => {
       designationToId: "",
       promotionDate: "",
       promotionType: "",
+      reason: "",
     };
 
     let isValid = true;
@@ -738,6 +772,15 @@ const Promotion = () => {
         errors.promotionDate = "Promotion date cannot be in the past";
         isValid = false;
       }
+    }
+
+    const trimmedReason = (editForm.reason || "").trim();
+    if (!trimmedReason) {
+      errors.reason = "Please enter a reason";
+      isValid = false;
+    } else if (trimmedReason.length < 10) {
+      errors.reason = "Reason must be at least 10 characters";
+      isValid = false;
     }
 
     setEditErrors(errors);
@@ -783,6 +826,7 @@ const Promotion = () => {
       },
       promotionDate: newPromotion.promotionDate ? dayjs(newPromotion.promotionDate).toISOString() : undefined,
       promotionType: (newPromotion.promotionType || 'Regular') as 'Regular' | 'Acting' | 'Charge' | 'Transfer' | 'Other',
+      reason: (newPromotion.reason || "").trim(),
     };
 
     console.log("[Promotion] Adding promotion via REST API:", promotionData);
@@ -792,6 +836,10 @@ const Promotion = () => {
       const result = await createPromotion(promotionData);
 
       if (result.success) {
+        // Refresh list so the new promotion appears immediately
+        await fetchPromotions();
+        await fetchStats();
+
         // Close modal with delay for animation
         setTimeout(() => {
           closeModalReliably("new_promotion");
@@ -805,6 +853,7 @@ const Promotion = () => {
               designationToId: "",
               promotionDate: null,
               promotionType: "Regular",
+              reason: "",
             });
             setAddErrors({
               sourceDepartmentId: "",
@@ -813,8 +862,8 @@ const Promotion = () => {
               designationToId: "",
               promotionDate: "",
               promotionType: "",
+              reason: "",
             });
-            setEmployees([]);
             setDesignations([]);
           }, 300);
         }, 100);
@@ -830,7 +879,7 @@ const Promotion = () => {
   };
 
   // Handle edit promotion
-  const handleEditClick = (promotion: Promotion) => {
+  const handleEditClick = (promotion: UIPromotion) => {
     console.log("[Promotion] Edit clicked:", promotion);
 
     // Validate promotion structure before proceeding
@@ -846,6 +895,7 @@ const Promotion = () => {
       designationToId: promotion.promotionTo.designation.id,
       promotionDate: dayjs(promotion.promotionDate),
       promotionType: promotion.promotionType || "Regular",
+      reason: promotion.reason || "",
     });
     // Clear edit errors when opening modal
     setEditErrors({
@@ -853,6 +903,7 @@ const Promotion = () => {
       designationToId: "",
       promotionDate: "",
       promotionType: "",
+      reason: "",
     });
     // Fetch designations for the promotion's target department
     if (promotion.promotionTo.department.id) {
@@ -861,7 +912,7 @@ const Promotion = () => {
   };
 
   // Handle view promotion details
-  const handleViewClick = (promotion: Promotion) => {
+  const handleViewClick = (promotion: UIPromotion) => {
     console.log("[Promotion] View clicked:", promotion);
     // Find the original API promotion data
     const apiPromo = apiPromotions.find(p => p._id === promotion._id);
@@ -905,6 +956,7 @@ const Promotion = () => {
       };
       promotionDate: string;
       promotionType: 'Regular' | 'Acting' | 'Charge' | 'Transfer' | 'Other';
+      reason: string;
     }> = {
       promotionTo: {
         departmentId: editForm.departmentId,
@@ -912,6 +964,7 @@ const Promotion = () => {
       },
       promotionDate: editForm.promotionDate ? dayjs(editForm.promotionDate).toISOString() : undefined,
       promotionType: (editForm.promotionType || 'Regular') as 'Regular' | 'Acting' | 'Charge' | 'Transfer' | 'Other',
+      reason: (editForm.reason || "").trim(),
     };
 
     console.log("[Promotion] Updating promotion via REST API:", { promotionId: editingPromotion._id, update: updateData });
@@ -936,12 +989,14 @@ const Promotion = () => {
               designationToId: "",
               promotionDate: null,
               promotionType: "Regular",
+              reason: "",
             });
             setEditErrors({
               departmentId: "",
               designationToId: "",
               promotionDate: "",
               promotionType: "",
+              reason: "",
             });
             setDesignations([]);
           }, 300);
@@ -957,6 +1012,7 @@ const Promotion = () => {
           designationToId: "",
           promotionDate: "",
           promotionType: "",
+          reason: "",
         };
 
         // Check error message and set appropriate field error
@@ -1067,40 +1123,60 @@ const Promotion = () => {
     return "";
   };
 
-  // Get department from based on selected employee for add form
-  const getDepartmentFrom = () => {
-    if (newPromotion.employeeId) {
-      const employee = employees.find(emp => emp.id === newPromotion.employeeId);
-      return employee ? employee.department : "";
-    }
-    return "";
+  const parseRangeInput = (value: string) => {
+    const parts = value.split('-').map(p => p.trim());
+    if (parts.length !== 2) return { from: null, to: null };
+    const from = dayjs(parts[0], 'DD/MM/YYYY', true);
+    const to = dayjs(parts[1], 'DD/MM/YYYY', true);
+    return {
+      from: from.isValid() ? from.startOf('day') : null,
+      to: to.isValid() ? to.endOf('day') : null,
+    };
   };
 
-  const data = promotions
-    .filter(promotion => {
-      // Filter out promotions with incomplete data structure
-      return promotion?.employee?.id &&
-             promotion?.promotionFrom?.department?.name &&
-             promotion?.promotionFrom?.designation?.name &&
-             promotion?.promotionTo?.designation?.name;
-    })
-    .map(promotion => {
-      // Look up the actual employee from employees array to get the correct employeeId
-      const employee = employees.find(emp => emp.id === promotion.employee.id);
-      const displayEmployeeId = promotion.employee.employeeId || employee?.employeeId || promotion.employee.id;
+  // Do not drop rows just because some nested labels are missing; fall back to IDs/"N/A" in the table instead
+  const filteredPromotions = promotions.filter(promotion => {
+    if (!dateRange.from && !dateRange.to) return true;
+    const date = dayjs(promotion.promotionDate);
+    if (!date.isValid()) return false;
+    if (dateRange.from && date.isBefore(dateRange.from)) return false;
+    if (dateRange.to && date.isAfter(dateRange.to)) return false;
+    return true;
+  });
 
-      return {
-        key: promotion._id,
-        Employee_ID: displayEmployeeId,
-        Promoted_Employee: promotion.employee.name,
-        Image: promotion.employee.image,
-        Department: promotion.promotionFrom.department.name,
-        Designation_From: promotion.promotionFrom.designation.name,
-        Designation_To: promotion.promotionTo.designation.name,
-        Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
-        _original: promotion,
-      };
-    });
+  const sortedPromotions = [...filteredPromotions].sort((a, b) => {
+    const aDate = dayjs(a.promotionDate).valueOf();
+    const bDate = dayjs(b.promotionDate).valueOf();
+    if (sortBy === 'asc') return aDate - bDate;
+    return bDate - aDate; // 'recent' and 'desc' both sort by newest
+  });
+
+  const data = sortedPromotions.map(promotion => {
+    const employee = employees.find(emp => emp.id === promotion.employee.id);
+    const displayEmployeeId = promotion.employee.employeeId || employee?.employeeId || promotion.employee.id;
+
+    const fromDepartment = promotion.promotionFrom?.department?.name
+      || promotion.promotionFrom?.departmentId
+      || "N/A";
+    const fromDesignation = promotion.promotionFrom?.designation?.name
+      || promotion.promotionFrom?.designationId
+      || "N/A";
+    const toDesignation = promotion.promotionTo?.designation?.name
+      || promotion.promotionTo?.designationId
+      || "N/A";
+
+    return {
+      key: promotion._id,
+      Employee_ID: displayEmployeeId,
+      Promoted_Employee: promotion.employee.name,
+      Image: promotion.employee.image,
+      Department: fromDepartment,
+      Designation_From: fromDesignation,
+      Designation_To: toDesignation,
+      Promotion_Date: dayjs(promotion.promotionDate).format('DD MMM YYYY'),
+      _original: promotion,
+    };
+  });
 
   const columns = [
     {
@@ -1322,7 +1398,13 @@ const Promotion = () => {
                       <input
                         type="text"
                         className="form-control date-range bookingrange"
-                        placeholder="dd/mm/yyyy - dd/mm/yyyy "
+                        placeholder="dd/mm/yyyy - dd/mm/yyyy"
+                        value={rangeInput}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setRangeInput(value);
+                          setDateRange(parseRangeInput(value));
+                        }}
                       />
                     </div>
                     <div className="dropdown">
@@ -1332,22 +1414,22 @@ const Promotion = () => {
                         data-bs-toggle="dropdown"
                       >
                         <p className="fs-12 d-inline-flex me-1">Sort By : </p>
-                        Last 7 Days
+                        {sortBy === 'asc' ? 'Ascending' : sortBy === 'desc' ? 'Descending' : 'Recently Added'}
                       </Link>
                       <ul className="dropdown-menu  dropdown-menu-end p-3">
                         <li>
-                          <Link to="#" className="dropdown-item rounded-1">
+                          <Link to="#" className="dropdown-item rounded-1" onClick={(e) => { e.preventDefault(); setSortBy('recent'); }}>
                             Recently Added
                           </Link>
                         </li>
                         <li>
-                          <Link to="#" className="dropdown-item rounded-1">
+                          <Link to="#" className="dropdown-item rounded-1" onClick={(e) => { e.preventDefault(); setSortBy('asc'); }}>
                             Ascending
                           </Link>
                         </li>
                         <li>
-                          <Link to="#" className="dropdown-item rounded-1">
-                            Desending
+                          <Link to="#" className="dropdown-item rounded-1" onClick={(e) => { e.preventDefault(); setSortBy('desc'); }}>
+                            Descending
                           </Link>
                         </li>
                       </ul>
@@ -1451,7 +1533,7 @@ const Promotion = () => {
                     <div className="col-md-6">
                       <div className="mb-3">
                         <label className="form-label">
-                          Department To <span className="text-danger">*</span>
+                          Promotion To (Department) <span className="text-danger">*</span>
                         </label>
                         <CommonSelect
                           className="select"
@@ -1468,7 +1550,7 @@ const Promotion = () => {
                     <div className="col-md-6">
                       <div className="mb-3">
                         <label className="form-label">
-                          Promotion To <span className="text-danger">*</span>
+                          Designation To <span className="text-danger">*</span>
                         </label>
                         <CommonSelect
                           className="select"
@@ -1522,6 +1604,27 @@ const Promotion = () => {
                         </div>
                         {addErrors.promotionDate && (
                           <div className="text-danger fs-12 mt-1">{addErrors.promotionDate}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="col-12">
+                      <div className="mb-3">
+                        <label className="form-label">
+                          Reason <span className="text-danger">*</span>
+                        </label>
+                        <textarea
+                          className="form-control"
+                          rows={3}
+                          value={newPromotion.reason}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setNewPromotion({ ...newPromotion, reason: value });
+                            setAddErrors(prev => ({ ...prev, reason: value.trim().length >= 10 ? "" : prev.reason }));
+                          }}
+                          placeholder="Provide context for the promotion (min 10 characters)"
+                        />
+                        {addErrors.reason && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.reason}</div>
                         )}
                       </div>
                     </div>
@@ -1685,6 +1788,27 @@ const Promotion = () => {
                             )}
                           </div>
                         </div>
+                        <div className="col-12">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Reason <span className="text-danger">*</span>
+                            </label>
+                            <textarea
+                              className="form-control"
+                              rows={3}
+                              value={editForm.reason}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setEditForm({ ...editForm, reason: value });
+                                setEditErrors(prev => ({ ...prev, reason: value.trim().length >= 10 ? "" : prev.reason }));
+                              }}
+                              placeholder="Provide context for the promotion (min 10 characters)"
+                            />
+                            {editErrors.reason && (
+                              <div className="text-danger fs-12 mt-1">{editErrors.reason}</div>
+                            )}
+                          </div>
+                        </div>
                       </>
                     )}
                   </div>
@@ -1740,11 +1864,36 @@ const Promotion = () => {
                 </div>
               </div>
             </div>
+            <div className="col-md-12">
+              <div className="mb-3">
+                <label className="form-label">
+                  Reason <span className="text-danger">*</span>
+                </label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  placeholder="Provide a brief reason (min 10 characters)"
+                  value={newPromotion.reason}
+                  onChange={(e) => {
+                    setNewPromotion({ ...newPromotion, reason: e.target.value });
+                    setAddErrors(prev => ({ ...prev, reason: "" }));
+                  }}
+                />
+                {addErrors.reason && (
+                  <div className="text-danger fs-12 mt-1">{addErrors.reason}</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         {/* /Delete Modal */}
         {/* View Promotion Detail Modal */}
-        <PromotionDetailsModal promotion={viewingPromotion} modalId="view_promotion" />
+        <PromotionDetailsModal
+          promotion={viewingPromotion}
+          departments={departments}
+          designationLookup={designationLookup}
+          modalId="view_promotion"
+        />
         {/* /View Promotion Detail Modal */}
       </>
     </>

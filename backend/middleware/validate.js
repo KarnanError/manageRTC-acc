@@ -71,7 +71,13 @@ export const validateQuery = (schema) => validate(schema, 'query');
 /**
  * validateParams - Shortcut to validate URL parameters
  */
-export const validateParams = (schema) => validate(schema, 'params');
+export const validateParams = (schema) => {
+  if (schema && schema.type !== 'object') {
+    return validate(Joi.object({ id: schema.required() }), 'params');
+  }
+
+  return validate(schema, 'params');
+};
 
 /**
  * Common validation schemas
@@ -1635,9 +1641,7 @@ export const resignationSchemas = {
       const resignationDate = new Date(value.resignationDate);
       const lastWorkingDate = new Date(value.lastWorkingDate);
       if (lastWorkingDate <= resignationDate) {
-        return helpers.error('any.invalid', {
-          message: 'Last working date must be after resignation date',
-        });
+        return helpers.message('Last working date must be after resignation date');
       }
 
       // Validate against notice period
@@ -1647,20 +1651,8 @@ export const resignationSchemas = {
 
       const daysDiff = Math.ceil((lastWorkingDate - resignationDate) / (1000 * 60 * 60 * 24));
       if (value.isNoticePeriodServed && daysDiff < noticePeriodDays) {
-        return helpers.error('any.invalid', {
-          message: `Last working date must be at least ${noticePeriodDays} days after resignation date when notice period is served`,
-        });
+        return helpers.message(`Last working date must be at least ${noticePeriodDays} days after resignation date when notice period is served`);
       }
-    }
-
-    // Validate resignationDate is not in the future
-    const resignationDate = new Date(value.resignationDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (resignationDate > today) {
-      return helpers.error('any.invalid', {
-        message: 'Resignation date cannot be in the future',
-      });
     }
 
     return value;
@@ -1739,16 +1731,6 @@ export const terminationSchemas = {
     exitInterviewCompleted: Joi.boolean().default(false).optional(),
     exitInterviewNotes: Joi.string().max(2000).allow('').optional(),
   }).custom((value, helpers) => {
-    // Validate terminationDate is not in the future
-    const terminationDate = new Date(value.terminationDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (terminationDate > today) {
-      return helpers.error('any.invalid', {
-        message: 'Termination date cannot be in the future',
-      });
-    }
-
     return value;
   }),
 

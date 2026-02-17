@@ -81,8 +81,6 @@ const pageCategorySchema = new mongoose.Schema({
 });
 
 // Indexes
-pageCategorySchema.index({ identifier: 1 }, { unique: true });
-pageCategorySchema.index({ label: 1 }, { unique: true });
 pageCategorySchema.index({ sortOrder: 1 });
 pageCategorySchema.index({ isActive: 1 });
 

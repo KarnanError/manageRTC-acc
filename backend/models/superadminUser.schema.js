@@ -176,7 +176,6 @@ const superAdminUserSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-superAdminUserSchema.index({ email: 1 });
 superAdminUserSchema.index({ status: 1 });
 superAdminUserSchema.index({ createdAt: -1 });
 superAdminUserSchema.index({ createdBy: 1 });

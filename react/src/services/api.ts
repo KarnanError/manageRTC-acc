@@ -151,6 +151,13 @@ const createApiClient = (): AxiosInstance => {
           const newToken = await refreshAuthToken();
 
           if (newToken && originalRequest.headers) {
+            if (typeof originalRequest.data === 'string') {
+              try {
+                originalRequest.data = JSON.parse(originalRequest.data);
+              } catch (parseError) {
+                console.warn('[API] Failed to parse retry request body:', parseError);
+              }
+            }
             // Update the failed request with new token
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             console.log('[API] Retrying request with new token');

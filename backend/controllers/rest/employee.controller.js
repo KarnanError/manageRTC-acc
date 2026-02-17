@@ -865,19 +865,46 @@ export const createEmployee = asyncHandler(async (req, res) => {
     username = username.substring(0, 64);
   }
 
+  // Create Clerk user with retry if username collides
+  const createClerkUserWithFallback = async (baseUsername) => {
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const candidate = attempt === 0
+        ? baseUsername
+        : `${baseUsername}-${Math.floor(1000 + Math.random() * 9000)}`.substring(0, 64);
+
+      try {
+        devLog('[Employee Controller] Creating Clerk user with username:', candidate);
+        const createdUser = await clerkClient.users.createUser({
+          emailAddress: [normalizedWithDates.email],
+          username: candidate,
+          password: password,
+          publicMetadata: {
+            role: clerkRole,
+            companyId: user.companyId,
+          },
+        });
+        return createdUser;
+      } catch (error) {
+        lastError = error;
+        const isUsernameTaken = Array.isArray(error?.errors)
+          && error.errors.some((e) => e.code === 'form_identifier_exists'
+            && ((e.meta && e.meta.paramName === 'username')
+              || (e.message || '').toLowerCase().includes('username')));
+        if (isUsernameTaken) {
+          devError('[Employee Controller] Username already taken in Clerk, retrying with suffix', { candidate });
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  };
+
   // Create Clerk user
   let clerkUserId;
   try {
-    devLog('[Employee Controller] Creating Clerk user with username:', username);
-    const createdUser = await clerkClient.users.createUser({
-      emailAddress: [normalizedWithDates.email],
-      username: username,
-      password: password,
-      publicMetadata: {
-        role: clerkRole,
-        companyId: user.companyId,
-      },
-    });
+    const createdUser = await createClerkUserWithFallback(username);
     clerkUserId = createdUser.id;
     devLog('[Employee Controller] Clerk user created:', clerkUserId);
   } catch (clerkError) {
@@ -900,7 +927,7 @@ export const createEmployee = asyncHandler(async (req, res) => {
             success: false,
             error: {
               code: 'EMAIL_EXISTS_IN_CLERK',
-              message: 'This email is already registered in the system.',
+              message: 'This email is already registered.',
               field: 'email',
               details: error.message,
               requestId: getRequestId(req)
