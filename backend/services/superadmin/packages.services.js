@@ -189,12 +189,24 @@ const getSpecificPlan = async (planid) => {
   }
 };
 
+// Convert planModules moduleId strings → BSON ObjectIds so Mongoose populate works
+const normalizeModuleIds = (planModules) => {
+  if (!Array.isArray(planModules)) return [];
+  return planModules.map(pm => ({
+    ...pm,
+    moduleId: pm.moduleId && ObjectId.isValid(pm.moduleId)
+      ? new ObjectId(pm.moduleId)
+      : pm.moduleId,
+  }));
+};
+
 const addPlan = async (userId, plan) => {
   try {
     const { packagesCollection } = getsuperadminCollections();
     // Generate a unique MongoDB ObjectId and use it as plan_id
     const newPlan = {
       ...plan,
+      planModules: normalizeModuleIds(plan.planModules),
       subscribers: 0,
       plan_id: new ObjectId().toHexString(), // Convert ObjectId to string
       created_by: userId, // Add the user ID who created the plan
@@ -232,8 +244,8 @@ const updatePlan = async (form) => {
       created_by: existingPlan.created_by,
       created_at: existingPlan.created_at,
       subscribers: existingPlan.subscribers,
-      // Make sure to convert planModules array to the format your schema expects
-      planModules: Array.isArray(form.planModules) ? form.planModules : [],
+      // Normalise moduleId strings → BSON ObjectIds so Mongoose populate works
+      planModules: normalizeModuleIds(Array.isArray(form.planModules) ? form.planModules : []),
     };
 
     // 3. Perform the update

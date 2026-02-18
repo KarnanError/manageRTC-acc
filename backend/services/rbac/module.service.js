@@ -6,6 +6,7 @@
 import mongoose from 'mongoose';
 import Module from '../../models/rbac/module.schema.js';
 import Page from '../../models/rbac/page.schema.js';
+import '../../models/rbac/pageCategory.schema.js'; // register PageCategory for populate()
 
 /**
  * Get all modules
@@ -313,7 +314,8 @@ export async function getAllPages(filters = {}) {
     if (moduleCategory) query.moduleCategory = moduleCategory;
 
     const pages = await Page.find(query)
-      .sort({ moduleCategory: 1, sortOrder: 1 })
+      .populate('category', 'displayName label sortOrder')
+      .sort({ sortOrder: 1 })
       .lean();
 
     return {
@@ -400,6 +402,11 @@ export async function addPageToModule(moduleId, pageData) {
         success: false,
         error: 'Module not found',
       };
+    }
+
+    // Validate pageId before querying
+    if (!pageData.pageId || !mongoose.Types.ObjectId.isValid(pageData.pageId)) {
+      return { success: false, error: 'Invalid page ID' };
     }
 
     // Get page details
@@ -584,8 +591,10 @@ export async function configureModulePages(moduleId, pages) {
       };
     }
 
-    // Get page details for all pages
-    const pageIds = pages.map(p => p.pageId);
+    // Filter out null / non-ObjectId values before querying
+    const pageIds = pages
+      .map(p => p.pageId)
+      .filter(id => id && id !== 'null' && id !== 'undefined' && mongoose.Types.ObjectId.isValid(id));
     const pageRecords = await Page.find({
       _id: { $in: pageIds },
       isActive: true
@@ -593,8 +602,9 @@ export async function configureModulePages(moduleId, pages) {
 
     const pageMap = new Map(pageRecords.map(p => [p._id.toString(), p]));
 
-    // Build pages array
+    // Build pages array (skip entries with null/invalid pageId)
     const modulePages = pages.map((pageData, index) => {
+      if (!pageData || !pageData.pageId) return null;
       const page = pageMap.get(pageData.pageId.toString());
       if (!page) return null;
 

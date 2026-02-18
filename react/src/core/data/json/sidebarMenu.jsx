@@ -3645,6 +3645,37 @@ const useSidebarData = () => {
           ],
         },
         {
+          tittle: 'Administration',
+          showAsTab: false,
+          separateRoute: false,
+          submenuItems: [
+            {
+              label: 'Assets',
+              base: 'assets',
+              submenu: true,
+              showSubRoute: false,
+              icon: 'cash',
+              submenuItems: [
+                {
+                  label: 'Assets',
+                  link: routes.assetList,
+                  base: 'asset-list',
+                },
+                {
+                  label: 'Asset Categories',
+                  link: routes.assetCategories,
+                  base: 'asset-categories',
+                },
+                {
+                  label: 'Employee Asset',
+                  link: routes.employeeAsset,
+                  base: 'employee-asset',
+                },
+              ],
+            },
+          ],
+        },
+        {
           tittle: 'Users & Permissions',
           icon: 'user-star',
           showAsTab: false,

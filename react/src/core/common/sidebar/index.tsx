@@ -12,10 +12,12 @@ import {
 } from "../../data/redux/themeSettingSlice";
 import usePreviousRoute from "./usePreviousRoute";
 import useSidebarData from "../../data/json/sidebarMenu";
+import { useCompanyPages } from "../../../contexts/CompanyPagesContext";
 
 const Sidebar = () => {
   const Location = useLocation();
   const { user } = useUser();
+  const { isRouteEnabled, allEnabled, isLoading: isMenuLoading } = useCompanyPages();
 
   const SidebarDataTest = useSidebarData();
 
@@ -49,6 +51,25 @@ const Sidebar = () => {
     });
 
     return hasAccessResult;
+  };
+
+  /**
+   * Check if a menu item (at any depth) is enabled based on company plan/modules.
+   * - Leaf item: enabled if its route is in the company's enabled pages.
+   * - Parent item: enabled if at least one descendant leaf is enabled.
+   * - allEnabled (superadmin): always true.
+   */
+  const isMenuEnabled = (item: any): boolean => {
+    if (allEnabled) return true;
+    if (!item) return false;
+    // Parent with children: enabled if any child is enabled
+    if (item.submenuItems && item.submenuItems.length > 0) {
+      return item.submenuItems.some((child: any) => isMenuEnabled(child));
+    }
+    // Leaf item: check route
+    const link = item.link;
+    if (!link || link === '#' || link === 'index') return false;
+    return isRouteEnabled(link);
   };
 
   const [subOpen, setSubopen] = useState<any>("Dashboard");
@@ -305,15 +326,39 @@ const Sidebar = () => {
         <Scrollbars>
           <div className="sidebar-inner slimscroll">
             <div id="sidebar-menu" className="sidebar-menu">
+              {isMenuLoading ? (
+                <ul>
+                  {[...Array(6)].map((_, i) => (
+                    <li key={`skel-${i}`} style={{ padding: "6px 16px", marginBottom: 4 }}>
+                      <div style={{
+                        height: 14,
+                        borderRadius: 6,
+                        background: "rgba(255,255,255,0.12)",
+                        animation: "pulse 1.4s ease-in-out infinite",
+                        width: `${60 + (i % 3) * 15}%`,
+                      }} />
+                    </li>
+                  ))}
+                  <style>{`
+                    @keyframes pulse {
+                      0%, 100% { opacity: 1; }
+                      50% { opacity: 0.35; }
+                    }
+                  `}</style>
+                </ul>
+              ) : (
               <ul>
-                {SidebarDataTest?.map((mainLabel, index) => (
+                {SidebarDataTest?.map((mainLabel, index) => {
+                  const enabledItems = mainLabel?.submenuItems?.filter((title: any) => isMenuEnabled(title));
+                  if (!allEnabled && (!enabledItems || enabledItems.length === 0)) return null;
+                  return (
                   <React.Fragment key={`main-${index}`}>
                     <li className="menu-title">
                       <span>{mainLabel?.tittle}</span>
                     </li>
                     <li>
                       <ul>
-                        {mainLabel?.submenuItems?.map((title: any, i) => {
+                        {enabledItems?.map((title: any, i) => {
                           let link_array: any = [];
                           if ("submenuItems" in title) {
                             title.submenuItems?.forEach((link: any) => {
@@ -374,7 +419,7 @@ const Sidebar = () => {
                                           : "none",
                                     }}
                                   >
-                                    {title?.submenuItems?.filter((item: any) => hasAccess(item?.roles)).map(
+                                    {title?.submenuItems?.filter((item: any) => hasAccess(item?.roles) && isMenuEnabled(item)).map(
                                       (item: any, j: any) => (
                                         <li
                                           className={
@@ -422,7 +467,7 @@ const Sidebar = () => {
                                                     : "none",
                                               }}
                                             >
-                                              {item?.submenuItems?.filter((items: any) => hasAccess(items?.roles)).map(
+                                              {item?.submenuItems?.filter((items: any) => hasAccess(items?.roles) && isMenuEnabled(items)).map(
                                                 (items: any, k: any) => (
                                                   <li key={`submenu-item-${k}`}>
                                                     <Link
@@ -469,8 +514,10 @@ const Sidebar = () => {
                       </ul>
                     </li>
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </ul>
+              )}
             </div>
           </div>
         </Scrollbars>

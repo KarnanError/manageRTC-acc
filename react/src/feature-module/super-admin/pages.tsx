@@ -43,6 +43,7 @@ interface Page {
   isSystem: boolean;
   isActive: boolean;
   availableActions?: string[];
+  featureFlags?: { enabledForAll?: boolean };
   l2Groups?: Page[];
   directChildren?: Page[];
   children?: Page[];
@@ -131,7 +132,9 @@ const Pages = () => {
     isMenuGroup: false,
     menuGroupLevel: null as 1 | 2 | null,
     sortOrder: 0,
-    availableActions: ['read', 'create', 'write', 'delete', 'import', 'export']
+    availableActions: ['read', 'create', 'write', 'delete', 'import', 'export'],
+    isSystem: false,
+    enabledForAll: false,
   });
 
   // ============================================================================
@@ -256,7 +259,9 @@ const Pages = () => {
       isMenuGroup: false,
       menuGroupLevel: null,
       sortOrder: 0,
-      availableActions: ['read', 'create', 'write', 'delete', 'import', 'export']
+      availableActions: ['read', 'create', 'write', 'delete', 'import', 'export'],
+      isSystem: false,
+      enabledForAll: false,
     });
     setSelectedPage(null);
     setPageMode('create');
@@ -286,7 +291,9 @@ const Pages = () => {
           isMenuGroup: fullPage.isMenuGroup || false,
           menuGroupLevel: fullPage.menuGroupLevel,
           sortOrder: fullPage.sortOrder,
-          availableActions: fullPage.availableActions || ['read', 'create', 'write', 'delete', 'import', 'export']
+          availableActions: fullPage.availableActions || ['read', 'create', 'write', 'delete', 'import', 'export'],
+          isSystem: fullPage.isSystem || false,
+          enabledForAll: fullPage.featureFlags?.enabledForAll || false,
         });
         setSelectedPage(fullPage);
       } else {
@@ -303,7 +310,9 @@ const Pages = () => {
           isMenuGroup: page.isMenuGroup || false,
           menuGroupLevel: page.menuGroupLevel,
           sortOrder: page.sortOrder,
-          availableActions: page.availableActions || []
+          availableActions: page.availableActions || [],
+          isSystem: page.isSystem || false,
+          enabledForAll: page.featureFlags?.enabledForAll || false,
         });
         setSelectedPage(page);
       }
@@ -321,7 +330,9 @@ const Pages = () => {
         isMenuGroup: page.isMenuGroup || false,
         menuGroupLevel: page.menuGroupLevel,
         sortOrder: page.sortOrder,
-        availableActions: page.availableActions || []
+        availableActions: page.availableActions || [],
+        isSystem: page.isSystem || false,
+        enabledForAll: page.featureFlags?.enabledForAll || false,
       });
       setSelectedPage(page);
     } finally {
@@ -384,9 +395,11 @@ const Pages = () => {
         return;
       }
 
+      const { enabledForAll, ...restForm } = pageForm;
       const payload = {
-        ...pageForm,
+        ...restForm,
         category: categoryObj._id,
+        featureFlags: { enabledForAll },
       };
 
       const response = await fetch(url, {
@@ -475,7 +488,6 @@ const Pages = () => {
   const countPagesInCategory = (catTree: CategoryTree): number => {
     let count = catTree.directChildren?.length || 0;
     catTree.l1MenuGroups?.forEach(l1 => {
-      count += l1.l2Groups?.length || 0;
       count += l1.directChildren?.length || 0;
       l1.l2Groups?.forEach(l2 => {
         count += l2.children?.length || 0;
@@ -601,6 +613,7 @@ const Pages = () => {
               <i className={`${child.icon} me-2 text-muted`}></i>
               <span className="me-2">{child.displayName}</span>
               {child.isSystem && <span className="badge bg-info ms-2">System</span>}
+              {child.featureFlags?.enabledForAll && <span className="badge bg-success ms-2" title="Always accessible — no module or company restriction applies">Public</span>}
               {child.route && <code className="small text-muted ms-2">/{child.route}</code>}
             </div>
           </td>
@@ -689,6 +702,7 @@ const Pages = () => {
               <i className={`${child.icon} me-2 text-muted`}></i>
               <span className="me-2">{child.displayName}</span>
               {child.isSystem && <span className="badge bg-info ms-2">System</span>}
+              {child.featureFlags?.enabledForAll && <span className="badge bg-success ms-2" title="Always accessible — no module or company restriction applies">Public</span>}
               {child.route && <code className="small text-muted ms-2">/{child.route}</code>}
             </div>
           </td>
@@ -936,6 +950,7 @@ const Pages = () => {
                                         <i className={`${child.icon} me-2 text-muted`}></i>
                                         <span className="me-2">{child.displayName}</span>
                                         {child.isSystem && <span className="badge bg-info ms-2">System</span>}
+                                        {child.featureFlags?.enabledForAll && <span className="badge bg-success ms-2" title="Always accessible — no module or company restriction applies">Public</span>}
                                         {child.route && <code className="small text-muted ms-2">/{child.route}</code>}
                                       </div>
                                     </td>
@@ -1106,6 +1121,17 @@ const Pages = () => {
                           {selectedPage?.isSystem ? (
                             <span className="badge bg-info">Yes</span>
                           ) : 'No'}
+                        </dd>
+
+                        <dt className="col-sm-4">Access:</dt>
+                        <dd className="col-sm-8">
+                          {(selectedPage as any)?.featureFlags?.enabledForAll ? (
+                            <span className="badge bg-success" title="Always accessible — bypasses all module and company plan restrictions">
+                              <i className="ti ti-lock-open me-1"></i>Public (Always On)
+                            </span>
+                          ) : (
+                            <span className="badge bg-secondary">Plan-restricted</span>
+                          )}
                         </dd>
                       </dl>
                     </div>
@@ -1333,6 +1359,41 @@ const Pages = () => {
                                   </div>
                                 </div>
                               ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="row mt-3">
+                          <div className="col-md-6">
+                            <div className="form-check form-switch">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id="enabledForAllCheck"
+                                checked={pageForm.enabledForAll}
+                                onChange={(e) => setPageForm({ ...pageForm, enabledForAll: e.target.checked })}
+                              />
+                              <label className="form-check-label" htmlFor="enabledForAllCheck">
+                                <span className="fw-semibold">Public Access (Always On)</span>
+                                <br />
+                                <small className="text-muted">Bypasses all company plan and module restrictions. Use for login, register, etc.</small>
+                              </label>
+                            </div>
+                          </div>
+                          <div className="col-md-6">
+                            <div className="form-check form-switch">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id="isSystemCheck"
+                                checked={pageForm.isSystem}
+                                onChange={(e) => setPageForm({ ...pageForm, isSystem: e.target.checked })}
+                              />
+                              <label className="form-check-label" htmlFor="isSystemCheck">
+                                <span className="fw-semibold">System Page</span>
+                                <br />
+                                <small className="text-muted">Core system page — editing or deleting may break functionality.</small>
+                              </label>
                             </div>
                           </div>
                         </div>

@@ -55,7 +55,7 @@ export async function getAllPages(filters = {}) {
     const pages = await Page.find(query)
       .populate('category', 'identifier displayName label icon')
       .populate('parentPage', 'displayName name')
-      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions hierarchyPath')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions featureFlags hierarchyPath')
       .sort({ category: 1, sortOrder: 1 })
       .lean()
       .maxTimeMS(10000); // 10 second timeout
@@ -93,7 +93,7 @@ export async function getAllPagesFlattened(filters = {}) {
     const pages = await Page.find(query)
       .populate('category', 'identifier displayName label icon')
       .populate('parentPage', 'displayName name')
-      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions featureFlags')
       .sort({ category: 1, sortOrder: 1 })
       .lean()
       .maxTimeMS(10000);
@@ -144,7 +144,7 @@ export async function getPageById(pageId) {
     const page = await Page.findById(pageId)
       .populate('category', 'identifier displayName label icon')
       .populate('parentPage', 'displayName name')
-      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions')
+      .select('_id name displayName description route icon category parentPage level depth isMenuGroup menuGroupLevel sortOrder isSystem isActive availableActions featureFlags')
       .lean();
 
     if (!page) {
@@ -399,7 +399,9 @@ export async function getPageStats() {
       return { success: true, data: cached };
     }
 
+    // Only count leaf pages (exclude menu group headers — L1 and L2 groups)
     const stats = await Page.aggregate([
+      { $match: { isMenuGroup: { $ne: true } } },
       {
         $facet: {
           totalPages: [{ $count: 'count' }],
