@@ -8,9 +8,12 @@ on:
       - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
 
-# All environment-specific values come from GitHub Repository Variables (vars.X).
-# This file is identical in both manageRTC-dev and manageRTC-acc.
-# Each repo sets its own variable values — no hardcoded paths, no detection logic.
+env:
+  FRONTEND_DEPLOY_PATH: /var/www/acc.manage-rtc.com/frontend
+  FRONTEND_STAGING_DIR: frontend_release_acc
+  BACKEND_API_URL: https://apiacc.manage-rtc.com
+  FRONTEND_URL: https://acc.manage-rtc.com
+  BACKUP_PREFIX_FE: frontend-acc
 
 jobs:
   build-and-deploy:
@@ -24,22 +27,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate repository variables
-        working-directory: "."
-        run: |
-          missing=""
-          [ -z "${{ vars.FRONTEND_DEPLOY_PATH }}" ] && missing="$missing FRONTEND_DEPLOY_PATH"
-          [ -z "${{ vars.FRONTEND_STAGING_DIR }}" ] && missing="$missing FRONTEND_STAGING_DIR"
-          [ -z "${{ vars.BACKEND_API_URL }}" ]      && missing="$missing BACKEND_API_URL"
-          [ -z "${{ vars.FRONTEND_URL }}" ]         && missing="$missing FRONTEND_URL"
-          [ -z "${{ vars.BACKUP_PREFIX_FE }}" ]     && missing="$missing BACKUP_PREFIX_FE"
-          if [ -n "$missing" ]; then
-            echo "ERROR: Missing repository variables:$missing"
-            echo "Go to Settings > Secrets and variables > Actions > Variables tab and add them."
-            exit 1
-          fi
-          echo "All required variables present."
-
       - name: Use Node
         uses: actions/setup-node@v4
         with:
@@ -49,7 +36,7 @@ jobs:
         run: |
           cat > .env.production << EOF
           REACT_APP_CLERK_PUBLISHABLE_KEY=${{ secrets.CLERK_PUBLISHABLE_KEY_PUBLIC }}
-          REACT_APP_BACKEND_URL=${{ vars.BACKEND_API_URL }}
+          REACT_APP_BACKEND_URL=${{ env.BACKEND_API_URL }}
           EOF
 
       - name: Install & build
@@ -66,14 +53,14 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "react/build/**"
-          target: "/home/${{ secrets.VPS_USER }}/${{ vars.FRONTEND_STAGING_DIR }}/"
+          target: "/home/${{ secrets.VPS_USER }}/${{ env.FRONTEND_STAGING_DIR }}/"
           strip_components: 1
 
       - name: Backup current deployment
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
-          BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX_FE }}
+          DEPLOY_PATH: ${{ env.FRONTEND_DEPLOY_PATH }}
+          BACKUP_PREFIX: ${{ env.BACKUP_PREFIX_FE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -96,8 +83,8 @@ jobs:
       - name: Activate on VPS
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
-          STAGING_DIR: ${{ vars.FRONTEND_STAGING_DIR }}
+          DEPLOY_PATH: ${{ env.FRONTEND_DEPLOY_PATH }}
+          STAGING_DIR: ${{ env.FRONTEND_STAGING_DIR }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -114,8 +101,8 @@ jobs:
       - name: Health check
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
-          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          DEPLOY_PATH: ${{ env.FRONTEND_DEPLOY_PATH }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

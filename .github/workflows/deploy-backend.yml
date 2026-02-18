@@ -8,9 +8,12 @@ on:
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
-# All environment-specific values come from GitHub Repository Variables (vars.X).
-# This file is identical in both manageRTC-dev and manageRTC-acc.
-# Each repo sets its own variable values — no hardcoded paths, no detection logic.
+env:
+  BACKEND_DEPLOY_PATH: /var/www/apiacc.manage-rtc.com/backend
+  BACKEND_STAGING_DIR: releases/backend-acc
+  PM2_APP_NAME: manage-rtc-api-acc
+  FRONTEND_URL: https://acc.manage-rtc.com
+  BACKUP_PREFIX_BE: backend-acc
 
 jobs:
   deploy:
@@ -40,8 +43,8 @@ jobs:
       - name: Backup current deployment
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ vars.BACKEND_DEPLOY_PATH }}
-          BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX_BE }}
+          DEPLOY_PATH: ${{ env.BACKEND_DEPLOY_PATH }}
+          BACKUP_PREFIX: ${{ env.BACKUP_PREFIX_BE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -62,28 +65,13 @@ jobs:
               echo "No existing deployment to backup"
             fi
 
-      - name: Validate repository variables
-        run: |
-          missing=""
-          [ -z "${{ vars.BACKEND_DEPLOY_PATH }}" ] && missing="$missing BACKEND_DEPLOY_PATH"
-          [ -z "${{ vars.PM2_APP_NAME }}" ]        && missing="$missing PM2_APP_NAME"
-          [ -z "${{ vars.BACKEND_STAGING_DIR }}" ] && missing="$missing BACKEND_STAGING_DIR"
-          [ -z "${{ vars.FRONTEND_URL }}" ]        && missing="$missing FRONTEND_URL"
-          [ -z "${{ vars.BACKUP_PREFIX_BE }}" ]    && missing="$missing BACKUP_PREFIX_BE"
-          if [ -n "$missing" ]; then
-            echo "ERROR: Missing repository variables:$missing"
-            echo "Go to Settings > Secrets and variables > Actions > Variables tab and add them."
-            exit 1
-          fi
-          echo "All required variables present."
-
       - name: Deploy and restart PM2
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ vars.BACKEND_DEPLOY_PATH }}
-          PM2_NAME: ${{ vars.PM2_APP_NAME }}
-          STAGING_DIR: ${{ vars.BACKEND_STAGING_DIR }}
-          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          DEPLOY_PATH: ${{ env.BACKEND_DEPLOY_PATH }}
+          PM2_NAME: ${{ env.PM2_APP_NAME }}
+          STAGING_DIR: ${{ env.BACKEND_STAGING_DIR }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -112,7 +100,7 @@ jobs:
             cd $DEPLOY_PATH
 
             # Write .env — ${{ secrets.* }} are resolved by GitHub Actions before this runs.
-            # FRONTEND_URL is appended separately as it comes from a repository variable.
+            # FRONTEND_URL is appended separately as it comes from workflow env.
             cat > .env << 'EOF'
             PORT=${{ secrets.ENV_PORT }}
             MONGO_URI=${{ secrets.ENV_MONGO_URI }}
@@ -149,7 +137,7 @@ jobs:
       - name: Health check
         uses: appleboy/ssh-action@v1.0.3
         env:
-          PM2_NAME: ${{ vars.PM2_APP_NAME }}
+          PM2_NAME: ${{ env.PM2_APP_NAME }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
