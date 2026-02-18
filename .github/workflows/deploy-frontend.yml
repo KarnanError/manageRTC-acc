@@ -24,6 +24,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate repository variables
+        working-directory: "."
+        run: |
+          missing=""
+          [ -z "${{ vars.FRONTEND_DEPLOY_PATH }}" ] && missing="$missing FRONTEND_DEPLOY_PATH"
+          [ -z "${{ vars.FRONTEND_STAGING_DIR }}" ] && missing="$missing FRONTEND_STAGING_DIR"
+          [ -z "${{ vars.BACKEND_API_URL }}" ]      && missing="$missing BACKEND_API_URL"
+          [ -z "${{ vars.FRONTEND_URL }}" ]         && missing="$missing FRONTEND_URL"
+          [ -z "${{ vars.BACKUP_PREFIX_FE }}" ]     && missing="$missing BACKUP_PREFIX_FE"
+          if [ -n "$missing" ]; then
+            echo "ERROR: Missing repository variables:$missing"
+            echo "Go to Settings > Secrets and variables > Actions > Variables tab and add them."
+            exit 1
+          fi
+          echo "All required variables present."
+
       - name: Use Node
         uses: actions/setup-node@v4
         with:

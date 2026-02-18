@@ -62,6 +62,21 @@ jobs:
               echo "No existing deployment to backup"
             fi
 
+      - name: Validate repository variables
+        run: |
+          missing=""
+          [ -z "${{ vars.BACKEND_DEPLOY_PATH }}" ] && missing="$missing BACKEND_DEPLOY_PATH"
+          [ -z "${{ vars.PM2_APP_NAME }}" ]        && missing="$missing PM2_APP_NAME"
+          [ -z "${{ vars.BACKEND_STAGING_DIR }}" ] && missing="$missing BACKEND_STAGING_DIR"
+          [ -z "${{ vars.FRONTEND_URL }}" ]        && missing="$missing FRONTEND_URL"
+          [ -z "${{ vars.BACKUP_PREFIX_BE }}" ]    && missing="$missing BACKUP_PREFIX_BE"
+          if [ -n "$missing" ]; then
+            echo "ERROR: Missing repository variables:$missing"
+            echo "Go to Settings > Secrets and variables > Actions > Variables tab and add them."
+            exit 1
+          fi
+          echo "All required variables present."
+
       - name: Deploy and restart PM2
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -76,6 +91,13 @@ jobs:
           envs: DEPLOY_PATH,PM2_NAME,STAGING_DIR,FRONTEND_URL
           script: |
             set -e
+
+            # Safety guard — abort immediately if any critical variable is empty
+            if [ -z "$STAGING_DIR" ] || [ -z "$DEPLOY_PATH" ] || [ -z "$PM2_NAME" ]; then
+              echo "ERROR: STAGING_DIR, DEPLOY_PATH or PM2_NAME is empty. Aborting to prevent data loss."
+              exit 1
+            fi
+
             echo "Deploying backend to $DEPLOY_PATH (PM2: $PM2_NAME)"
 
             # Extract to staging
