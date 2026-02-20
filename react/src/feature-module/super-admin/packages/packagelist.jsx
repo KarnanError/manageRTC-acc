@@ -183,16 +183,13 @@ const Packages = () => {
       const response = await fetch(`${API_BASE}/api/rbac/modules`);
       const data = await response.json();
       if (data.success) {
-        // Only include specific modules: HRM, Projects, CRM
-        const allowedModules = ['hrm', 'projects', 'crm'];
-
-        // Transform modules into options
+        // Transform all active modules into options
         const moduleOptions = data.data
-          .filter(mod => mod.isActive && allowedModules.includes(mod.name))
+          .filter(mod => mod.isActive)
           .map(mod => ({
             _id: mod._id,
             value: mod._id,
-            label: mod.name === 'projects' ? 'Project Management' : mod.displayName,
+            label: mod.displayName,
             name: mod.name,
             icon: mod.icon,
             color: mod.color,

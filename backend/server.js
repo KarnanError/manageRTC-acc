@@ -67,16 +67,17 @@ import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
 
 // RBAC Routes
-import adminUsersRoutes from './routes/api/admin.users.js';
-import rbacModulesRoutes from './routes/api/rbac/modules.js';
-import rbacPageCategoriesRoutes from './routes/api/rbac/pageCategories.routes.js';
-import rbacPagesRoutes from './routes/api/rbac/pages.js';
-import rbacPagesHierarchyRoutes from './routes/api/rbac/pagesHierarchy.js';
-import rbacPermissionsRoutes from './routes/api/rbac/permissions.js';
-import rbacRolesRoutes from './routes/api/rbac/roles.js';
-import superadminCompaniesRoutes from './routes/api/superadmin.companies.js';
-import superadminRoutes from './routes/api/superadmin.routes.js';
-import debugRoutes from './routes/debug/auth-debug.js';
+import adminUsersRoutes from "./routes/api/admin.users.js";
+import rbacModulesRoutes from "./routes/api/rbac/modules.js";
+import rbacPageCategoriesRoutes from "./routes/api/rbac/pageCategories.routes.js";
+import rbacPagesRoutes from "./routes/api/rbac/pages.js";
+import rbacPagesHierarchyRoutes from "./routes/api/rbac/pagesHierarchy.js";
+import rbacPermissionsRoutes from "./routes/api/rbac/permissions.js";
+import rbacRolesRoutes from "./routes/api/rbac/roles.js";
+import companyPagesRoutes from "./routes/api/companyPages.routes.js";
+import superadminCompaniesRoutes from "./routes/api/superadmin.companies.js";
+import superadminRoutes from "./routes/api/superadmin.routes.js";
+import debugRoutes from "./routes/debug/auth-debug.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -249,6 +250,9 @@ const initializeServer = async () => {
     // Superadmin Routes
     app.use('/api/superadmin', superadminCompaniesRoutes);
     app.use('/api/superadmin/users', superadminRoutes);
+
+    // Company Pages Routes (module-based sidebar filtering)
+    app.use("/api/company", companyPagesRoutes);
 
     // Clerk Webhooks
     app.use('/api/webhooks', clerkWebhookRoutes);

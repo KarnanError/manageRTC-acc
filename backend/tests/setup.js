@@ -3,6 +3,10 @@
  * Global test configuration and mocks
  */
 
+// In ESM mode (--experimental-vm-modules), jest is not auto-injected as a global
+// in setupFilesAfterEnv files — import it explicitly.
+import { jest } from '@jest/globals';
+
 // Set test environment variables
 process.env.NODE_ENV = 'test';
 process.env.MONGODB_URI = 'mongodb://localhost:27017/managertest_db';
@@ -43,31 +47,7 @@ afterAll(async () => {
   // Cleanup will be handled in individual test files
 });
 
-// Mock Clerk authentication
-jest.mock('@clerk/express', () => ({
-  requireAuth: jest.fn((req, res, next) => {
-    // Mock authenticated user
-    req.auth = {
-      userId: 'test_user_id',
-      companyId: 'test_company_id',
-      role: 'admin'
-    };
-    next();
-  }),
-  clerkMiddleware: jest.fn((req, res, next) => {
-    req.auth = {
-      userId: 'test_user_id',
-      companyId: 'test_company_id',
-      role: 'admin'
-    };
-    next();
-  })
-}));
-
-// Mock Socket.IO broadcaster
-// Note: This module may not exist yet - the mock is here for when it's created
-jest.mock('../utils/socketBroadcaster.js', () => ({
-  broadcastToCompany: jest.fn(),
-  broadcastToUser: jest.fn(),
-  broadcastToAll: jest.fn()
-}), { virtual: true });
+// Note: jest.mock() calls must be placed in individual test files, NOT here.
+// In ESM mode (--experimental-vm-modules), jest.mock() in setupFilesAfterEach
+// cannot use require() hoisting and will throw "require is not defined".
+// Each test file mocks its own dependencies via jest.mock() / jest.unstable_mockModule().

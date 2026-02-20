@@ -32,6 +32,7 @@ const CATEGORIES = {
   'administration': 'X',
   'pages': 'XI',
   'extras': 'XII',
+  'authentication': 'XIII',
 };
 
 // ============================================================================
@@ -162,7 +163,7 @@ const PAGE_DEFINITIONS = {
       children: [
         { name: 'hrm.performance-indicator', displayName: 'Performance Indicator', route: 'performance/performance-indicator', icon: 'ti ti-chart-bar', sortOrder: 10 },
         { name: 'hrm.performance-review', displayName: 'Performance Review', route: 'performance/performance-review', icon: 'ti ti-star', sortOrder: 20 },
-        { name: 'hrm.performance-appraisal', displayName: 'Performance Appraisal', route: 'performance/performance-appraisal', icon: 'ti ti-award', sortOrder: 30 },
+        { name: 'hrm.performance-appraisal', displayName: 'Performance Appraisal', route: 'preformance/performance-appraisal', icon: 'ti ti-award', sortOrder: 30 },
         { name: 'hrm.goal-tracking', displayName: 'Goal List', route: 'performance/goal-tracking', icon: 'ti ti-target', sortOrder: 40 },
         { name: 'hrm.goal-type', displayName: 'Goal Type', route: 'performance/goal-type', icon: 'ti ti-flag', sortOrder: 50 },
       ]
@@ -205,7 +206,7 @@ const PAGE_DEFINITIONS = {
   'recruitment': [
     { name: 'recruitment.jobs', displayName: 'Jobs', route: 'job-grid', icon: 'ti ti-briefcase', sortOrder: 10 },
     { name: 'recruitment.candidates', displayName: 'Candidates', route: 'candidates-grid', icon: 'ti ti-users', sortOrder: 20 },
-    { name: 'recruitment.referrals', displayName: 'Referrals', route: 'referrals', icon: 'ti ti-share', sortOrder: 30 },
+    { name: 'recruitment.referrals', displayName: 'Referrals', route: 'refferals', icon: 'ti ti-share', sortOrder: 30 },
   ],
 
   // ========================================================================
@@ -241,7 +242,7 @@ const PAGE_DEFINITIONS = {
     { name: 'crm.leads', displayName: 'Leads', route: 'leads-grid', icon: 'ti ti-chart-line', sortOrder: 40 },
     { name: 'crm.pipeline', displayName: 'Pipeline', route: 'pipeline', icon: 'ti ti-chart-dots', sortOrder: 50 },
     { name: 'crm.analytics', displayName: 'Analytics', route: 'analytics', icon: 'ti ti-chart-bar', sortOrder: 60 },
-    { name: 'crm.activities', displayName: 'Activities', route: 'activities', icon: 'ti ti-activity', sortOrder: 70 },
+    { name: 'crm.activities', displayName: 'Activities', route: '/', icon: 'ti ti-activity', sortOrder: 70 },
   ],
 
   // ========================================================================
@@ -360,7 +361,7 @@ const PAGE_DEFINITIONS = {
       sortOrder: 20,
       children: [
         { name: 'admin.knowledge-base', displayName: 'Knowledge Base', route: 'knowledgebase', icon: 'ti ti-book', sortOrder: 10 },
-        { name: 'admin.activities', displayName: 'Activities', route: 'activities', icon: 'ti ti-activity', sortOrder: 20 },
+        { name: 'admin.activities', displayName: 'Activities', route: 'activity', icon: 'ti ti-activity', sortOrder: 20 },
       ]
     },
     // L1: User Management (with children - routes)
@@ -400,7 +401,7 @@ const PAGE_DEFINITIONS = {
         { name: 'admin.daily-report', displayName: 'Daily Report', route: 'daily-report', icon: 'ti ti-calendar', sortOrder: 110 },
       ]
     },
-    // L1: Settings (with children - routes)
+    // L1: Settings (with L2 sub-groups, each containing assignable sub-pages)
     {
       name: 'admin.settings-menu',
       displayName: 'Settings',
@@ -409,13 +410,13 @@ const PAGE_DEFINITIONS = {
       isMenuGroup: true,
       menuGroupLevel: 1,
       sortOrder: 50,
-      children: [
-        { name: 'admin.general-settings', displayName: 'General Settings', route: 'general-settings/connected-apps', icon: 'ti ti-settings', sortOrder: 10 },
-        { name: 'admin.website-settings', displayName: 'Website Settings', route: 'website-settings/bussiness-settings', icon: 'ti ti-world', sortOrder: 20 },
-        { name: 'admin.app-settings', displayName: 'App Settings', route: 'app-settings/custom-fields', icon: 'ti ti-apps', sortOrder: 30 },
-        { name: 'admin.system-settings', displayName: 'System Settings', route: 'system-settings/email-settings', icon: 'ti ti-server', sortOrder: 40 },
-        { name: 'admin.financial-settings', displayName: 'Financial Settings', route: 'financial-settings/currencies', icon: 'ti ti-currency', sortOrder: 50 },
-        { name: 'admin.other-settings', displayName: 'Other Settings', route: 'other-settings/ban-ip-address', icon: 'ti ti-settings-2', sortOrder: 60 },
+      l2Groups: [
+        { name: 'admin.general-settings', displayName: 'General Settings', route: 'general-settings/connected-apps', icon: 'ti ti-settings', sortOrder: 10, isMenuGroup: true, menuGroupLevel: 2 },
+        { name: 'admin.website-settings', displayName: 'Website Settings', route: 'website-settings/bussiness-settings', icon: 'ti ti-world', sortOrder: 20, isMenuGroup: true, menuGroupLevel: 2 },
+        { name: 'admin.app-settings', displayName: 'App Settings', route: 'app-settings/custom-fields', icon: 'ti ti-apps', sortOrder: 30, isMenuGroup: true, menuGroupLevel: 2 },
+        { name: 'admin.system-settings', displayName: 'System Settings', route: 'system-settings/email-settings', icon: 'ti ti-server', sortOrder: 40, isMenuGroup: true, menuGroupLevel: 2 },
+        { name: 'admin.financial-settings', displayName: 'Financial Settings', route: 'financial-settings/currencies', icon: 'ti ti-currency', sortOrder: 50, isMenuGroup: true, menuGroupLevel: 2 },
+        { name: 'admin.other-settings', displayName: 'Other Settings', route: 'other-settings/ban-ip-address', icon: 'ti ti-settings-2', sortOrder: 60, isMenuGroup: true, menuGroupLevel: 2 },
       ]
     },
   ],
@@ -435,7 +436,7 @@ const PAGE_DEFINITIONS = {
     { name: 'pages.under-construction', displayName: 'Under Construction', route: 'under-construction', icon: 'ti ti-hammer', sortOrder: 90 },
     { name: 'pages.api-keys', displayName: 'API Keys', route: 'api-keys', icon: 'ti ti-key', sortOrder: 100 },
     { name: 'pages.privacy-policy', displayName: 'Privacy Policy', route: 'privacy-policy', icon: 'ti ti-shield', sortOrder: 110 },
-    { name: 'pages.terms-conditions', displayName: 'Terms & Conditions', route: 'termscondition', icon: 'ti ti-file-text', sortOrder: 120 },
+    { name: 'pages.terms-conditions', displayName: 'Terms & Conditions', route: 'terms-condition', icon: 'ti ti-file-text', sortOrder: 120 },
   ],
 
   // ========================================================================
@@ -443,6 +444,21 @@ const PAGE_DEFINITIONS = {
   // ========================================================================
   'extras': [
     { name: 'extras.documentation', displayName: 'Documentation', route: null, icon: 'ti ti-book', sortOrder: 10 },
+  ],
+
+  // ========================================================================
+  // XIII. AUTHENTICATION (always accessible — featureFlags.enabledForAll: true)
+  // These pages are never restricted by company plan or module assignments.
+  // ========================================================================
+  'authentication': [
+    { name: 'auth.login',                 displayName: 'Login',                  route: 'login',                  icon: 'ti ti-login',         sortOrder: 10,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.register',              displayName: 'Register',               route: 'register',               icon: 'ti ti-user-plus',     sortOrder: 20,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.forgot-password',       displayName: 'Forgot Password',        route: 'forgot-password',        icon: 'ti ti-lock-question', sortOrder: 30,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.two-step-verification', displayName: 'Two-Step Verification',  route: 'two-step-verification',  icon: 'ti ti-shield-check',  sortOrder: 40,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.email-verification',    displayName: 'Email Verification',     route: 'email-verification',     icon: 'ti ti-mail-check',    sortOrder: 50,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.lock-screen',           displayName: 'Lock Screen',            route: 'lock-screen',            icon: 'ti ti-device-desktop-off', sortOrder: 60, featureFlags: { enabledForAll: true } },
+    { name: 'auth.reset-password',        displayName: 'Reset Password',         route: 'reset-password',         icon: 'ti ti-lock-open',     sortOrder: 70,  featureFlags: { enabledForAll: true } },
+    { name: 'auth.reset-password-success',displayName: 'Reset Password Success', route: 'success',                icon: 'ti ti-check',         sortOrder: 80,  featureFlags: { enabledForAll: true } },
   ],
 };
 
@@ -458,6 +474,17 @@ async function seedPages() {
   let totalCreated = 0;
   let totalUpdated = 0;
   let totalSkipped = 0;
+
+  // Ensure Authentication category (XIII) exists — it is not part of the base categories seed
+  const authCatExists = await PageCategory.findOne({ label: 'authentication' });
+  if (!authCatExists) {
+    await PageCategory.create({
+      identifier: 'XIII', displayName: 'Authentication', label: 'authentication',
+      description: 'Login, register, and authentication-related pages (always accessible)',
+      icon: 'ti ti-lock', sortOrder: 130, isSystem: true, isActive: true,
+    });
+    console.log('  ✅ Created category XIII — Authentication');
+  }
 
   // Process each category
   for (const [categoryLabel, pages] of Object.entries(PAGE_DEFINITIONS)) {
@@ -500,6 +527,7 @@ async function processPageDefinition(pageDef, category, parentPage, depth) {
     availableActions: ['read', 'create', 'write', 'delete', 'import', 'export'],
     isSystem: true,
     isActive: true,
+    ...(pageDef.featureFlags ? { featureFlags: pageDef.featureFlags } : {}),
   };
 
   if (page) {

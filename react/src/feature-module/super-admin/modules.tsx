@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { all_routes } from "../router/all_routes";
 import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
+import { all_routes } from "../router/all_routes";
 
 // API Base URL
 const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
@@ -36,6 +36,13 @@ interface Module {
   activePageCount?: number;
 }
 
+interface PageCategory {
+  _id: string;
+  displayName: string;
+  label: string;
+  sortOrder: number;
+}
+
 interface Page {
   _id: string;
   name: string;
@@ -43,10 +50,39 @@ interface Page {
   description: string;
   route: string;
   icon: string;
-  moduleCategory: string;
+  moduleCategory?: string;      // deprecated — kept for legacy fallback
+  category?: PageCategory;      // populated ObjectId → PageCategory
   sortOrder: number;
   isSystem: boolean;
   isActive: boolean;
+}
+
+// Tree types (mirrors pages.tsx hierarchy from /api/rbac/pages/tree-structure)
+interface TreePage {
+  _id: string;
+  name: string;
+  displayName: string;
+  route: string;
+  icon: string;
+  isActive: boolean;
+  isSystem: boolean;
+  isMenuGroup: boolean;
+  menuGroupLevel?: 1 | 2 | null;
+  sortOrder: number;
+  featureFlags?: { enabledForAll?: boolean };  // always accessible pages (e.g. auth pages)
+  l2Groups?: TreePage[];       // L1 only
+  directChildren?: TreePage[]; // L1 only
+  children?: TreePage[];       // L2 only
+}
+
+interface CategoryTree {
+  _id: string;
+  identifier: string;
+  displayName: string;
+  label: string;
+  sortOrder: number;
+  l1MenuGroups: TreePage[];
+  directChildren: TreePage[];
 }
 
 interface ModuleStats {
@@ -82,15 +118,13 @@ const MODULE_CATEGORY_LABELS: Record<string, string> = {
   'reports': 'Reports',
 };
 
-// Only allow these modules to be displayed/managed
-const ALLOWED_MODULES = ['hrm', 'projects', 'crm'];
-
 const Modules = () => {
   // State
   const [loading, setLoading] = useState(true);
+  const [loadingTree, setLoadingTree] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modules, setModules] = useState<Module[]>([]);
-  const [allPages, setAllPages] = useState<Page[]>([]);
+  const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [stats, setStats] = useState<ModuleStats | null>(null);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [showModuleModal, setShowModuleModal] = useState(false);
@@ -99,7 +133,9 @@ const Modules = () => {
 
   // Page configuration state
   const [modulePages, setModulePages] = useState<ModulePage[]>([]);
-  const [expandedPageCategories, setExpandedPageCategories] = useState<Set<string>>(new Set());
+  const [expandedCatIds, setExpandedCatIds] = useState<Set<string>>(new Set());
+  const [expandedL1Ids, setExpandedL1Ids] = useState<Set<string>>(new Set());
+  const [expandedL2Ids, setExpandedL2Ids] = useState<Set<string>>(new Set());
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -120,7 +156,7 @@ const Modules = () => {
   useEffect(() => {
     fetchModules();
     fetchStats();
-    fetchAllPages();
+    fetchTreeStructure();
   }, []);
 
   const fetchModules = async () => {
@@ -129,11 +165,7 @@ const Modules = () => {
       const response = await fetch(`${API_BASE}/api/rbac/modules`);
       const data = await response.json();
       if (data.success) {
-        // Only display HRM, Projects, and CRM modules
-        const filteredModules = data.data.filter(mod =>
-          ALLOWED_MODULES.includes(mod.name)
-        );
-        setModules(filteredModules);
+        setModules(data.data);
       }
     } catch (error) {
       console.error('Error fetching modules:', error);
@@ -154,15 +186,17 @@ const Modules = () => {
     }
   };
 
-  const fetchAllPages = async () => {
+  // Fetch full hierarchical page tree (same endpoint as Pages page)
+  const fetchTreeStructure = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/rbac/modules/pages`);
+      setLoadingTree(true);
+      const response = await fetch(`${API_BASE}/api/rbac/pages/tree-structure`);
       const data = await response.json();
-      if (data.success) {
-        setAllPages(data.data);
-      }
+      if (data.success) setCategoryTree(data.data);
     } catch (error) {
-      console.error('Error fetching pages:', error);
+      console.error('Error fetching page tree:', error);
+    } finally {
+      setLoadingTree(false);
     }
   };
 
@@ -267,26 +301,118 @@ const Modules = () => {
     setShowPageModal(true);
   };
 
-  // Expand all categories when modal opens and allPages is available
-  useEffect(() => {
-    if (showPageModal && allPages.length > 0) {
-      const categories = Array.from(new Set(allPages.map(p => p.moduleCategory)));
-      setExpandedPageCategories(new Set(categories));
-    }
-  }, [showPageModal, allPages]);
+  // ── Leaf-page ID collectors (excludes always-on pages — they can't be toggled) ──
+  const getLeafIdsFromL2 = (l2: TreePage): string[] =>
+    (l2.children || []).filter(p => !isAlwaysOn(p)).map(p => p._id);
 
-  // Toggle page category expansion
-  const togglePageCategory = (category: string) => {
-    const newExpanded = new Set(expandedPageCategories);
-    if (newExpanded.has(category)) {
-      newExpanded.delete(category);
-    } else {
-      newExpanded.add(category);
-    }
-    setExpandedPageCategories(newExpanded);
+  const getLeafIdsFromL1 = (l1: TreePage): string[] => [
+    ...(l1.directChildren || []).filter(p => !isAlwaysOn(p)).map(p => p._id),
+    ...(l1.l2Groups || []).flatMap(l2 => getLeafIdsFromL2(l2)),
+  ];
+
+  const getLeafIdsFromCategory = (cat: CategoryTree): string[] => [
+    ...(cat.directChildren || []).filter(p => !isAlwaysOn(p)).map(p => p._id),
+    ...(cat.l1MenuGroups || []).flatMap(l1 => getLeafIdsFromL1(l1)),
+  ];
+
+  // True if a page is always accessible (no module assignment needed)
+  const isAlwaysOn = (page: TreePage) => page.featureFlags?.enabledForAll === true;
+
+  // True if a category has at least one configurable (non-always-on) page
+  const categoryHasConfigurablePages = (cat: CategoryTree): boolean => {
+    if ((cat.directChildren || []).some(p => !isAlwaysOn(p))) return true;
+    return (cat.l1MenuGroups || []).some(l1 =>
+      (l1.directChildren || []).some(p => !isAlwaysOn(p)) ||
+      (l1.l2Groups || []).some(l2 => (l2.children || []).some(p => !isAlwaysOn(p)))
+    );
   };
 
-  // Toggle page assignment (add/remove)
+  // Flat list of assignable leaf pages (excludes always-on pages — they need no assignment)
+  const allLeafPages = React.useMemo<TreePage[]>(() => {
+    const pages: TreePage[] = [];
+    for (const cat of categoryTree) {
+      for (const p of cat.directChildren || []) if (!isAlwaysOn(p)) pages.push(p);
+      for (const l1 of cat.l1MenuGroups || []) {
+        for (const p of l1.directChildren || []) if (!isAlwaysOn(p)) pages.push(p);
+        for (const l2 of l1.l2Groups || []) {
+          for (const p of l2.children || []) if (!isAlwaysOn(p)) pages.push(p);
+        }
+      }
+    }
+    return pages;
+  }, [categoryTree]);
+
+  // ── Assignment helpers ─────────────────────────────────────────────────────
+  const resolveModulePageId = (mp: ModulePage): string | null => {
+    const raw = mp.pageId as any;
+    if (raw === null || raw === undefined) return null;
+    const id = typeof raw === 'object' ? String(raw._id) : String(raw);
+    // Reject placeholder strings that are not real ObjectIds
+    return id && id !== 'null' && id !== 'undefined' ? id : null;
+  };
+
+  const isPageAssigned = (pageId: string): boolean =>
+    modulePages.some(mp => {
+      const id = resolveModulePageId(mp);
+      return id !== null && id === String(pageId);
+    });
+
+  type AssignState = 'all' | 'some' | 'none';
+  const getAssignState = (pageIds: string[]): AssignState => {
+    if (!pageIds.length) return 'none';
+    const n = pageIds.filter(id => isPageAssigned(id)).length;
+    if (n === 0) return 'none';
+    if (n === pageIds.length) return 'all';
+    return 'some';
+  };
+
+  // Bulk assign/unassign via PUT /api/rbac/modules/:id/pages (replaces all)
+  const handleGroupToggle = async (pageIds: string[], assign: boolean) => {
+    if (!selectedModule) return;
+    try {
+      setSaving(true);
+      const currentIds = modulePages.map(resolveModulePageId).filter((id): id is string => id !== null);
+      let nextIds: string[];
+      if (assign) {
+        nextIds = [...new Set([...currentIds, ...pageIds])];
+      } else {
+        const removeSet = new Set(pageIds);
+        nextIds = currentIds.filter(id => !removeSet.has(id));
+      }
+      const body = { pages: nextIds.map(pageId => ({ pageId, isActive: true })) };
+      const response = await fetch(`${API_BASE}/api/rbac/modules/${selectedModule._id}/pages`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (data.success) setModulePages(data.data.pages || []);
+      else alert(data.error?.message || 'Failed to update pages');
+    } catch (error) {
+      console.error('Error updating pages:', error);
+      alert('Failed to update pages');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Auto-expand all categories when the page modal opens
+  useEffect(() => {
+    if (showPageModal && categoryTree.length > 0) {
+      setExpandedCatIds(new Set(categoryTree.map(c => c._id)));
+    }
+  }, [showPageModal, categoryTree]);
+
+  const toggleCat = (id: string) =>
+    setExpandedCatIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const toggleL1 = (id: string) =>
+    setExpandedL1Ids(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const toggleL2 = (id: string) =>
+    setExpandedL2Ids(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  // Toggle individual page assignment (add/remove)
   const handleTogglePageAssignment = async (pageId: string, isCurrentlyAssigned: boolean) => {
     if (isCurrentlyAssigned) {
       await handleRemovePage(pageId);
@@ -294,29 +420,6 @@ const Modules = () => {
       await handleAddPage(pageId);
     }
   };
-
-  // Group pages by category
-  const groupedPages = React.useMemo(() => {
-    const groups: { category: string; pages: Page[] }[] = [];
-    const categoryMap = new Map<string, Page[]>();
-
-    allPages.forEach(page => {
-      const category = page.moduleCategory || 'uncategorized';
-      if (!categoryMap.has(category)) {
-        categoryMap.set(category, []);
-      }
-      categoryMap.get(category)!.push(page);
-    });
-
-    categoryMap.forEach((pages, category) => {
-      // Sort pages by sortOrder within each category
-      const sortedPages = [...pages].sort((a, b) => a.sortOrder - b.sortOrder);
-      groups.push({ category, pages: sortedPages });
-    });
-
-    // Sort categories alphabetically
-    return groups.sort((a, b) => a.category.localeCompare(b.category));
-  }, [allPages]);
 
   // Handle add page to module
   const handleAddPage = async (pageId: string) => {
@@ -528,7 +631,7 @@ const Modules = () => {
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         Total Pages
                       </p>
-                      <h4>{allPages.length || 0}</h4>
+                      <h4>{allLeafPages.length || 0}</h4>
                     </div>
                   </div>
                 </div>
@@ -872,7 +975,7 @@ const Modules = () => {
                     </h6>
                     <div className="d-flex align-items-center gap-3">
                       <span className="text-muted small">
-                        {modulePages.length} of {allPages.length} assigned
+                        {modulePages.length} of {allLeafPages.length} assigned
                       </span>
                       {saving && (
                         <span className="badge bg-warning">
@@ -881,104 +984,232 @@ const Modules = () => {
                       )}
                     </div>
                   </div>
-                  <div className="card-body p-0" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                    <div className="table-responsive">
-                      <table className="table table-bordered mb-0">
-                        <thead className="table-light">
-                          <tr>
-                            <th style={{ width: '35%' }}>Page Name</th>
-                            <th style={{ width: '25%' }}>Route</th>
-                            <th className="text-center" style={{ width: '20%' }}>
-                              <i className="ti ti-check me-1"></i>Assigned
-                            </th>
-                            <th className="text-center" style={{ width: '20%' }}>
-                              <i className="ti ti-power me-1"></i>Active
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {groupedPages.map(group => (
-                            <React.Fragment key={group.category}>
-                              {/* Category Header Row */}
-                              <tr className="table-light">
-                                <td colSpan={4}>
-                                  <button
-                                    className="btn btn-link text-decoration-none p-0 fw-bold"
-                                    onClick={() => togglePageCategory(group.category)}
-                                  >
-                                    <i className={`ti ti-chevron-${expandedPageCategories.has(group.category) ? 'down' : 'right'} me-1`}></i>
-                                    {MODULE_CATEGORY_LABELS[group.category] || group.category.replace('-', ' ').toUpperCase()}
-                                    <span className="badge bg-secondary ms-2">
-                                      {modulePages.filter(mp => {
-                                        const mpPageId = typeof mp.pageId === 'object' && mp.pageId !== null
-                                          ? (mp.pageId as any)._id
-                                          : mp.pageId;
-                                        return group.pages.some(p => String(p._id) === String(mpPageId));
-                                      }).length}/{group.pages.length}
-                                    </span>
-                                  </button>
-                                </td>
-                              </tr>
-                              {/* Pages in this category */}
-                              {expandedPageCategories.has(group.category) && group.pages.map(page => {
-                                // Handle populated pageId (object with _id) vs string
-                                const modulePage = modulePages.find(mp => {
-                                  const mpPageId = typeof mp.pageId === 'object' && mp.pageId !== null
-                                    ? (mp.pageId as any)._id
-                                    : mp.pageId;
-                                  return String(mpPageId) === String(page._id);
-                                });
-                                const isAssigned = !!modulePage;
-                                const isActive = modulePage?.isActive ?? false;
-                                return (
-                                  <tr key={page._id} className={isAssigned ? '' : 'table-light'}>
-                                    <td>
-                                      <div className="d-flex align-items-center">
-                                        <i className={`${page.icon} me-2 text-muted`}></i>
-                                        <div>
-                                          <span className="text-gray-9">{page.displayName}</span>
-                                          <br />
-                                          <small className="text-muted">{page.name}</small>
-                                        </div>
-                                      </div>
-                                    </td>
-                                    <td>
-                                      <code className="small">{page.route}</code>
-                                    </td>
-                                    <td className="text-center">
-                                      <div className="form-check form-check-md d-flex justify-content-center">
-                                        <input
-                                          className="form-check-input"
-                                          type="checkbox"
-                                          checked={isAssigned}
-                                          onChange={() => handleTogglePageAssignment(page._id, isAssigned)}
-                                          disabled={saving}
-                                        />
-                                      </div>
-                                    </td>
-                                    <td className="text-center">
-                                      <div className="form-check form-check-md d-flex justify-content-center">
-                                        <input
-                                          className="form-check-input"
-                                          type="checkbox"
-                                          checked={isActive}
-                                          onChange={() => handleTogglePage(page._id)}
-                                          disabled={saving || !isAssigned}
-                                        />
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {allPages.length === 0 && (
+                  <div className="card-body p-0" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                    {categoryTree.length === 0 ? (
                       <div className="text-center py-5 text-muted">
                         <i className="ti ti-file-off fs-1"></i>
                         <p className="mt-2 mb-0">No pages found in the system.</p>
+                      </div>
+                    ) : (
+                      <div className="table-responsive">
+                        <table className="table table-bordered mb-0">
+                          <thead className="table-light">
+                            <tr>
+                              <th>Page Structure</th>
+                              <th className="text-center" style={{ width: '90px' }}>Assigned</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {categoryTree.map(cat => {
+                              // Skip categories where all pages are always-on (e.g. Authentication)
+                              if (!categoryHasConfigurablePages(cat)) return null;
+                              const catLeafIds = getLeafIdsFromCategory(cat);
+                              const catState: AssignState = getAssignState(catLeafIds);
+                              const catExpanded = expandedCatIds.has(cat._id);
+                              const assignedCount = catLeafIds.filter(id => isPageAssigned(id)).length;
+                              return (
+                                <React.Fragment key={cat._id}>
+
+                                  {/* ── Category row ── */}
+                                  <tr style={{ backgroundColor: '#1a1f2e' }}>
+                                    <td>
+                                      <div
+                                        className="d-flex align-items-center p-1 cursor-pointer"
+                                        style={{ color: '#fff' }}
+                                        onClick={() => toggleCat(cat._id)}
+                                      >
+                                        <i className={`ti ti-chevron-${catExpanded ? 'down' : 'right'} me-2`} style={{ color: '#fff' }}></i>
+                                        <span className="badge bg-primary me-2">{cat.identifier}</span>
+                                        <span className="fw-bold" style={{ color: '#000' }}>{cat.displayName}</span>
+                                        <span className="badge bg-info ms-2">{assignedCount}/{catLeafIds.length}</span>
+                                      </div>
+                                    </td>
+                                    <td className="text-center align-middle">
+                                      <input
+                                        ref={el => { if (el) el.indeterminate = catState === 'some'; }}
+                                        className="form-check-input"
+                                        type="checkbox"
+                                        checked={catState === 'all'}
+                                        onChange={() => handleGroupToggle(catLeafIds, catState !== 'all')}
+                                        disabled={saving || !catLeafIds.length}
+                                        title={catState === 'all' ? 'Unassign all' : 'Assign all'}
+                                      />
+                                    </td>
+                                  </tr>
+
+                                  {catExpanded && (
+                                    <>
+                                      {/* Category direct children (excludes always-on pages) */}
+                                      {cat.directChildren?.filter(p => !isAlwaysOn(p)).map(page => {
+                                        const assigned = isPageAssigned(page._id);
+                                        return (
+                                          <tr key={page._id} className={assigned ? '' : 'table-light'}>
+                                            <td>
+                                              <div className="d-flex align-items-center p-1" style={{ paddingLeft: '32px' }}>
+                                                <i className={`${page.icon || 'ti ti-file'} me-2 text-muted`}></i>
+                                                <span>{page.displayName}</span>
+                                                {page.isSystem && <span className="badge bg-info ms-1">System</span>}
+                                                {page.route && <code className="small text-muted ms-2">{page.route}</code>}
+                                              </div>
+                                            </td>
+                                            <td className="text-center align-middle">
+                                              <input
+                                                className="form-check-input"
+                                                type="checkbox"
+                                                checked={assigned}
+                                                onChange={() => handleTogglePageAssignment(page._id, assigned)}
+                                                disabled={saving}
+                                              />
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+
+                                      {/* L1 Menu Groups */}
+                                      {cat.l1MenuGroups?.map(l1 => {
+                                        const l1LeafIds = getLeafIdsFromL1(l1);
+                                        const l1State: AssignState = getAssignState(l1LeafIds);
+                                        const l1Expanded = expandedL1Ids.has(l1._id);
+                                        const l1Count = l1LeafIds.filter(id => isPageAssigned(id)).length;
+                                        return (
+                                          <React.Fragment key={l1._id}>
+
+                                            {/* ── L1 row ── */}
+                                            <tr className="table-light">
+                                              <td>
+                                                <div
+                                                  className="d-flex align-items-center p-1 cursor-pointer"
+                                                  style={{ paddingLeft: '24px' }}
+                                                  onClick={() => toggleL1(l1._id)}
+                                                >
+                                                  <i className={`ti ti-chevron-${l1Expanded ? 'down' : 'right'} me-2 text-muted`}></i>
+                                                  <i className={`${l1.icon || 'ti ti-folder'} me-2 text-primary`}></i>
+                                                  <span className="fw-semibold text-primary">{l1.displayName}</span>
+                                                  <span className="badge bg-light text-dark border ms-2" style={{ fontSize: '10px' }}>L1</span>
+                                                  <span className="badge bg-secondary ms-2">{l1Count}/{l1LeafIds.length}</span>
+                                                </div>
+                                              </td>
+                                              <td className="text-center align-middle">
+                                                <input
+                                                  ref={el => { if (el) el.indeterminate = l1State === 'some'; }}
+                                                  className="form-check-input"
+                                                  type="checkbox"
+                                                  checked={l1State === 'all'}
+                                                  onChange={() => handleGroupToggle(l1LeafIds, l1State !== 'all')}
+                                                  disabled={saving || !l1LeafIds.length}
+                                                  title={l1State === 'all' ? 'Unassign all' : 'Assign all in group'}
+                                                />
+                                              </td>
+                                            </tr>
+
+                                            {l1Expanded && (
+                                              <>
+                                                {/* L1 direct children (excludes always-on pages) */}
+                                                {l1.directChildren?.filter(p => !isAlwaysOn(p)).map(page => {
+                                                  const assigned = isPageAssigned(page._id);
+                                                  return (
+                                                    <tr key={page._id} className={assigned ? '' : 'table-light'}>
+                                                      <td>
+                                                        <div className="d-flex align-items-center p-1" style={{ paddingLeft: '48px' }}>
+                                                          <i className={`${page.icon || 'ti ti-file'} me-2 text-muted`}></i>
+                                                          <span>{page.displayName}</span>
+                                                          {page.isSystem && <span className="badge bg-info ms-1">System</span>}
+                                                          {page.route && <code className="small text-muted ms-2">{page.route}</code>}
+                                                        </div>
+                                                      </td>
+                                                      <td className="text-center align-middle">
+                                                        <input
+                                                          className="form-check-input"
+                                                          type="checkbox"
+                                                          checked={assigned}
+                                                          onChange={() => handleTogglePageAssignment(page._id, assigned)}
+                                                          disabled={saving}
+                                                        />
+                                                      </td>
+                                                    </tr>
+                                                  );
+                                                })}
+
+                                                {/* L2 Menu Groups */}
+                                                {l1.l2Groups?.map(l2 => {
+                                                  const l2LeafIds = getLeafIdsFromL2(l2);
+                                                  const l2State: AssignState = getAssignState(l2LeafIds);
+                                                  const l2Expanded = expandedL2Ids.has(l2._id);
+                                                  const l2Count = l2LeafIds.filter(id => isPageAssigned(id)).length;
+                                                  return (
+                                                    <React.Fragment key={l2._id}>
+
+                                                      {/* ── L2 row ── */}
+                                                      <tr style={{ backgroundColor: '#eef2ff' }}>
+                                                        <td>
+                                                          <div
+                                                            className="d-flex align-items-center p-1 cursor-pointer"
+                                                            style={{ paddingLeft: '48px' }}
+                                                            onClick={() => toggleL2(l2._id)}
+                                                          >
+                                                            <i className={`ti ti-chevron-${l2Expanded ? 'down' : 'right'} me-2 text-muted`}></i>
+                                                            <i className={`${l2.icon || 'ti ti-folder'} me-2 text-info`}></i>
+                                                            <span className="fw-semibold text-info">{l2.displayName}</span>
+                                                            <span className="badge bg-light text-dark border ms-2" style={{ fontSize: '10px' }}>L2</span>
+                                                            <span className="badge bg-secondary ms-2">{l2Count}/{l2LeafIds.length}</span>
+                                                          </div>
+                                                        </td>
+                                                        <td className="text-center align-middle">
+                                                          <input
+                                                            ref={el => { if (el) el.indeterminate = l2State === 'some'; }}
+                                                            className="form-check-input"
+                                                            type="checkbox"
+                                                            checked={l2State === 'all'}
+                                                            onChange={() => handleGroupToggle(l2LeafIds, l2State !== 'all')}
+                                                            disabled={saving || !l2LeafIds.length}
+                                                            title={l2State === 'all' ? 'Unassign all' : 'Assign all in group'}
+                                                          />
+                                                        </td>
+                                                      </tr>
+
+                                                      {/* L2 children (excludes always-on pages) */}
+                                                      {l2Expanded && l2.children?.filter(p => !isAlwaysOn(p)).map(page => {
+                                                        const assigned = isPageAssigned(page._id);
+                                                        return (
+                                                          <tr key={page._id} className={assigned ? '' : 'table-light'}>
+                                                            <td>
+                                                              <div className="d-flex align-items-center p-1" style={{ paddingLeft: '72px' }}>
+                                                                <i className={`${page.icon || 'ti ti-file'} me-2 text-muted`}></i>
+                                                                <span>{page.displayName}</span>
+                                                                {page.isSystem && <span className="badge bg-info ms-1">System</span>}
+                                                                {page.route && <code className="small text-muted ms-2">{page.route}</code>}
+                                                              </div>
+                                                            </td>
+                                                            <td className="text-center align-middle">
+                                                              <input
+                                                                className="form-check-input"
+                                                                type="checkbox"
+                                                                checked={assigned}
+                                                                onChange={() => handleTogglePageAssignment(page._id, assigned)}
+                                                                disabled={saving}
+                                                              />
+                                                            </td>
+                                                          </tr>
+                                                        );
+                                                      })}
+
+                                                    </React.Fragment>
+                                                  );
+                                                })}
+                                              </>
+                                            )}
+
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>

@@ -14,6 +14,46 @@
 
 import Page from '../models/rbac/page.schema.js';
 import Role from '../models/rbac/role.schema.js';
+import { Company } from '../models/superadmin/package.schema.js';
+import '../models/rbac/module.schema.js'; // register Module for populate
+
+// ── Plan-based page cache ─────────────────────────────────────────────────────
+// Caches the set of enabled page names per company for 5 minutes.
+// This avoids a deep populate on every API call while still enforcing plan access.
+const _planCache = new Map(); // companyId -> { names: Set<string>, exp: number }
+const PLAN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getEnabledPageNamesForCompany(companyId) {
+  const entry = _planCache.get(companyId);
+  if (entry && entry.exp > Date.now()) return entry.names;
+
+  const company = await Company.findById(companyId).populate({
+    path: 'planId',
+    populate: {
+      path: 'planModules.moduleId',
+      populate: { path: 'pages.pageId', select: 'name isActive' },
+    },
+  });
+
+  const names = new Set();
+  for (const pm of company?.planId?.planModules || []) {
+    if (pm.isActive === false) continue;
+    const mod = pm.moduleId;
+    if (!mod || mod.isActive === false) continue;
+    for (const ref of mod.pages || []) {
+      if (ref.isActive === false) continue;
+      if (ref.pageId?.isActive !== false && ref.pageId?.name) names.add(ref.pageId.name);
+    }
+  }
+
+  _planCache.set(companyId, { names, exp: Date.now() + PLAN_CACHE_TTL });
+  return names;
+}
+
+// Call this whenever a company's plan/modules change to invalidate the cache
+export function invalidateCompanyPlanCache(companyId) {
+  if (companyId) _planCache.delete(String(companyId));
+}
 
 /**
  * Check if user has access to a specific page with the required action
@@ -64,6 +104,26 @@ export const requirePageAccess = (pageName, action = 'read') => {
           message: `You don't have '${action}' permission for this page.`,
           page: pageName
         });
+      }
+
+      // ── Plan-based entitlement check ────────────────────────────────────────
+      // Verify the page is enabled in the company's plan (Company → Plan → Module → Pages).
+      // Skip for: superadmin (no companyId), enabledForAll pages (e.g. auth), no companyId (dev).
+      if (companyId && !page.featureFlags?.enabledForAll && role.name !== 'superadmin') {
+        try {
+          const enabledNames = await getEnabledPageNamesForCompany(companyId);
+          if (enabledNames.size > 0 && !enabledNames.has(pageName)) {
+            return res.status(402).json({
+              success: false,
+              error: 'Feature not available',
+              message: 'This page is not included in your company\'s plan.',
+              page: pageName
+            });
+          }
+        } catch (planErr) {
+          // Non-fatal: log and continue (avoids blocking users if plan query fails)
+          console.warn(`[PageAccess] Plan check failed for company=${companyId}: ${planErr.message}`);
+        }
       }
 
       // Check feature access if company context exists
@@ -383,5 +443,6 @@ export default {
   requirePageAccess,
   requireRouteAccess,
   requireFeatureAccess,
-  applyDataScope
+  applyDataScope,
+  invalidateCompanyPlanCache,
 };

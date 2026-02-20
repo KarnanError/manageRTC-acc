@@ -11,10 +11,11 @@ const ALLRoutes = () => {
       <Routes>
         <Route element={<Feature />}>
           {publicRoutes.map((route, idx) => {
-            // Wrap the route element with withRoleCheck
+            // Wrap the route element with withRoleCheck (passes route.path for plan-based check)
             const ElementWithRoleCheck = withRoleCheck(
               () => route.element,
-              route.roles
+              route.roles,
+              route.path
             );
 
             return (

@@ -60,6 +60,8 @@ const addCompany = async (data, user) => {
     // Step 1: Prepare initial company document
     const newCompany = {
       ...data,
+      // planId as BSON ObjectId — required for Mongoose populate (company → plan → modules → pages)
+      ...(data.plan_id && ObjectId.isValid(data.plan_id) && { planId: new ObjectId(data.plan_id) }),
       createdAt: new Date(),
       updatedAt: new Date(),
       createdby: user,
@@ -466,10 +468,11 @@ const updateCompany = async (form) => {
       plan_name: form.plan_name,
       plan_type: form.plan_type,
       plan_id: form.plan_id,
+      // planId as BSON ObjectId — required for Mongoose populate (company → plan → modules → pages)
+      ...(form.plan_id && ObjectId.isValid(form.plan_id) && { planId: new ObjectId(form.plan_id) }),
       created_by: existingcompany.created_by,
       updatedAt: new Date().toISOString(),
       logo: form.logo,
-      // Make sure to convert planModules array to the format your schema expects
     };
 
     // 3. Perform the update

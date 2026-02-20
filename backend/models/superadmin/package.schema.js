@@ -54,7 +54,8 @@ const planSchema = new mongoose.Schema({
   // Audit fields
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-}, { timestamps: true });
+// collection: 'packages' — Plan data lives in the 'packages' collection (Mongoose would default to 'plans')
+}, { timestamps: true, collection: 'packages' });
 
 // Indexes for plan
 planSchema.index({ planType: 1, status: 1 });

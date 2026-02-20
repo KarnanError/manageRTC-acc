@@ -14,6 +14,7 @@ import "../src/style/icon/ionic/ionicons.css";
 import "../src/style/icon/tabler-icons/webfont/tabler-icons.css";
 import "../src/style/icon/typicons/typicons.css";
 import "../src/style/icon/weather/weathericons.css";
+import { CompanyPagesProvider } from "./contexts/CompanyPagesContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import store from "./core/data/redux/store";
 import { base_path } from "./environment";
@@ -44,15 +45,17 @@ root.render(
     afterSignOutUrl="/"
   >
     <AuthProvider>
-      <SocketProvider>
-        <NotificationProvider>
-          <Provider store={store}>
-            <BrowserRouter basename={base_path}>
-              <ALLRoutes />
-            </BrowserRouter>
-          </Provider>
-        </NotificationProvider>
-      </SocketProvider>
+      <CompanyPagesProvider>
+        <SocketProvider>
+          <NotificationProvider>
+            <Provider store={store}>
+              <BrowserRouter basename={base_path}>
+                <ALLRoutes />
+              </BrowserRouter>
+            </Provider>
+          </NotificationProvider>
+        </SocketProvider>
+      </CompanyPagesProvider>
     </AuthProvider>
   </ClerkProvider>
   // </React.StrictMode>
