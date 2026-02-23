@@ -65,6 +65,8 @@ const allowedOrigins = [
   "https://devmanagertc.amasqis.ai",
   "https://dev.manage-rtc.com",
   "https://apidev.manage-rtc.com",
+  "https://acc.manage-rtc.com",
+  "https://apiacc.manage-rtc.com",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -79,6 +81,8 @@ const authorizedParties = [
   "https://devmanagertc.amasqis.ai",
   "https://dev.manage-rtc.com",
   "https://apidev.manage-rtc.com",
+  "https://acc.manage-rtc.com",
+  "https://apiacc.manage-rtc.com",
 ];
 
 export const socketHandler = (httpServer) => {

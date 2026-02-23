@@ -20,6 +20,9 @@ const authorizedParties = [
   'http://localhost:5173',
   'https://dev.manage-rtc.com',
   'https://apidev.manage-rtc.com',
+  'https://acc.manage-rtc.com',
+  'https://apiacc.manage-rtc.com',
+
 ];
 
 // Use JWT key directly - Clerk's verifyToken accepts the raw base64 key
