@@ -9,6 +9,7 @@ import { all_routes } from '../../router/all_routes';
 import AddSubContract from './add_subcontract';
 import DeleteSubContract from './delete_subcontract';
 import EditSubContract from './edit_subcontract';
+import ViewSubContract from './view_subcontract';
 
 interface SubContract {
   _id: string;
@@ -201,6 +202,28 @@ const SubContractList = () => {
     }, 100);
   };
 
+  const handleViewSubContract = (subcontract: SubContract) => {
+    console.log('[SubContractList] Opening view modal for:', subcontract);
+    window.dispatchEvent(
+      new CustomEvent('view-subcontract', {
+        detail: { subcontract },
+      })
+    );
+
+    // Open the modal using Bootstrap
+    setTimeout(() => {
+      const modal = document.getElementById('view_subcontract');
+      if (modal) {
+        if ((window as any).bootstrap && (window as any).bootstrap.Modal) {
+          const bootstrapModal = new (window as any).bootstrap.Modal(modal);
+          bootstrapModal.show();
+        } else if ((window as any).$ && (window as any).$.fn && (window as any).$.fn.modal) {
+          (window as any).$('#view_subcontract').modal('show');
+        }
+      }
+    }, 100);
+  };
+
   const columns = [
     {
       title: 'Contract ID',
@@ -280,6 +303,17 @@ const SubContractList = () => {
       dataIndex: 'action',
       render: (_: any, record: SubContract) => (
         <div className="d-flex align-items-center">
+          <Link
+            to="#"
+            className="btn btn-sm btn-icon btn-info me-2"
+            onClick={(e) => {
+              e.preventDefault();
+              handleViewSubContract(record);
+            }}
+            title="View Sub-Contract Details"
+          >
+            <i className="ti ti-eye" />
+          </Link>
           <Link
             to="#"
             className="btn btn-sm btn-icon btn-primary me-2"
@@ -612,6 +646,7 @@ const SubContractList = () => {
       <AddSubContract />
       <EditSubContract />
       <DeleteSubContract />
+      <ViewSubContract />
     </>
   );
 };

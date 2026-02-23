@@ -525,6 +525,24 @@ export const HorizontalSidebarData = [
                 showSubRoute: false,
               },
               {
+                menuValue: 'Team Leaves',
+                route: routes.leavemanager,
+                hasSubRoute: false,
+                showSubRoute: false,
+              },
+              {
+                menuValue: 'Leave Calendar',
+                route: routes.leaveCalendar,
+                hasSubRoute: false,
+                showSubRoute: false,
+              },
+              {
+                menuValue: 'Leave Balance History',
+                route: routes.leaveLedger,
+                hasSubRoute: false,
+                showSubRoute: false,
+              },
+              {
                 menuValue: 'Leave Settings',
                 route: routes.leavesettings,
                 hasSubRoute: false,

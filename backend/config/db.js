@@ -65,6 +65,9 @@ export const getTenantCollections = (tenantDbName) => {
   if (!isConnected) {
     throw new Error('MongoDB client not connected yet. Call connectDB() first.');
   }
+  if (!tenantDbName) {
+    throw new Error('Company ID (tenantDbName) is required. Please ensure your Clerk user has companyId set in publicMetadata.');
+  }
   const db = client.db(tenantDbName);
   return {
     // Existing collections
@@ -136,6 +139,12 @@ export const getTenantCollections = (tenantDbName) => {
     batches: db.collection('batches'),
     batchAssignmentHistory: db.collection('batchAssignmentHistory'),
 
+    // Leave Ledger (balance history)
+    leaveLedger: db.collection('leaveLedger'),
+
+    // Custom Leave Policies
+    customLeavePolicies: db.collection('custom_leave_policies'),
+
     // Time Tracking
     timeEntries: db.collection('timeEntries'),
 
@@ -172,6 +181,8 @@ export const getTenantCollections = (tenantDbName) => {
     trainings: db.collection('trainings'),
     // Sub-contracts
     subcontracts: db.collection('subcontracts'),
+    // Project contracts (worker assignments)
+    projectcontracts: db.collection('projectcontracts'),
   };
 };
 

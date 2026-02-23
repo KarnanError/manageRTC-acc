@@ -199,6 +199,8 @@ import PerformanceIndicator from '../performance/performanceIndicator';
 import PerformanceReview from '../performance/performanceReview';
 import ClientDetails from '../projects/client/clientdetails';
 import ClientList from '../projects/client/clientlist';
+import ContractDetails from '../projects/contract/contractdetails';
+import ContractList from '../projects/contract/contractlist';
 import Project from '../projects/project/project';
 import ProjectDetails from '../projects/project/projectdetails';
 import SubContractList from '../projects/subcontract/subcontractlist';
@@ -281,6 +283,9 @@ import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
 import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
 import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
+import LeaveManager from '../hrm/attendance/leaves/leaveManager';
+import LeaveCalendar from '../hrm/attendance/leaves/leaveCalendar';
+import LeaveLedger from '../hrm/attendance/leaves/leaveLedger';
 import LeaveSettings from '../hrm/attendance/leaves/leavesettings';
 import OverTime from '../hrm/attendance/overtime';
 import ScheduleTiming from '../hrm/attendance/scheduletiming';
@@ -1641,6 +1646,18 @@ export const publicRoutes = [
     roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
+    path: routes.contractlist,
+    element: <ContractList />,
+    route: Route,
+    roles: ['admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.contractdetails,
+    element: <ContractDetails />,
+    route: Route,
+    roles: ['admin', 'hr', 'superadmin'],
+  },
+  {
     path: routes.subcontractlist,
     element: <SubContractList />,
     route: Route,
@@ -1813,6 +1830,24 @@ export const publicRoutes = [
     element: <LeaveEmployee />,
     route: Route,
     roles: ['employee', 'admin', 'hr', 'manager', 'superadmin'],
+  },
+  {
+    path: routes.leavemanager,
+    element: <LeaveManager />,
+    route: Route,
+    roles: ['manager', 'admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.leaveCalendar,
+    element: <LeaveCalendar />,
+    route: Route,
+    roles: ['employee', 'manager', 'admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.leaveLedger,
+    element: <LeaveLedger />,
+    route: Route,
+    roles: ['employee', 'manager', 'admin', 'hr', 'superadmin'],
   },
   {
     path: routes.leavesettings,

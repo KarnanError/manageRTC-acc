@@ -144,18 +144,20 @@ const ProjectDetails = () => {
 
   // Sub-Contract state
   const [subContractName, setSubContractName] = useState('');
-  const [subContractDate, setSubContractDate] = useState<Dayjs | null>(null);
-  const [subContractMembers, setSubContractMembers] = useState('');
-  const [subContractAmount, setSubContractAmount] = useState('');
+  const [subContractStartDate, setSubContractStartDate] = useState<Dayjs | null>(null);
+  const [subContractEndDate, setSubContractEndDate] = useState<Dayjs | null>(null);
+  const [subContractCurrency, setSubContractCurrency] = useState('USD');
+  const [subContractBudget, setSubContractBudget] = useState('');
   const [subContractDescription, setSubContractDescription] = useState('');
   const [isSavingSubContract, setIsSavingSubContract] = useState(false);
   const [subContractModalError, setSubContractModalError] = useState<string | null>(null);
   const [subContractFieldErrors, setSubContractFieldErrors] = useState<Record<string, string>>({});
   const [editingSubContract, setEditingSubContract] = useState<any>(null);
   const [editSubContractName, setEditSubContractName] = useState('');
-  const [editSubContractDate, setEditSubContractDate] = useState<Dayjs | null>(null);
-  const [editSubContractMembers, setEditSubContractMembers] = useState('');
-  const [editSubContractAmount, setEditSubContractAmount] = useState('');
+  const [editSubContractStartDate, setEditSubContractStartDate] = useState<Dayjs | null>(null);
+  const [editSubContractEndDate, setEditSubContractEndDate] = useState<Dayjs | null>(null);
+  const [editSubContractCurrency, setEditSubContractCurrency] = useState('USD');
+  const [editSubContractBudget, setEditSubContractBudget] = useState('');
   const [editSubContractDescription, setEditSubContractDescription] = useState('');
   const [isSavingEditSubContract, setIsSavingEditSubContract] = useState(false);
   const [editSubContractModalError, setEditSubContractModalError] = useState<string | null>(null);
@@ -1262,21 +1264,28 @@ const ProjectDetails = () => {
   const validateSubContractField = (fieldName: string, value: any): string => {
     switch (fieldName) {
       case 'subContractName':
-        if (!value || !value.trim()) return 'Contract name is required';
-        if (value.trim().length < 3) return 'Contract name must be at least 3 characters';
+        if (!value || !value.trim()) return 'Contractor is required';
         break;
-      case 'subContractDate':
-        if (!value) return 'Contract date is required';
+      case 'subContractStartDate':
+        if (!value) return 'Start date is required';
         break;
-      case 'subContractMembers':
-        if (!value || !value.toString().trim()) return 'Number of members is required';
-        const numMembers = parseInt(value, 10);
-        if (isNaN(numMembers) || numMembers < 1) return 'Number of members must be at least 1';
+      case 'subContractEndDate':
+        if (!value) return 'End date is required';
         break;
-      case 'subContractAmount':
-        if (!value || !value.toString().trim()) return 'Total amount is required';
-        const numAmount = parseFloat(value);
-        if (isNaN(numAmount) || numAmount < 0) return 'Total amount cannot be negative';
+      case 'subContractCurrency':
+        if (!value || !value.trim()) return 'Currency is required';
+        break;
+      case 'subContractBudget':
+        if (!value || !value.trim()) return 'Budget is required';
+        const budgetNum = parseFloat(value);
+        if (isNaN(budgetNum) || budgetNum <= 0) return 'Budget must be a positive number';
+        if (project?.projectValue && budgetNum > project.projectValue) {
+          return `Budget cannot exceed project value (${project.projectValue})`;
+        }
+        break;
+      case 'subContractDescription':
+        if (!value || !value.trim()) return 'Description is required';
+        if (value.trim().length < 10) return 'Description must be at least 10 characters';
         break;
     }
     return '';
@@ -1304,42 +1313,97 @@ const ProjectDetails = () => {
     const nameError = validateSubContractField('subContractName', subContractName);
     if (nameError) errors.subContractName = nameError;
 
-    const dateError = validateSubContractField('subContractDate', subContractDate);
-    if (dateError) errors.subContractDate = dateError;
+    const startDateError = validateSubContractField('subContractStartDate', subContractStartDate);
+    if (startDateError) errors.subContractStartDate = startDateError;
 
-    const membersError = validateSubContractField('subContractMembers', subContractMembers);
-    if (membersError) errors.subContractMembers = membersError;
+    const endDateError = validateSubContractField('subContractEndDate', subContractEndDate);
+    if (endDateError) errors.subContractEndDate = endDateError;
 
-    const amountError = validateSubContractField('subContractAmount', subContractAmount);
-    if (amountError) errors.subContractAmount = amountError;
+    const currencyError = validateSubContractField('subContractCurrency', subContractCurrency);
+    if (currencyError) errors.subContractCurrency = currencyError;
+
+    const budgetError = validateSubContractField('subContractBudget', subContractBudget);
+    if (budgetError) errors.subContractBudget = budgetError;
+
+    const descriptionError = validateSubContractField(
+      'subContractDescription',
+      subContractDescription
+    );
+    if (descriptionError) errors.subContractDescription = descriptionError;
+
+    // Validate end date is after start date
+    if (
+      subContractStartDate &&
+      subContractEndDate &&
+      subContractEndDate.isBefore(subContractStartDate)
+    ) {
+      errors.subContractEndDate = 'End date must be after start date';
+    }
 
     setSubContractFieldErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [subContractName, subContractDate, subContractMembers, subContractAmount]);
+  }, [
+    subContractName,
+    subContractStartDate,
+    subContractEndDate,
+    subContractCurrency,
+    subContractBudget,
+    subContractDescription,
+    project,
+  ]);
 
   const validateEditSubContractForm = useCallback((): boolean => {
     const errors: Record<string, string> = {};
 
     // Contract name is readonly, no need to validate
 
-    const dateError = validateSubContractField('subContractDate', editSubContractDate);
-    if (dateError) errors.subContractDate = dateError;
+    const startDateError = validateSubContractField(
+      'subContractStartDate',
+      editSubContractStartDate
+    );
+    if (startDateError) errors.subContractStartDate = startDateError;
 
-    const membersError = validateSubContractField('subContractMembers', editSubContractMembers);
-    if (membersError) errors.subContractMembers = membersError;
+    const endDateError = validateSubContractField('subContractEndDate', editSubContractEndDate);
+    if (endDateError) errors.subContractEndDate = endDateError;
 
-    const amountError = validateSubContractField('subContractAmount', editSubContractAmount);
-    if (amountError) errors.subContractAmount = amountError;
+    const currencyError = validateSubContractField('subContractCurrency', editSubContractCurrency);
+    if (currencyError) errors.subContractCurrency = currencyError;
+
+    const budgetError = validateSubContractField('subContractBudget', editSubContractBudget);
+    if (budgetError) errors.subContractBudget = budgetError;
+
+    const descriptionError = validateSubContractField(
+      'subContractDescription',
+      editSubContractDescription
+    );
+    if (descriptionError) errors.subContractDescription = descriptionError;
+
+    // Validate end date is after start date
+    if (
+      editSubContractStartDate &&
+      editSubContractEndDate &&
+      editSubContractEndDate.isBefore(editSubContractStartDate)
+    ) {
+      errors.subContractEndDate = 'End date must be after start date';
+    }
 
     setEditSubContractFieldErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [editSubContractDate, editSubContractMembers, editSubContractAmount]);
+  }, [
+    editSubContractStartDate,
+    editSubContractEndDate,
+    editSubContractCurrency,
+    editSubContractBudget,
+    editSubContractDescription,
+    project,
+  ]);
 
   const closeAddSubContractModal = useCallback(() => {
     setSubContractName('');
-    setSubContractDate(null);
-    setSubContractMembers('');
-    setSubContractAmount('');
+    setSubContractStartDate(null);
+    setSubContractEndDate(null);
+    setSubContractCurrency('USD');
+    setSubContractBudget('');
     setSubContractDescription('');
     setSubContractModalError(null);
     setSubContractFieldErrors({});
@@ -1359,10 +1423,11 @@ const ProjectDetails = () => {
 
     try {
       const response = await apiPost(`/projects/${project._id}/subcontracts`, {
-        contractName: subContractName.trim(),
-        contractDate: subContractDate?.format('YYYY-MM-DD'),
-        numberOfMembers: parseInt(subContractMembers, 10),
-        totalAmount: parseFloat(subContractAmount),
+        contractId: subContractName.trim(),
+        startDate: subContractStartDate?.format('YYYY-MM-DD'),
+        endDate: subContractEndDate?.format('YYYY-MM-DD'),
+        currency: subContractCurrency,
+        budget: parseFloat(subContractBudget),
         description: subContractDescription.trim(),
       });
 
@@ -1384,9 +1449,8 @@ const ProjectDetails = () => {
   }, [
     project?._id,
     subContractName,
-    subContractDate,
-    subContractMembers,
-    subContractAmount,
+    subContractStartDate,
+    subContractEndDate,
     subContractDescription,
     validateSubContractForm,
     loadProjectSubContracts,
@@ -1396,9 +1460,10 @@ const ProjectDetails = () => {
   const handleOpenEditSubContract = useCallback((subContract: any) => {
     setEditingSubContract(subContract);
     setEditSubContractName(subContract.contractName || '');
-    setEditSubContractDate(subContract.contractDate ? dayjs(subContract.contractDate) : null);
-    setEditSubContractMembers(subContract.numberOfMembers?.toString() || '');
-    setEditSubContractAmount(subContract.totalAmount?.toString() || '');
+    setEditSubContractStartDate(subContract.startDate ? dayjs(subContract.startDate) : null);
+    setEditSubContractEndDate(subContract.endDate ? dayjs(subContract.endDate) : null);
+    setEditSubContractCurrency(subContract.currency || 'USD');
+    setEditSubContractBudget(subContract.budget ? subContract.budget.toString() : '');
     setEditSubContractDescription(subContract.description || '');
     setEditSubContractModalError(null);
     setEditSubContractFieldErrors({});
@@ -1417,9 +1482,10 @@ const ProjectDetails = () => {
   const closeEditSubContractModal = useCallback(() => {
     setEditingSubContract(null);
     setEditSubContractName('');
-    setEditSubContractDate(null);
-    setEditSubContractMembers('');
-    setEditSubContractAmount('');
+    setEditSubContractStartDate(null);
+    setEditSubContractEndDate(null);
+    setEditSubContractCurrency('USD');
+    setEditSubContractBudget('');
     setEditSubContractDescription('');
     setEditSubContractModalError(null);
     setEditSubContractFieldErrors({});
@@ -1441,10 +1507,10 @@ const ProjectDetails = () => {
       const response = await apiPut(
         `/projects/${project._id}/subcontracts/${editingSubContract._id}`,
         {
-          // contractName is readonly and linked to SubContract record
-          contractDate: editSubContractDate?.format('YYYY-MM-DD'),
-          numberOfMembers: parseInt(editSubContractMembers, 10),
-          totalAmount: parseFloat(editSubContractAmount),
+          startDate: editSubContractStartDate?.format('YYYY-MM-DD'),
+          endDate: editSubContractEndDate?.format('YYYY-MM-DD'),
+          currency: editSubContractCurrency,
+          budget: parseFloat(editSubContractBudget),
           description: editSubContractDescription.trim(),
         }
       );
@@ -1468,9 +1534,8 @@ const ProjectDetails = () => {
     editingSubContract,
     project?._id,
     editSubContractName,
-    editSubContractDate,
-    editSubContractMembers,
-    editSubContractAmount,
+    editSubContractStartDate,
+    editSubContractEndDate,
     editSubContractDescription,
     validateEditSubContractForm,
     loadProjectSubContracts,
@@ -2193,23 +2258,25 @@ const ProjectDetails = () => {
                     </div>
                     <div className="list-group-item">
                       <div className="d-flex align-items-center justify-content-between">
-                        <span>Total Amount</span>
+                        <span>Total Budget</span>
                         <p className="text-gray-9">
                           $
                           {subContracts
-                            .reduce((sum, sc) => sum + (sc.totalAmount || 0), 0)
+                            .reduce((sum, sc) => sum + (sc.budget || sc.totalAmount || 0), 0)
                             .toLocaleString()}
                         </p>
                       </div>
                     </div>
-                    <div className="list-group-item">
-                      <div className="d-flex align-items-center justify-content-between">
-                        <span>Total Members</span>
-                        <p className="text-gray-9">
-                          {subContracts.reduce((sum, sc) => sum + (sc.numberOfMembers || 0), 0)}
-                        </p>
+                    {subContracts.some((sc) => sc.numberOfMembers) && (
+                      <div className="list-group-item">
+                        <div className="d-flex align-items-center justify-content-between">
+                          <span>Total Members</span>
+                          <p className="text-gray-9">
+                            {subContracts.reduce((sum, sc) => sum + (sc.numberOfMembers || 0), 0)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div className="list-group-item">
                       <div className="d-flex align-items-center justify-content-between">
                         <span>Active Contracts</span>
@@ -2631,7 +2698,7 @@ const ProjectDetails = () => {
                               <>
                                 <div
                                   key={task._id}
-                                  className="list-group-item border bg-white rounded mb-3 p-3 shadow-sm"
+                                  className="list-group-item list-item-hover shadow-sm rounded mb-2 p-3"
                                 >
                                   <div className="row align-items-center row-gap-3">
                                     <div className="col-md-7">
@@ -2653,7 +2720,13 @@ const ProjectDetails = () => {
                                           />
                                         </span>
                                         <div className="strike-info">
-                                          <h4 className="fs-14">{task.title}</h4>
+                                          <h4 className="fs-14 text-truncate">
+                                            <Link
+                                              to={`${all_routes.tasksdetails.replace(':taskId', task._id)}`}
+                                            >
+                                              {task.title}
+                                            </Link>
+                                          </h4>
                                         </div>
                                       </div>
                                     </div>
@@ -3044,16 +3117,34 @@ const ProjectDetails = () => {
                                       </div>
                                       <p className="text-muted mb-1">
                                         <i className="ti ti-calendar me-1"></i>
-                                        Date: {dayjs(subContract.contractDate).format('DD-MM-YYYY')}
+                                        {subContract.startDate && subContract.endDate ? (
+                                          <>
+                                            {dayjs(subContract.startDate).format('DD-MM-YYYY')} -{' '}
+                                            {dayjs(subContract.endDate).format('DD-MM-YYYY')}
+                                          </>
+                                        ) : subContract.contractDate ? (
+                                          <>
+                                            Date:{' '}
+                                            {dayjs(subContract.contractDate).format('DD-MM-YYYY')}
+                                          </>
+                                        ) : (
+                                          'No date'
+                                        )}
                                       </p>
-                                      <p className="text-muted mb-1">
-                                        <i className="ti ti-users me-1"></i>
-                                        Members: {subContract.numberOfMembers}
-                                      </p>
+                                      {subContract.numberOfMembers && (
+                                        <p className="text-muted mb-1">
+                                          <i className="ti ti-users me-1"></i>
+                                          Members: {subContract.numberOfMembers}
+                                        </p>
+                                      )}
                                       <p className="text-muted mb-1">
                                         <span className="badge badge-success">
-                                          {subContract.currency}{' '}
-                                          {subContract.totalAmount.toLocaleString()}
+                                          {subContract.currency || '$'}{' '}
+                                          {(
+                                            subContract.budget ||
+                                            subContract.totalAmount ||
+                                            0
+                                          ).toLocaleString()}
                                         </span>
                                       </p>
                                       {subContract.description && (
@@ -3820,14 +3911,14 @@ const ProjectDetails = () => {
                 <div className="col-md-12">
                   <div className="mb-3">
                     <label className="form-label">
-                      Contract Name <span className="text-danger">*</span>
+                      Contractor <span className="text-danger">*</span>
                     </label>
                     <CommonSelect
                       className={`select ${subContractFieldErrors.subContractName ? 'is-invalid' : ''}`}
                       options={[
-                        { value: '', label: 'Select Sub-Contract' },
+                        { value: '', label: 'Select Contractor' },
                         ...availableSubContracts.map((sc) => ({
-                          value: sc.name,
+                          value: sc.contractId || sc._id,
                           label: sc.contractId
                             ? `${sc.name} (${sc.contractId.toUpperCase()})`
                             : sc.name,
@@ -3837,12 +3928,17 @@ const ProjectDetails = () => {
                         subContractName
                           ? {
                               value: subContractName,
-                              label: availableSubContracts.find((sc) => sc.name === subContractName)
-                                ?.contractId
-                                ? `${subContractName} (${availableSubContracts.find((sc) => sc.name === subContractName)?.contractId.toUpperCase()})`
-                                : subContractName,
+                              label: (() => {
+                                const found = availableSubContracts.find(
+                                  (sc) => (sc.contractId || sc._id) === subContractName
+                                );
+                                if (!found) return subContractName;
+                                return found.contractId
+                                  ? `${found.name} (${found.contractId.toUpperCase()})`
+                                  : found.name;
+                              })(),
                             }
-                          : { value: '', label: 'Select Sub-Contract' }
+                          : { value: '', label: 'Select Contractor' }
                       }
                       onChange={(option) => {
                         setSubContractName(option?.value || '');
@@ -3856,19 +3952,19 @@ const ProjectDetails = () => {
                     )}
                   </div>
                 </div>
-                <div className="col-md-12">
+                <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Contract Date <span className="text-danger">*</span>
+                      Start Date <span className="text-danger">*</span>
                     </label>
                     <div className="input-icon position-relative">
                       <DatePicker
-                        className={`form-control datetimepicker ${subContractFieldErrors.subContractDate ? 'is-invalid' : ''}`}
+                        className={`form-control datetimepicker ${subContractFieldErrors.subContractStartDate ? 'is-invalid' : ''}`}
                         format="DD-MM-YYYY"
-                        value={subContractDate}
+                        value={subContractStartDate}
                         onChange={(date) => {
-                          setSubContractDate(date);
-                          clearSubContractFieldError('subContractDate');
+                          setSubContractStartDate(date);
+                          clearSubContractFieldError('subContractStartDate');
                         }}
                         getPopupContainer={() =>
                           document.getElementById('add_subcontract_modal') || document.body
@@ -3878,9 +3974,9 @@ const ProjectDetails = () => {
                         <i className="ti ti-calendar" />
                       </span>
                     </div>
-                    {subContractFieldErrors.subContractDate && (
+                    {subContractFieldErrors.subContractStartDate && (
                       <div className="invalid-feedback d-block">
-                        {subContractFieldErrors.subContractDate}
+                        {subContractFieldErrors.subContractStartDate}
                       </div>
                     )}
                   </div>
@@ -3888,22 +3984,56 @@ const ProjectDetails = () => {
                 <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Number of Members <span className="text-danger">*</span>
+                      End Date <span className="text-danger">*</span>
                     </label>
-                    <input
-                      type="number"
-                      className={`form-control ${subContractFieldErrors.subContractMembers ? 'is-invalid' : ''}`}
-                      placeholder="Enter number of members"
-                      min="1"
-                      value={subContractMembers}
-                      onChange={(e) => {
-                        setSubContractMembers(e.target.value);
-                        clearSubContractFieldError('subContractMembers');
+                    <div className="input-icon position-relative">
+                      <DatePicker
+                        className={`form-control datetimepicker ${subContractFieldErrors.subContractEndDate ? 'is-invalid' : ''}`}
+                        format="DD-MM-YYYY"
+                        value={subContractEndDate}
+                        onChange={(date) => {
+                          setSubContractEndDate(date);
+                          clearSubContractFieldError('subContractEndDate');
+                        }}
+                        getPopupContainer={() =>
+                          document.getElementById('add_subcontract_modal') || document.body
+                        }
+                      />
+                      <span className="input-icon-addon">
+                        <i className="ti ti-calendar" />
+                      </span>
+                    </div>
+                    {subContractFieldErrors.subContractEndDate && (
+                      <div className="invalid-feedback d-block">
+                        {subContractFieldErrors.subContractEndDate}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Currency <span className="text-danger">*</span>
+                    </label>
+                    <CommonSelect
+                      className={`select ${subContractFieldErrors.subContractCurrency ? 'is-invalid' : ''}`}
+                      options={[
+                        { value: 'USD', label: 'USD - US Dollar' },
+                        { value: 'EUR', label: 'EUR - Euro' },
+                        { value: 'GBP', label: 'GBP - British Pound' },
+                        { value: 'INR', label: 'INR - Indian Rupee' },
+                        { value: 'AUD', label: 'AUD - Australian Dollar' },
+                        { value: 'CAD', label: 'CAD - Canadian Dollar' },
+                      ]}
+                      value={{ value: subContractCurrency, label: subContractCurrency }}
+                      onChange={(option) => {
+                        setSubContractCurrency(option?.value || 'USD');
+                        clearSubContractFieldError('subContractCurrency');
                       }}
                     />
-                    {subContractFieldErrors.subContractMembers && (
-                      <div className="invalid-feedback">
-                        {subContractFieldErrors.subContractMembers}
+                    {subContractFieldErrors.subContractCurrency && (
+                      <div className="invalid-feedback d-block">
+                        {subContractFieldErrors.subContractCurrency}
                       </div>
                     )}
                   </div>
@@ -3911,37 +4041,74 @@ const ProjectDetails = () => {
                 <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Total Amount <span className="text-danger">*</span>
+                      Total Budget <span className="text-danger">*</span>
                     </label>
                     <input
                       type="number"
-                      className={`form-control ${subContractFieldErrors.subContractAmount ? 'is-invalid' : ''}`}
-                      placeholder="Enter total amount"
+                      className={`form-control ${subContractFieldErrors.subContractBudget ? 'is-invalid' : ''}`}
+                      placeholder="Enter budget amount"
+                      value={subContractBudget}
+                      onChange={(e) => {
+                        setSubContractBudget(e.target.value);
+                        clearSubContractFieldError('subContractBudget');
+                      }}
+                      onBlur={() => {
+                        const error = validateSubContractField(
+                          'subContractBudget',
+                          subContractBudget
+                        );
+                        if (error) {
+                          setSubContractFieldErrors((prev) => ({
+                            ...prev,
+                            subContractBudget: error,
+                          }));
+                        }
+                      }}
                       min="0"
                       step="0.01"
-                      value={subContractAmount}
-                      onChange={(e) => {
-                        setSubContractAmount(e.target.value);
-                        clearSubContractFieldError('subContractAmount');
-                      }}
                     />
-                    {subContractFieldErrors.subContractAmount && (
-                      <div className="invalid-feedback">
-                        {subContractFieldErrors.subContractAmount}
+                    {subContractFieldErrors.subContractBudget && (
+                      <div className="invalid-feedback d-block">
+                        {subContractFieldErrors.subContractBudget}
                       </div>
+                    )}
+                    {project?.projectValue && (
+                      <small className="text-muted">Project value: {project.projectValue}</small>
                     )}
                   </div>
                 </div>
                 <div className="col-md-12">
                   <div className="mb-3">
-                    <label className="form-label">Description (Optional)</label>
+                    <label className="form-label">
+                      Description <span className="text-danger">*</span>
+                    </label>
                     <textarea
-                      className="form-control"
+                      className={`form-control ${subContractFieldErrors.subContractDescription ? 'is-invalid' : ''}`}
                       rows={3}
-                      placeholder="Enter description"
+                      placeholder="Enter description (minimum 10 characters)"
                       value={subContractDescription}
-                      onChange={(e) => setSubContractDescription(e.target.value)}
+                      onChange={(e) => {
+                        setSubContractDescription(e.target.value);
+                        clearSubContractFieldError('subContractDescription');
+                      }}
+                      onBlur={() => {
+                        const error = validateSubContractField(
+                          'subContractDescription',
+                          subContractDescription
+                        );
+                        if (error) {
+                          setSubContractFieldErrors((prev) => ({
+                            ...prev,
+                            subContractDescription: error,
+                          }));
+                        }
+                      }}
                     />
+                    {subContractFieldErrors.subContractDescription && (
+                      <div className="invalid-feedback d-block">
+                        {subContractFieldErrors.subContractDescription}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4006,7 +4173,7 @@ const ProjectDetails = () => {
               <div className="row">
                 <div className="col-md-12">
                   <div className="mb-3">
-                    <label className="form-label">Sub-Contract</label>
+                    <label className="form-label">Contractor</label>
                     <div className="input-group">
                       <input
                         type="text"
@@ -4029,19 +4196,19 @@ const ProjectDetails = () => {
                     )}
                   </div>
                 </div>
-                <div className="col-md-12">
+                <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Contract Date <span className="text-danger">*</span>
+                      Start Date <span className="text-danger">*</span>
                     </label>
                     <div className="input-icon position-relative">
                       <DatePicker
-                        className={`form-control datetimepicker ${editSubContractFieldErrors.subContractDate ? 'is-invalid' : ''}`}
+                        className={`form-control datetimepicker ${editSubContractFieldErrors.subContractStartDate ? 'is-invalid' : ''}`}
                         format="DD-MM-YYYY"
-                        value={editSubContractDate}
+                        value={editSubContractStartDate}
                         onChange={(date) => {
-                          setEditSubContractDate(date);
-                          clearEditSubContractFieldError('subContractDate');
+                          setEditSubContractStartDate(date);
+                          clearEditSubContractFieldError('subContractStartDate');
                         }}
                         getPopupContainer={() =>
                           document.getElementById('edit_subcontract_modal') || document.body
@@ -4051,9 +4218,9 @@ const ProjectDetails = () => {
                         <i className="ti ti-calendar" />
                       </span>
                     </div>
-                    {editSubContractFieldErrors.subContractDate && (
+                    {editSubContractFieldErrors.subContractStartDate && (
                       <div className="invalid-feedback d-block">
-                        {editSubContractFieldErrors.subContractDate}
+                        {editSubContractFieldErrors.subContractStartDate}
                       </div>
                     )}
                   </div>
@@ -4061,22 +4228,56 @@ const ProjectDetails = () => {
                 <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Number of Members <span className="text-danger">*</span>
+                      End Date <span className="text-danger">*</span>
                     </label>
-                    <input
-                      type="number"
-                      className={`form-control ${editSubContractFieldErrors.subContractMembers ? 'is-invalid' : ''}`}
-                      placeholder="Enter number of members"
-                      min="1"
-                      value={editSubContractMembers}
-                      onChange={(e) => {
-                        setEditSubContractMembers(e.target.value);
-                        clearEditSubContractFieldError('subContractMembers');
+                    <div className="input-icon position-relative">
+                      <DatePicker
+                        className={`form-control datetimepicker ${editSubContractFieldErrors.subContractEndDate ? 'is-invalid' : ''}`}
+                        format="DD-MM-YYYY"
+                        value={editSubContractEndDate}
+                        onChange={(date) => {
+                          setEditSubContractEndDate(date);
+                          clearEditSubContractFieldError('subContractEndDate');
+                        }}
+                        getPopupContainer={() =>
+                          document.getElementById('edit_subcontract_modal') || document.body
+                        }
+                      />
+                      <span className="input-icon-addon">
+                        <i className="ti ti-calendar" />
+                      </span>
+                    </div>
+                    {editSubContractFieldErrors.subContractEndDate && (
+                      <div className="invalid-feedback d-block">
+                        {editSubContractFieldErrors.subContractEndDate}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="mb-3">
+                    <label className="form-label">
+                      Currency <span className="text-danger">*</span>
+                    </label>
+                    <CommonSelect
+                      className={`select ${editSubContractFieldErrors.subContractCurrency ? 'is-invalid' : ''}`}
+                      options={[
+                        { value: 'USD', label: 'USD - US Dollar' },
+                        { value: 'EUR', label: 'EUR - Euro' },
+                        { value: 'GBP', label: 'GBP - British Pound' },
+                        { value: 'INR', label: 'INR - Indian Rupee' },
+                        { value: 'AUD', label: 'AUD - Australian Dollar' },
+                        { value: 'CAD', label: 'CAD - Canadian Dollar' },
+                      ]}
+                      value={{ value: editSubContractCurrency, label: editSubContractCurrency }}
+                      onChange={(option) => {
+                        setEditSubContractCurrency(option?.value || 'USD');
+                        clearEditSubContractFieldError('subContractCurrency');
                       }}
                     />
-                    {editSubContractFieldErrors.subContractMembers && (
-                      <div className="invalid-feedback">
-                        {editSubContractFieldErrors.subContractMembers}
+                    {editSubContractFieldErrors.subContractCurrency && (
+                      <div className="invalid-feedback d-block">
+                        {editSubContractFieldErrors.subContractCurrency}
                       </div>
                     )}
                   </div>
@@ -4084,37 +4285,74 @@ const ProjectDetails = () => {
                 <div className="col-md-6">
                   <div className="mb-3">
                     <label className="form-label">
-                      Total Amount <span className="text-danger">*</span>
+                      Total Budget <span className="text-danger">*</span>
                     </label>
                     <input
                       type="number"
-                      className={`form-control ${editSubContractFieldErrors.subContractAmount ? 'is-invalid' : ''}`}
-                      placeholder="Enter total amount"
+                      className={`form-control ${editSubContractFieldErrors.subContractBudget ? 'is-invalid' : ''}`}
+                      placeholder="Enter budget amount"
+                      value={editSubContractBudget}
+                      onChange={(e) => {
+                        setEditSubContractBudget(e.target.value);
+                        clearEditSubContractFieldError('subContractBudget');
+                      }}
+                      onBlur={() => {
+                        const error = validateSubContractField(
+                          'subContractBudget',
+                          editSubContractBudget
+                        );
+                        if (error) {
+                          setEditSubContractFieldErrors((prev) => ({
+                            ...prev,
+                            subContractBudget: error,
+                          }));
+                        }
+                      }}
                       min="0"
                       step="0.01"
-                      value={editSubContractAmount}
-                      onChange={(e) => {
-                        setEditSubContractAmount(e.target.value);
-                        clearEditSubContractFieldError('subContractAmount');
-                      }}
                     />
-                    {editSubContractFieldErrors.subContractAmount && (
-                      <div className="invalid-feedback">
-                        {editSubContractFieldErrors.subContractAmount}
+                    {editSubContractFieldErrors.subContractBudget && (
+                      <div className="invalid-feedback d-block">
+                        {editSubContractFieldErrors.subContractBudget}
                       </div>
+                    )}
+                    {project?.projectValue && (
+                      <small className="text-muted">Project value: {project.projectValue}</small>
                     )}
                   </div>
                 </div>
                 <div className="col-md-12">
                   <div className="mb-3">
-                    <label className="form-label">Description (Optional)</label>
+                    <label className="form-label">
+                      Description <span className="text-danger">*</span>
+                    </label>
                     <textarea
-                      className="form-control"
+                      className={`form-control ${editSubContractFieldErrors.subContractDescription ? 'is-invalid' : ''}`}
                       rows={3}
-                      placeholder="Enter description"
+                      placeholder="Enter description (minimum 10 characters)"
                       value={editSubContractDescription}
-                      onChange={(e) => setEditSubContractDescription(e.target.value)}
+                      onChange={(e) => {
+                        setEditSubContractDescription(e.target.value);
+                        clearEditSubContractFieldError('subContractDescription');
+                      }}
+                      onBlur={() => {
+                        const error = validateSubContractField(
+                          'subContractDescription',
+                          editSubContractDescription
+                        );
+                        if (error) {
+                          setEditSubContractFieldErrors((prev) => ({
+                            ...prev,
+                            subContractDescription: error,
+                          }));
+                        }
+                      }}
                     />
+                    {editSubContractFieldErrors.subContractDescription && (
+                      <div className="invalid-feedback d-block">
+                        {editSubContractFieldErrors.subContractDescription}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

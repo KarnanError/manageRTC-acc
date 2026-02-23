@@ -365,3 +365,109 @@ export const getSubContractStats = async (req, res) => {
     });
   }
 };
+
+/**
+ * Get all contracts with their assigned projects
+ * GET /api/subcontracts/with-projects
+ */
+export const getContractsWithProjects = async (req, res) => {
+  try {
+    const user = extractUser(req);
+    const companyId = user.companyId;
+
+    // Get tenant-specific collections
+    const collections = getTenantCollections(companyId);
+
+    // Get all sub-contracts
+    const subContracts = await collections.subcontracts.find({}).sort({ createdAt: -1 }).toArray();
+
+    // For each sub-contract, get the projects where it's assigned
+    const contractsWithProjects = await Promise.all(
+      subContracts.map(async (contract) => {
+        // Find all projects that have this sub-contract assigned
+        const projects = await collections.projects
+          .find({
+            'subContracts.subContractId': contract._id,
+            isDeleted: { $ne: true },
+          })
+          .project({
+            _id: 1,
+            name: 1,
+            projectId: 1,
+            status: 1,
+            startDate: 1,
+            deadline: 1,
+            'subContracts.$': 1, // Only get the matching sub-contract from the array
+          })
+          .toArray();
+
+        // Extract sub-contract details from each project
+        const projectsWithDetails = await Promise.all(
+          projects.map(async (project) => {
+            const subContractDetail = project.subContracts?.[0] || {};
+            const subContractDetailId = subContractDetail._id;
+
+            // Get total workers for this sub-contract assignment
+            let totalWorkers = 0;
+            if (subContractDetailId) {
+              const workers = await collections.projectcontracts
+                .find({
+                  subContractDetailId: subContractDetailId,
+                  isDeleted: { $ne: true },
+                })
+                .toArray();
+
+              totalWorkers = workers.reduce(
+                (sum, worker) => sum + (worker.numberOfWorkers || 0),
+                0
+              );
+            }
+
+            return {
+              _id: project._id,
+              projectName: project.name,
+              projectId: project.projectId,
+              status: project.status,
+              startDate: project.startDate,
+              deadline: project.deadline,
+              endDate: subContractDetail.endDate,
+              contractDate: subContractDetail.contractDate,
+              numberOfMembers: subContractDetail.numberOfMembers,
+              totalWorkers: totalWorkers,
+              totalAmount: subContractDetail.totalAmount,
+              currency: subContractDetail.currency,
+              description: subContractDetail.description,
+            };
+          })
+        );
+
+        return {
+          _id: contract._id,
+          contractId: contract.contractId,
+          name: contract.name,
+          company: contract.company,
+          email: contract.email,
+          phone: contract.phone,
+          status: contract.status,
+          address: contract.address,
+          projects: projectsWithDetails,
+          projectCount: projectsWithDetails.length,
+        };
+      })
+    );
+
+    devLog(`[SubContract] Retrieved ${contractsWithProjects.length} contracts with projects`);
+
+    return res.status(200).json({
+      success: true,
+      data: contractsWithProjects,
+      count: contractsWithProjects.length,
+    });
+  } catch (error) {
+    devError('[SubContract] Error getting contracts with projects:', error);
+    return res.status(500).json({
+      success: false,
+      error: { message: 'Failed to retrieve contracts with projects' },
+    });
+  }
+};

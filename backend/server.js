@@ -50,6 +50,7 @@ import leaveTypeRoutes from './routes/api/leaveTypes.js';
 import overtimeRoutes from './routes/api/overtime.js';
 import pipelineRoutes from './routes/api/pipelines.js';
 import policyRoutes from './routes/api/policies.js';
+import projectContractRoutes from './routes/api/projectcontracts.js';
 import projectRoutes from './routes/api/projects.js';
 import promotionRoutes from './routes/api/promotions.js';
 import resignationRoutes from './routes/api/resignations.js';
@@ -207,6 +208,7 @@ const initializeServer = async () => {
     // REST API Routes (Socket.IO to REST Migration)
     app.use('/api/employees', employeeRoutes);
     app.use('/api/projects', projectRoutes);
+    app.use('/api/projectcontracts', projectContractRoutes);
     app.use('/api/subcontracts', subcontractRoutes);
     app.use('/api/tasks', taskRoutes);
     app.use('/api/leads', leadRoutes);

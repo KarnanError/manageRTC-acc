@@ -1,10 +1,12 @@
 /**
  * Leave Type REST Controller
  * Handles all Leave Type CRUD operations via REST API
- * Uses Mongoose model with companyId for multi-tenancy
+ * Uses multi-tenant database architecture with getTenantCollections()
+ * Each company's leave types are stored in their own database
  */
 
-import LeaveType from '../../models/leave/leaveType.schema.js';
+import { ObjectId } from 'mongodb';
+import { getTenantCollections } from '../../config/db.js';
 import {
   asyncHandler,
   buildConflictError,
@@ -17,7 +19,6 @@ import {
   sendCreated,
   sendSuccess
 } from '../../utils/apiResponse.js';
-import { broadcastLeaveTypeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
 import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
@@ -30,6 +31,10 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
   devLog('[LeaveType Controller] getLeaveTypes - companyId:', user.companyId, 'filters:', { page, limit, search, status });
+
+  // Get tenant collections (company's own database)
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
 
   // Build filter - always exclude soft-deleted records
   let filter = {
@@ -56,7 +61,7 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
   devLog('[LeaveType Controller] MongoDB filter:', filter);
 
   // Get total count
-  const total = await LeaveType.countDocuments(filter);
+  const total = await leaveTypes.countDocuments(filter);
 
   // Build sort option
   const sortObj = {};
@@ -67,18 +72,19 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
   const limitNum = parseInt(limit) || 20;
   const skip = (pageNum - 1) * limitNum;
 
-  const leaveTypes = await LeaveType.find(filter)
+  const leaveTypesData = await leaveTypes
+    .find(filter)
     .sort(sortObj)
     .skip(skip)
     .limit(limitNum)
-    .lean();
+    .toArray();
 
-  devLog('[LeaveType Controller] Found', leaveTypes.length, 'leave types out of', total, 'total');
+  devLog('[LeaveType Controller] Found', leaveTypesData.length, 'leave types out of', total, 'total');
 
   // Build pagination
   const pagination = buildPagination(pageNum, limitNum, total);
 
-  return sendSuccess(res, leaveTypes, 'Leave types retrieved successfully', pagination);
+  return sendSuccess(res, leaveTypesData, 'Leave types retrieved successfully', 200, pagination);
 });
 
 /**
@@ -92,11 +98,14 @@ export const getLeaveTypeById = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] getLeaveTypeById - id:', id, 'companyId:', user.companyId);
 
-  const leaveType = await LeaveType.findOne({
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
+  const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
     isDeleted: false
-  }).lean();
+  });
 
   if (!leaveType) {
     throw buildNotFoundError('Leave type not found');
@@ -115,11 +124,18 @@ export const getActiveLeaveTypes = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] getActiveLeaveTypes - companyId:', user.companyId);
 
-  // Use the static method from the schema
-  const leaveTypes = await LeaveType.getActiveTypes(user.companyId);
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
+  // Get active leave types
+  const leaveTypesData = await leaveTypes.find({
+    companyId: user.companyId,
+    isActive: true,
+    isDeleted: false
+  }).toArray();
 
   // Transform to a simpler format for dropdowns
-  const dropdownData = leaveTypes.map(lt => ({
+  const dropdownData = leaveTypesData.map(lt => ({
     value: lt.code,
     label: lt.name,
     color: lt.color,
@@ -151,8 +167,11 @@ export const createLeaveType = asyncHandler(async (req, res) => {
     throw buildValidationError('Leave type code is required');
   }
 
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
   // Check if leave type with same code already exists for this company
-  const existingByCode = await LeaveType.findOne({
+  const existingByCode = await leaveTypes.findOne({
     companyId: user.companyId,
     code: leaveTypeData.code.toUpperCase(),
     isDeleted: false
@@ -163,7 +182,7 @@ export const createLeaveType = asyncHandler(async (req, res) => {
   }
 
   // Check if leave type with same name already exists for this company
-  const existingByName = await LeaveType.findOne({
+  const existingByName = await leaveTypes.findOne({
     companyId: user.companyId,
     name: leaveTypeData.name.trim(),
     isDeleted: false
@@ -175,9 +194,10 @@ export const createLeaveType = asyncHandler(async (req, res) => {
 
   // Generate leaveTypeId
   const leaveTypeId = `LT-${leaveTypeData.code.toUpperCase()}-${Date.now()}`;
+  const now = new Date();
 
-  // Create leave type
-  const newLeaveType = new LeaveType({
+  // Create leave type document
+  const newLeaveType = {
     leaveTypeId,
     companyId: user.companyId,
     name: leaveTypeData.name.trim(),
@@ -210,22 +230,14 @@ export const createLeaveType = asyncHandler(async (req, res) => {
     // System fields
     isActive: leaveTypeData.isActive !== undefined ? leaveTypeData.isActive : true,
     isDeleted: false,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  });
+    createdAt: now,
+    updatedAt: now
+  };
 
-  const savedLeaveType = await newLeaveType.save();
-  devLog('[LeaveType Controller] Leave type created:', savedLeaveType.leaveTypeId);
+  await leaveTypes.insertOne(newLeaveType);
+  devLog('[LeaveType Controller] Leave type created:', newLeaveType.leaveTypeId);
 
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  broadcastLeaveTypeEvents.created(io, user.companyId, {
-    leaveTypeId: savedLeaveType.leaveTypeId,
-    name: savedLeaveType.name,
-    code: savedLeaveType.code
-  });
-
-  return sendCreated(res, savedLeaveType, 'Leave type created successfully');
+  return sendCreated(res, newLeaveType, 'Leave type created successfully');
 });
 
 /**
@@ -240,8 +252,11 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] updateLeaveType - id:', id, 'companyId:', user.companyId);
 
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
   // Find leave type
-  const leaveType = await LeaveType.findOne({
+  const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
     isDeleted: false
@@ -253,7 +268,7 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
 
   // Check for duplicate code if code is being changed
   if (updateData.code && updateData.code.toUpperCase() !== leaveType.code) {
-    const existingByCode = await LeaveType.findOne({
+    const existingByCode = await leaveTypes.findOne({
       companyId: user.companyId,
       code: updateData.code.toUpperCase(),
       isDeleted: false,
@@ -267,7 +282,7 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
 
   // Check for duplicate name if name is being changed
   if (updateData.name && updateData.name.trim() !== leaveType.name) {
-    const existingByName = await LeaveType.findOne({
+    const existingByName = await leaveTypes.findOne({
       companyId: user.companyId,
       name: updateData.name.trim(),
       isDeleted: false,
@@ -279,43 +294,44 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
     }
   }
 
-  // Update fields
-  if (updateData.name !== undefined) leaveType.name = updateData.name.trim();
-  if (updateData.code !== undefined) leaveType.code = updateData.code.toUpperCase();
-  if (updateData.annualQuota !== undefined) leaveType.annualQuota = updateData.annualQuota;
-  if (updateData.isPaid !== undefined) leaveType.isPaid = updateData.isPaid;
-  if (updateData.requiresApproval !== undefined) leaveType.requiresApproval = updateData.requiresApproval;
-  if (updateData.carryForwardAllowed !== undefined) leaveType.carryForwardAllowed = updateData.carryForwardAllowed;
-  if (updateData.maxCarryForwardDays !== undefined) leaveType.maxCarryForwardDays = updateData.maxCarryForwardDays;
-  if (updateData.carryForwardExpiry !== undefined) leaveType.carryForwardExpiry = updateData.carryForwardExpiry;
-  if (updateData.encashmentAllowed !== undefined) leaveType.encashmentAllowed = updateData.encashmentAllowed;
-  if (updateData.maxEncashmentDays !== undefined) leaveType.maxEncashmentDays = updateData.maxEncashmentDays;
-  if (updateData.encashmentRatio !== undefined) leaveType.encashmentRatio = updateData.encashmentRatio;
-  if (updateData.minNoticeDays !== undefined) leaveType.minNoticeDays = updateData.minNoticeDays;
-  if (updateData.maxConsecutiveDays !== undefined) leaveType.maxConsecutiveDays = updateData.maxConsecutiveDays;
-  if (updateData.requiresDocument !== undefined) leaveType.requiresDocument = updateData.requiresDocument;
-  if (updateData.acceptableDocuments !== undefined) leaveType.acceptableDocuments = updateData.acceptableDocuments;
-  if (updateData.accrualRate !== undefined) leaveType.accrualRate = updateData.accrualRate;
-  if (updateData.accrualMonth !== undefined) leaveType.accrualMonth = updateData.accrualMonth;
-  if (updateData.accrualWaitingPeriod !== undefined) leaveType.accrualWaitingPeriod = updateData.accrualWaitingPeriod;
-  if (updateData.color !== undefined) leaveType.color = updateData.color;
-  if (updateData.icon !== undefined) leaveType.icon = updateData.icon;
-  if (updateData.description !== undefined) leaveType.description = updateData.description;
-  if (updateData.isActive !== undefined) leaveType.isActive = updateData.isActive;
+  // Build update document
+  const updateDoc = { $set: { updatedAt: new Date() } };
 
-  leaveType.updatedAt = new Date();
-  const updatedLeaveType = await leaveType.save();
+  if (updateData.name !== undefined) updateDoc.$set.name = updateData.name.trim();
+  if (updateData.code !== undefined) updateDoc.$set.code = updateData.code.toUpperCase();
+  if (updateData.annualQuota !== undefined) updateDoc.$set.annualQuota = updateData.annualQuota;
+  if (updateData.isPaid !== undefined) updateDoc.$set.isPaid = updateData.isPaid;
+  if (updateData.requiresApproval !== undefined) updateDoc.$set.requiresApproval = updateData.requiresApproval;
+  if (updateData.carryForwardAllowed !== undefined) updateDoc.$set.carryForwardAllowed = updateData.carryForwardAllowed;
+  if (updateData.maxCarryForwardDays !== undefined) updateDoc.$set.maxCarryForwardDays = updateData.maxCarryForwardDays;
+  if (updateData.carryForwardExpiry !== undefined) updateDoc.$set.carryForwardExpiry = updateData.carryForwardExpiry;
+  if (updateData.encashmentAllowed !== undefined) updateDoc.$set.encashmentAllowed = updateData.encashmentAllowed;
+  if (updateData.maxEncashmentDays !== undefined) updateDoc.$set.maxEncashmentDays = updateData.maxEncashmentDays;
+  if (updateData.encashmentRatio !== undefined) updateDoc.$set.encashmentRatio = updateData.encashmentRatio;
+  if (updateData.minNoticeDays !== undefined) updateDoc.$set.minNoticeDays = updateData.minNoticeDays;
+  if (updateData.maxConsecutiveDays !== undefined) updateDoc.$set.maxConsecutiveDays = updateData.maxConsecutiveDays;
+  if (updateData.requiresDocument !== undefined) updateDoc.$set.requiresDocument = updateData.requiresDocument;
+  if (updateData.acceptableDocuments !== undefined) updateDoc.$set.acceptableDocuments = updateData.acceptableDocuments;
+  if (updateData.accrualRate !== undefined) updateDoc.$set.accrualRate = updateData.accrualRate;
+  if (updateData.accrualMonth !== undefined) updateDoc.$set.accrualMonth = updateData.accrualMonth;
+  if (updateData.accrualWaitingPeriod !== undefined) updateDoc.$set.accrualWaitingPeriod = updateData.accrualWaitingPeriod;
+  if (updateData.color !== undefined) updateDoc.$set.color = updateData.color;
+  if (updateData.icon !== undefined) updateDoc.$set.icon = updateData.icon;
+  if (updateData.description !== undefined) updateDoc.$set.description = updateData.description;
+  if (updateData.isActive !== undefined) updateDoc.$set.isActive = updateData.isActive;
+
+  await leaveTypes.updateOne(
+    { leaveTypeId: id, companyId: user.companyId },
+    updateDoc
+  );
+
+  // Fetch the updated document
+  const updatedLeaveType = await leaveTypes.findOne({
+    leaveTypeId: id,
+    companyId: user.companyId
+  });
 
   devLog('[LeaveType Controller] Leave type updated:', updatedLeaveType.leaveTypeId);
-
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  broadcastLeaveTypeEvents.updated(io, user.companyId, {
-    leaveTypeId: updatedLeaveType.leaveTypeId,
-    name: updatedLeaveType.name,
-    code: updatedLeaveType.code,
-    isActive: updatedLeaveType.isActive
-  });
 
   return sendSuccess(res, updatedLeaveType, 'Leave type updated successfully');
 });
@@ -331,7 +347,10 @@ export const toggleLeaveTypeStatus = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] toggleLeaveTypeStatus - id:', id, 'companyId:', user.companyId);
 
-  const leaveType = await LeaveType.findOne({
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
+  const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
     isDeleted: false
@@ -342,21 +361,26 @@ export const toggleLeaveTypeStatus = asyncHandler(async (req, res) => {
   }
 
   // Toggle status
-  leaveType.isActive = !leaveType.isActive;
-  leaveType.updatedAt = new Date();
-  const updatedLeaveType = await leaveType.save();
+  const newStatus = !leaveType.isActive;
+  await leaveTypes.updateOne(
+    { leaveTypeId: id, companyId: user.companyId },
+    {
+      $set: {
+        isActive: newStatus,
+        updatedAt: new Date()
+      }
+    }
+  );
 
-  devLog('[LeaveType Controller] Leave type status toggled:', updatedLeaveType.leaveTypeId, 'isActive:', updatedLeaveType.isActive);
-
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  broadcastLeaveTypeEvents.status_toggled(io, user.companyId, {
-    leaveTypeId: updatedLeaveType.leaveTypeId,
-    name: updatedLeaveType.name,
-    isActive: updatedLeaveType.isActive
+  // Fetch updated document
+  const updatedLeaveType = await leaveTypes.findOne({
+    leaveTypeId: id,
+    companyId: user.companyId
   });
 
-  return sendSuccess(res, updatedLeaveType, `Leave type ${updatedLeaveType.isActive ? 'activated' : 'deactivated'} successfully`);
+  devLog('[LeaveType Controller] Leave type status toggled:', updatedLeaveType.leaveTypeId, 'isActive:', newStatus);
+
+  return sendSuccess(res, updatedLeaveType, `Leave type ${newStatus ? 'activated' : 'deactivated'} successfully`);
 });
 
 /**
@@ -370,7 +394,10 @@ export const deleteLeaveType = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] deleteLeaveType - id:', id, 'companyId:', user.companyId);
 
-  const leaveType = await LeaveType.findOne({
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
+  const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
     isDeleted: false
@@ -381,20 +408,18 @@ export const deleteLeaveType = asyncHandler(async (req, res) => {
   }
 
   // Soft delete
-  leaveType.isDeleted = true;
-  leaveType.isActive = false;
-  leaveType.updatedAt = new Date();
-  const deletedLeaveType = await leaveType.save();
+  await leaveTypes.updateOne(
+    { leaveTypeId: id, companyId: user.companyId },
+    {
+      $set: {
+        isDeleted: true,
+        isActive: false,
+        updatedAt: new Date()
+      }
+    }
+  );
 
-  devLog('[LeaveType Controller] Leave type soft deleted:', deletedLeaveType.leaveTypeId);
-
-  // Broadcast Socket.IO event
-  const io = getSocketIO(req);
-  broadcastLeaveTypeEvents.deleted(io, user.companyId, {
-    leaveTypeId: deletedLeaveType.leaveTypeId,
-    name: deletedLeaveType.name,
-    code: deletedLeaveType.code
-  });
+  devLog('[LeaveType Controller] Leave type soft deleted:', id);
 
   return sendSuccess(res, { leaveTypeId: id, isDeleted: true }, 'Leave type deleted successfully');
 });
@@ -409,10 +434,13 @@ export const getLeaveTypeStats = asyncHandler(async (req, res) => {
 
   devLog('[LeaveType Controller] getLeaveTypeStats - companyId:', user.companyId);
 
-  const allTypes = await LeaveType.find({
+  const collections = getTenantCollections(user.companyId);
+  const { leaveTypes } = collections;
+
+  const allTypes = await leaveTypes.find({
     companyId: user.companyId,
     isDeleted: false
-  }).lean();
+  }).toArray();
 
   const stats = {
     total: allTypes.length,

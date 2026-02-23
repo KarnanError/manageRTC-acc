@@ -9,6 +9,7 @@ import {
   deleteProjectSubContract,
   getProjectSubContracts,
   updateProjectSubContract,
+  updateProjectWorkers,
 } from '../../controllers/project/project.subcontract.controller.js';
 import {
   createProject,
@@ -145,6 +146,15 @@ router.put(
   // requireCompany, // Temporarily disabled - Clerk auth not working properly
   requireRole('admin', 'hr', 'superadmin'),
   updateProjectSubContract
+);
+
+// Update worker information for a project's sub-contract
+router.put(
+  '/:projectId/subcontracts/:subContractId/workers',
+  authenticate,
+  // requireCompany, // Temporarily disabled - Clerk auth not working properly
+  requireRole('admin', 'hr', 'superadmin'),
+  updateProjectWorkers
 );
 
 // Delete sub-contract from a project

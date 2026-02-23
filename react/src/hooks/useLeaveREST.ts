@@ -6,10 +6,11 @@
  */
 
 import { message } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiResponse, buildParams, del, get, patch, post, put } from '../services/api';
 import { useSocket } from '../SocketContext';
 import { useAuth } from './useAuth';
+import { useLeaveTypesREST } from './useLeaveTypesREST';
 
 // Leave Types matching backend schema
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'on-hold';
@@ -62,6 +63,10 @@ export interface LeaveBalance {
   used: number;
   total: number;
   pending?: number;
+  // Custom policy fields
+  hasCustomPolicy?: boolean;
+  customPolicyId?: string;
+  customPolicyName?: string;
 }
 
 export interface LeaveStats {
@@ -73,9 +78,13 @@ export interface LeaveStats {
   totalPresent?: number;
   plannedLeaves?: number;
   unplannedLeaves?: number;
+  pendingRequests?: number;
+  totalEmployees?: number;
+  employeesOnLeaveToday?: number;
+  approvedLeavesToday?: number;
 }
 
-// Status display mapping for UI
+// Status display mapping for UI (exported for components that need it)
 export const statusDisplayMap: Record<LeaveStatus, { label: string; color: string; badgeClass: string }> = {
   pending: { label: 'Pending', color: 'warning', badgeClass: 'leave-status-warning' },
   approved: { label: 'Approved', color: 'success', badgeClass: 'leave-status-success' },
@@ -84,30 +93,59 @@ export const statusDisplayMap: Record<LeaveStatus, { label: string; color: strin
   'on-hold': { label: 'On Hold', color: 'info', badgeClass: 'bg-transparent-info' },
 };
 
-// Leave type display mapping
-export const leaveTypeDisplayMap: Record<string, string> = {
-  sick: 'Medical Leave',
-  casual: 'Casual Leave',
-  earned: 'Annual Leave',
-  maternity: 'Maternity Leave',
-  paternity: 'Paternity Leave',
-  bereavement: 'Bereavement Leave',
-  compensatory: 'Compensatory Off',
-  unpaid: 'Unpaid Leave',
-  special: 'Special Leave',
-};
+// NOTE: Leave type display map is now created dynamically from database
+// Use the getLeaveTypeDisplayMap() helper or import from useLeaveTypesREST
 
-// Reverse mapping for frontend to backend
-export const leaveTypeToBackendMap: Record<string, LeaveType> = {
-  'Medical Leave': 'sick',
-  'Casual Leave': 'casual',
-  'Annual Leave': 'earned',
-  'Maternity Leave': 'maternity',
-  'Paternity Leave': 'paternity',
-  'Bereavement Leave': 'bereavement',
-  'Compensatory Off': 'compensatory',
-  'Unpaid Leave': 'unpaid',
-  'Special Leave': 'special',
+/**
+ * Enhanced error message handler for leave operations
+ * Provides user-friendly error messages based on error type and status
+ */
+const getErrorMessage = (err: any): string => {
+  // Default error message
+  let errorMessage = err.response?.data?.error?.message || err.message || 'An error occurred';
+
+  // Add context-specific messages based on HTTP status
+  if (err.response?.status) {
+    switch (err.response.status) {
+      case 400:
+        errorMessage = err.response?.data?.error?.message || 'Invalid request. Please check your input.';
+        break;
+      case 403:
+        errorMessage = 'You do not have permission to perform this action.';
+        break;
+      case 404:
+        errorMessage = 'Leave request not found. It may have been deleted.';
+        break;
+      case 409:
+        errorMessage = err.response?.data?.error?.message || 'A conflict occurred. Please refresh and try again.';
+        // Check for overlapping leave errors
+        if (errorMessage.toLowerCase().includes('overlap')) {
+          errorMessage = 'You have overlapping leave requests for this period.';
+        }
+        break;
+      case 500:
+        errorMessage = 'Server error. Please try again later.';
+        break;
+      default:
+        // Use the server's error message if available
+        if (err.response?.data?.error?.message) {
+          errorMessage = err.response.data.error.message;
+        }
+    }
+  }
+
+  // Handle specific error keywords
+  if (errorMessage.toLowerCase().includes('insufficient balance')) {
+    errorMessage = 'You do not have sufficient leave balance for this request.';
+  } else if (errorMessage.toLowerCase().includes('overlap')) {
+    errorMessage = 'You have overlapping leave requests for this period.';
+  } else if (errorMessage.toLowerCase().includes('leave type not found')) {
+    errorMessage = 'Leave type not found. Please contact HR.';
+  } else if (errorMessage.toLowerCase().includes('employee not found')) {
+    errorMessage = 'Employee record not found. Please contact HR.';
+  }
+
+  return errorMessage;
 };
 
 /**
@@ -141,6 +179,18 @@ export const useLeaveREST = () => {
     total: 0,
     pages: 0,
   });
+
+  // Fetch leave types dynamically from database
+  const { activeOptions } = useLeaveTypesREST();
+
+  // Create dynamic leave type display map from database
+  const leaveTypeDisplayMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    activeOptions.forEach(option => {
+      map[option.value.toLowerCase()] = option.label;
+    });
+    return map;
+  }, [activeOptions]);
 
   /**
    * Fetch all leaves with pagination and filtering (Admin/HR view)
@@ -183,7 +233,7 @@ export const useLeaveREST = () => {
         throw new Error(response.error?.message || 'Failed to fetch leaves');
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch leaves';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -226,7 +276,7 @@ export const useLeaveREST = () => {
         throw new Error(response.error?.message || 'Failed to fetch your leaves');
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch your leaves';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -248,7 +298,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to fetch leave');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch leave';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return null;
@@ -281,7 +331,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to create leave request');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to create leave request';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -314,7 +364,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to update leave request');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update leave request';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -340,7 +390,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to approve leave');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to approve leave';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -371,7 +421,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to reject leave');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to reject leave';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -406,7 +456,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to update manager action');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update manager action';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -422,11 +472,8 @@ export const useLeaveREST = () => {
     setLoading(true);
     setError(null);
     try {
-      // For cancellation, we update the leave status via PUT
-      const response: ApiResponse<Leave> = await put(`/leaves/${leaveId}`, {
-        status: 'cancelled',
-        cancellationReason: reason,
-      });
+      // Use the dedicated cancel endpoint which properly restores balance
+      const response: ApiResponse<Leave> = await post(`/leaves/${leaveId}/cancel`, { reason });
 
       if (response.success && response.data) {
         message.info('Leave cancelled');
@@ -437,7 +484,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to cancel leave');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to cancel leave';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -462,7 +509,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to delete leave');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete leave';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return false;
@@ -486,7 +533,7 @@ export const useLeaveREST = () => {
       }
       throw new Error(response.error?.message || 'Failed to fetch leave balance');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch leave balance';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       message.error(errorMessage);
       return null;
@@ -659,7 +706,7 @@ export const useLeaveREST = () => {
       socket.off('leave:your_leave_approved', handleYourLeaveApproved);
       socket.off('leave:your_leave_rejected', handleYourLeaveRejected);
     };
-  }, [socket, userId]);
+  }, [socket, userId, leaveTypeDisplayMap]);
 
   return {
     leaves,
@@ -679,6 +726,7 @@ export const useLeaveREST = () => {
     getLeaveBalance,
     fetchStats,
     refresh,
+    leaveTypeDisplayMap,
   };
 };
 

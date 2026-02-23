@@ -1,4 +1,5 @@
 import { DatePicker, message, Spin } from "antd";
+import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
@@ -6,8 +7,7 @@ import CommonSelect from "../../../../core/common/commonSelect";
 import Table from "../../../../core/common/dataTable/index";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import Footer from "../../../../core/common/footer";
-import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
-import { leaveTypeDisplayMap, statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
+import { statusDisplayMap, useLeaveREST, type LeaveBalance, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
 
@@ -47,7 +47,7 @@ const StatusBadge = ({ status }: { status: LeaveStatus }) => {
 };
 
 // Leave type badge component
-const LeaveTypeBadge = ({ leaveType }: { leaveType: string }) => {
+const LeaveTypeBadge = ({ leaveType, leaveTypeDisplayMap }: { leaveType: string; leaveTypeDisplayMap: Record<string, string> }) => {
   const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
   return (
     <span className="fs-14 fw-medium d-flex align-items-center">
@@ -94,16 +94,28 @@ const calculateLeaveDays = (startDate: any, endDate: any, session: string): numb
 
 const LeaveEmployee = () => {
   // API hook for employee's leaves
-  const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave } = useLeaveREST();
+  const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
-  const { employees: reportingManagers, fetchActiveEmployeesList: fetchReportingManagers } = useEmployeesREST();
 
-  // Local state for balance
-  const [balances, setBalances] = useState<Record<string, { total: number; used: number; balance: number }>>({
-    annual: { total: 12, used: 5, balance: 7 },
-    medical: { total: 12, used: 1, balance: 11 },
-    casual: { total: 12, used: 2, balance: 10 },
-    other: { total: 5, used: 0, balance: 5 },
+  // Local state for balance - Initialize with empty state, will be populated from API
+  // Backend types: sick, casual, earned, maternity, paternity, bereavement, compensatory, unpaid, special
+  const [balances, setBalances] = useState<Record<string, {
+    total: number;
+    used: number;
+    balance: number;
+    hasCustomPolicy?: boolean;
+    customPolicyId?: string;
+    customPolicyName?: string;
+  }>>({
+    sick: { total: 0, used: 0, balance: 0 },
+    casual: { total: 0, used: 0, balance: 0 },
+    earned: { total: 0, used: 0, balance: 0 },
+    maternity: { total: 0, used: 0, balance: 0 },
+    paternity: { total: 0, used: 0, balance: 0 },
+    bereavement: { total: 0, used: 0, balance: 0 },
+    compensatory: { total: 0, used: 0, balance: 0 },
+    unpaid: { total: 0, used: 0, balance: 0 },
+    special: { total: 0, used: 0, balance: 0 },
   });
 
   // Form state for Add Leave modal
@@ -114,8 +126,16 @@ const LeaveEmployee = () => {
     session: '',
     reason: '',
     noOfDays: 0,
-    reportingManagerId: '',
   });
+
+  // Per-field validation errors for Add Leave modal
+  const [addFormErrors, setAddFormErrors] = useState<{
+    leaveType?: string;
+    startDate?: string;
+    endDate?: string;
+    session?: string;
+    reason?: string;
+  }>({});
 
   // Form state for Edit Leave modal
   const [editFormData, setEditFormData] = useState<{
@@ -142,10 +162,6 @@ const LeaveEmployee = () => {
   }, [fetchActiveLeaveTypes]);
 
   useEffect(() => {
-    fetchReportingManagers();
-  }, [fetchReportingManagers]);
-
-  useEffect(() => {
     if (!addFormData.leaveType && addFormData.session) {
       setAddFormData(prev => ({ ...prev, session: '' }));
     }
@@ -166,22 +182,30 @@ const LeaveEmployee = () => {
     setEditFormData(prev => (prev && prev.noOfDays === days ? prev : prev ? { ...prev, noOfDays: days } : prev));
   }, [editFormData?.leaveType, editFormData?.startDate, editFormData?.endDate, editFormData?.session]);
 
-  // Fetch balance data
+  // Fetch balance data - directly uses backend types (sick, casual, earned, etc.)
   const fetchBalanceData = async () => {
     const balanceData = await getLeaveBalance();
+    console.log('[fetchBalanceData] API Response:', balanceData);
+    console.log('[fetchBalanceData] Response keys:', balanceData ? Object.keys(balanceData) : 'null');
+    if (balanceData && typeof balanceData === 'object' && 'earned' in balanceData) {
+      console.log('[fetchBalanceData] earned balance:', (balanceData as Record<string, LeaveBalance>).earned);
+    } else {
+      console.log('[fetchBalanceData] earned balance: not available');
+    }
+
     if (balanceData && typeof balanceData === 'object') {
-      // Transform balance data to UI format
-      const transformedBalances: Record<string, { total: number; used: number; balance: number }> = {};
-      Object.entries(balanceData).forEach(([key, value]: [string, any]) => {
-        if (value && typeof value === 'object') {
-          transformedBalances[key] = {
-            total: value.total || 0,
-            used: value.used || 0,
-            balance: value.balance || 0,
-          };
-        }
-      });
-      setBalances(transformedBalances);
+      console.log('[fetchBalanceData] Setting balances:', balanceData);
+      // getLeaveBalance already returns response.data which is the balances object
+      setBalances(balanceData as Record<string, {
+        total: number;
+        used: number;
+        balance: number;
+        hasCustomPolicy?: boolean;
+        customPolicyId?: string;
+        customPolicyName?: string;
+      }>);
+    } else {
+      console.error('[fetchBalanceData] Invalid balance data received:', balanceData);
     }
   };
 
@@ -192,7 +216,7 @@ const LeaveEmployee = () => {
     LeaveType: leave.leaveType,
     From: formatDate(leave.startDate),
     To: formatDate(leave.endDate),
-    NoOfDays: `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
+    NoOfDays: leave.duration === 0.5 ? 'Half Day (0.5)' : `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
     ReportingManager: leave.reportingManagerName || "-",
     ManagerStatus: (leave.managerStatus || 'pending').toLowerCase() as LeaveStatus,
     Status: (leave.finalStatus || leave.status || 'pending').toLowerCase() as LeaveStatus,
@@ -217,43 +241,42 @@ const LeaveEmployee = () => {
     }
   };
 
+  // Helper to clear a single field error when the user edits it
+  const clearFieldError = (field: keyof typeof addFormErrors) => {
+    setAddFormErrors(prev => ({ ...prev, [field]: undefined }));
+  };
+
   // Handler for Add Leave form submission
   const handleAddLeaveSubmit = async () => {
-    if (!addFormData.leaveType) {
-      message.error('Please select a leave type');
+    // Collect all field errors at once
+    const errors: typeof addFormErrors = {};
+    if (!addFormData.leaveType) errors.leaveType = 'Leave type is required';
+    if (!addFormData.startDate) errors.startDate = 'From date is required';
+    if (!addFormData.endDate) errors.endDate = 'To date is required';
+    if (addFormData.startDate && addFormData.endDate &&
+        dayjs(addFormData.endDate).isBefore(dayjs(addFormData.startDate), 'day')) {
+      errors.endDate = 'To date must be on or after From date';
+    }
+    if (!addFormData.session) errors.session = 'Day type is required';
+    if (!addFormData.reason.trim()) errors.reason = 'Reason is required';
+    else if (addFormData.reason.trim().length < 3) errors.reason = 'Reason must be at least 3 characters';
+
+    if (Object.keys(errors).length > 0) {
+      setAddFormErrors(errors);
       return;
     }
-    if (!addFormData.reportingManagerId) {
-      message.error('Reporting Manager is required');
-      return;
-    }
-    if (!addFormData.startDate) {
-      message.error('Please select a start date');
-      return;
-    }
-    if (!addFormData.endDate) {
-      message.error('Please select an end date');
-      return;
-    }
-    if (!addFormData.session) {
-      message.error('Please select day type');
-      return;
-    }
-    if (!addFormData.reason.trim()) {
-      message.error('Please provide a reason for the leave');
-      return;
-    }
+    setAddFormErrors({});
 
     const success = await createLeave({
       leaveType: addFormData.leaveType as any,
       startDate: addFormData.startDate.format('YYYY-MM-DD'),
       endDate: addFormData.endDate.format('YYYY-MM-DD'),
+      session: addFormData.session,
       reason: addFormData.reason,
-      reportingManagerId: addFormData.reportingManagerId,
       employeeStatus: 'pending',
       managerStatus: 'pending',
       hrStatus: 'pending',
-    });
+    } as any);
 
     if (success) {
       // Reset form and close modal
@@ -264,8 +287,8 @@ const LeaveEmployee = () => {
         session: '',
         reason: '',
         noOfDays: 0,
-        reportingManagerId: '',
       });
+      setAddFormErrors({});
       // Close modal using Bootstrap API
       const modalEl = document.getElementById('add_leaves');
       if (modalEl) {
@@ -340,7 +363,7 @@ const LeaveEmployee = () => {
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} />,
+      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} leaveTypeDisplayMap={leaveTypeDisplayMap} />,
       sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
     },
     {
@@ -432,23 +455,10 @@ const LeaveEmployee = () => {
   const leaveTypeOptions = useMemo(() => {
     const fallbackOptions = Object.entries(leaveTypeDisplayMap).map(([value, label]) => ({ value, label }));
     const apiOptions = activeOptions.length
-      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: option.label }))
+      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) }))
       : fallbackOptions;
     return [{ value: "", label: "Select Leave Type" }, ...apiOptions];
-  }, [activeOptions]);
-
-  const reportingManagerOptions = useMemo(() => {
-    const options = reportingManagers.map(manager => {
-      const name = `${manager.firstName || ''} ${manager.lastName || ''}`.trim() || manager.fullName || 'Unknown';
-      const id = manager.employeeId ? ` (${manager.employeeId})` : '';
-      const department = manager.department ? ` - ${manager.department}` : manager.departmentId ? ` - ${manager.departmentId}` : '';
-      return {
-        value: manager.employeeId,
-        label: `${name}${id}${department}`
-      };
-    });
-    return [{ value: "", label: "Select Reporting Manager" }, ...options];
-  }, [reportingManagers]);
+  }, [activeOptions, leaveTypeDisplayMap]);
 
   // Filter handlers
   const handleStatusFilter = (status: LeaveStatus) => {
@@ -479,6 +489,49 @@ const LeaveEmployee = () => {
   };
 
   const selectedManagerStatus = (selectedLeave?.managerStatus || 'pending').toLowerCase() as LeaveStatus;
+
+  // Build dynamic balance display configuration from active leave types
+  // Maps leave type code (lowercase) to display properties from database
+  const BALANCE_DISPLAY_CONFIG = useMemo(() => {
+    // Default fallback mapping for known leave types (used if not in activeOptions)
+    const defaultConfig: Record<string, { label: string; icon: string; colorClass: string; cardClass: string; badgeClass: string }> = {
+      earned: { label: 'Annual Leaves', icon: 'ti ti-calendar-event', colorClass: 'black', cardClass: 'bg-black-le', badgeClass: 'bg-secondary-transparent' },
+      sick: { label: 'Medical Leaves', icon: 'ti ti-vaccine', colorClass: 'blue', cardClass: 'bg-blue-le', badgeClass: 'bg-info-transparent' },
+      casual: { label: 'Casual Leaves', icon: 'ti ti-hexagon-letter-c', colorClass: 'purple', cardClass: 'bg-purple-le', badgeClass: 'bg-transparent-purple' },
+      maternity: { label: 'Maternity Leaves', icon: 'ti ti-baby-carriage', colorClass: 'pink', cardClass: 'bg-pink-le', badgeClass: 'bg-pink-transparent' },
+      paternity: { label: 'Paternity Leaves', icon: 'ti ti-user', colorClass: 'info', cardClass: 'bg-info-le', badgeClass: 'bg-transparent-info' },
+      bereavement: { label: 'Bereavement Leaves', icon: 'ti ti-heart-broken', colorClass: 'secondary', cardClass: 'bg-secondary-le', badgeClass: 'bg-transparent-secondary' },
+      compensatory: { label: 'Compensatory Off', icon: 'ti ti-calendar-time', colorClass: 'warning', cardClass: 'bg-warning-le', badgeClass: 'bg-transparent-warning' },
+      unpaid: { label: 'Unpaid Leaves', icon: 'ti ti-money-off', colorClass: 'danger', cardClass: 'bg-danger-le', badgeClass: 'bg-transparent-danger' },
+      special: { label: 'Special Leaves', icon: 'ti ti-star', colorClass: 'info', cardClass: 'bg-info-le', badgeClass: 'bg-transparent-info' },
+    };
+
+    // Build config from active leave types from database
+    const config = activeOptions.map((option) => {
+      const code = option.value.toLowerCase();
+      const fallback = defaultConfig[code] || {
+        label: option.label,
+        icon: 'ti ti-calendar',
+        colorClass: 'primary',
+        cardClass: 'bg-primary-le',
+        badgeClass: 'bg-primary-transparent'
+      };
+
+      return {
+        key: code,
+        label: option.label,
+        icon: fallback.icon,
+        colorClass: fallback.colorClass,
+        cardClass: fallback.cardClass,
+        badgeClass: fallback.badgeClass,
+        // Additional properties from database
+        code: code,
+        name: option.label
+      };
+    });
+
+    return config;
+  }, [activeOptions]);
 
   return (
     <>
@@ -539,7 +592,7 @@ const LeaveEmployee = () => {
                   className="btn btn-primary d-flex align-items-center"
                 >
                   <i className="ti ti-circle-plus me-2" />
-                  Add Leave
+                  Apply Leave
                 </Link>
               </div>
               <div className="head-icons ms-2">
@@ -548,96 +601,67 @@ const LeaveEmployee = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
-          {/* Leaves Info */}
+          {/* Leaves Info - Dynamic balance cards from database */}
           <div className="row">
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-black-le">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="text-start">
-                      <p className="mb-1">Annual Leaves</p>
-                      <h4>{balances.annual?.used || 0}</h4>
-                    </div>
-                    <div className="d-flex">
-                      <div className="flex-shrink-0 me-2">
-                        <span className="avatar avatar-md d-flex">
-                          <i className="ti ti-calendar-event fs-32" />
-                        </span>
+            {BALANCE_DISPLAY_CONFIG.map((config) => {
+              const balance = balances[config.key];
+              // Show all active leave types from database
+              // Display balance data, or show zeros if no balance exists yet
+              const total = balance?.total ?? 0;
+              const used = balance?.used ?? 0;
+              const remaining = balance?.balance ?? 0;
+              const hasCustomPolicy = balance?.hasCustomPolicy || false;
+              const customPolicyName = balance?.customPolicyName;
+
+              return (
+                <div key={config.key} className="col-xl-3 col-md-6">
+                  <div className={`card ${config.cardClass}`}>
+                    <div className="card-body">
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div className="text-start">
+                          <div className="d-flex align-items-center gap-2 mb-1">
+                            <p className="mb-0">{config.label}</p>
+                            {hasCustomPolicy && (
+                              <span
+                                className="badge bg-primary-transparent text-primary fs-10"
+                                title={`Custom Policy: ${customPolicyName}`}
+                              >
+                                <i className="ti ti-discount-check me-1"></i>Custom
+                              </span>
+                            )}
+                          </div>
+                          <h4>{used}</h4>
+                        </div>
+                        <div className="d-flex">
+                          <div className="flex-shrink-0 me-2">
+                            <span className="avatar avatar-md d-flex">
+                              <i className={`${config.icon} fs-32`} />
+                            </span>
+                          </div>
+                        </div>
                       </div>
+                      <span className={`badge ${config.badgeClass}`}>
+                        Remaining Leaves : {remaining}
+                        {hasCustomPolicy && (
+                          <span className="ms-1 text-primary">
+                            <i className="ti ti-info-circle me-1" title={`Custom Policy: ${customPolicyName || 'N/A'} (${total} days/year)`}></i>
+                          </span>
+                        )}
+                      </span>
+                      {hasCustomPolicy && (
+                        <div className="mt-2">
+                          <small className="text-muted">
+                            <i className="ti ti-discount-check text-primary me-1"></i>
+                            Custom Policy: <strong>{total} days/year</strong>
+                            {customPolicyName && ` (${customPolicyName})`}
+                          </small>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <span className="badge bg-secondary-transparent">
-                    Remaining Leaves : {balances.annual?.balance || 0}
-                  </span>
                 </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-blue-le">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="text-start">
-                      <p className="mb-1">Medical Leaves</p>
-                      <h4>{balances.medical?.used || 0}</h4>
-                    </div>
-                    <div className="d-flex">
-                      <div className="flex-shrink-0 me-2">
-                        <span className="avatar avatar-md d-flex">
-                          <i className="ti ti-vaccine fs-32" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <span className="badge bg-info-transparent">
-                    Remaining Leaves : {balances.medical?.balance || 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-purple-le">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="text-start">
-                      <p className="mb-1">Casual Leaves</p>
-                      <h4>{balances.casual?.used || 0}</h4>
-                    </div>
-                    <div className="d-flex">
-                      <div className="flex-shrink-0 me-2">
-                        <span className="avatar avatar-md d-flex">
-                          <i className="ti ti-hexagon-letter-c fs-32" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <span className="badge bg-transparent-purple">
-                    Remaining Leaves : {balances.casual?.balance || 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-pink-le">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="text-start">
-                      <p className="mb-1">Other Leaves</p>
-                      <h4>{balances.other?.used || 0}</h4>
-                    </div>
-                    <div className="d-flex">
-                      <div className="flex-shrink-0 me-2">
-                        <span className="avatar avatar-md d-flex">
-                          <i className="ti ti-hexagonal-prism-plus fs-32" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <span className="badge bg-pink-transparent">
-                    Remaining Leaves : {balances.other?.balance || 0}
-                  </span>
-                </div>
-              </div>
-            </div>
+              );
+            })}
           </div>
           {/* /Leaves Info */}
           {/* Leaves list */}
@@ -815,21 +839,16 @@ const LeaveEmployee = () => {
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <h4 className="modal-title">Add Leave</h4>
+              <h4 className="modal-title">Apply Leave</h4>
               <button
                 type="button"
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
-                onClick={() => setAddFormData({
-                  leaveType: '',
-                  startDate: null,
-                  endDate: null,
-                  session: '',
-                  reason: '',
-                  noOfDays: 0,
-                  reportingManagerId: '',
-                })}
+                onClick={() => {
+                  setAddFormData({ leaveType: '', startDate: null, endDate: null, session: '', reason: '', noOfDays: 0 });
+                  setAddFormErrors({});
+                }}
               >
                 <i className="ti ti-x" />
               </button>
@@ -837,126 +856,206 @@ const LeaveEmployee = () => {
             <form>
               <div className="modal-body pb-0">
                 <div className="row">
+
+                  {/* Leave Type */}
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Leave Type</label>
+                      <label className="form-label">
+                        Leave Type <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
-                        className="select"
+                        className={`select${addFormErrors.leaveType ? ' is-invalid' : ''}`}
                         options={leaveTypeOptions}
                         value={addFormData.leaveType}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, leaveType: option?.value || '' })}
+                        onChange={(option: any) => {
+                          setAddFormData({ ...addFormData, leaveType: option?.value || '', session: '' });
+                          clearFieldError('leaveType');
+                        }}
                       />
+                      {addFormErrors.leaveType && (
+                        <div className="text-danger small mt-1">
+                          <i className="ti ti-alert-circle me-1" />{addFormErrors.leaveType}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Reporting Manager</label>
-                      <CommonSelect
-                        className="select"
-                        options={reportingManagerOptions}
-                        value={addFormData.reportingManagerId}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, reportingManagerId: option?.value || '' })}
-                      />
+
+                  {/* Balance Preview Card — shown when a leave type is selected */}
+                  {addFormData.leaveType && balances[addFormData.leaveType] && (
+                    <div className="col-md-12">
+                      <div className={`alert mb-3 ${addFormData.noOfDays > 0 && addFormData.noOfDays > balances[addFormData.leaveType]?.balance ? 'alert-danger' : 'alert-success'}`}>
+                        <div className="d-flex align-items-center">
+                          <i className={`ti ti-${addFormData.noOfDays > 0 && addFormData.noOfDays > balances[addFormData.leaveType]?.balance ? 'alert-circle' : 'circle-check'} fs-24 me-3`} />
+                          <div className="flex-grow-1">
+                            <div className="d-flex align-items-center justify-content-between mb-1">
+                              <h6 className="mb-0">Balance Overview</h6>
+                              {balances[addFormData.leaveType]?.hasCustomPolicy && (
+                                <span className="badge bg-primary-transparent text-primary fs-10">
+                                  <i className="ti ti-discount-check me-1" />Custom Policy
+                                </span>
+                              )}
+                            </div>
+                            <p className="mb-0">
+                              <strong>Available:</strong> {balances[addFormData.leaveType]?.balance} days &nbsp;|&nbsp;
+                              <strong>Used:</strong> {balances[addFormData.leaveType]?.used} days &nbsp;|&nbsp;
+                              <strong>Total:</strong> {balances[addFormData.leaveType]?.total} days
+                            </p>
+                            {addFormData.noOfDays > 0 && (
+                              <p className="mb-0 mt-1">
+                                <strong>Requesting:</strong> {addFormData.noOfDays} day{addFormData.noOfDays !== 1 ? 's' : ''} &nbsp;|&nbsp;
+                                <strong>Remaining after approval:</strong> {Math.max(0, (balances[addFormData.leaveType]?.balance || 0) - addFormData.noOfDays)} days
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {addFormData.noOfDays > 0 && addFormData.noOfDays > (balances[addFormData.leaveType]?.balance || 0) && (
+                        <div className="alert alert-warning mb-3">
+                          <i className="ti ti-alert-triangle me-2" />
+                          <strong>Warning:</strong> Requested days exceed available balance. You may need to apply for Leave Without Pay.
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
+
+                  {/* From Date */}
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">From </label>
+                      <label className="form-label">
+                        From <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
+                          className={`form-control datetimepicker${addFormErrors.startDate ? ' border-danger' : ''}`}
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={addFormData.startDate}
-                          onChange={(date) => setAddFormData({ ...addFormData, startDate: date })}
+                          onChange={(date) => {
+                            setAddFormData({ ...addFormData, startDate: date });
+                            clearFieldError('startDate');
+                            clearFieldError('endDate');
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addFormErrors.startDate && (
+                        <div className="text-danger small mt-1">
+                          <i className="ti ti-alert-circle me-1" />{addFormErrors.startDate}
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* To Date */}
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">To </label>
+                      <label className="form-label">
+                        To <span className="text-danger">*</span>
+                      </label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
+                          className={`form-control datetimepicker${addFormErrors.endDate ? ' border-danger' : ''}`}
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={addFormData.endDate}
-                          onChange={(date) => setAddFormData({ ...addFormData, endDate: date })}
+                          disabledDate={(current) => addFormData.startDate ? current && current < addFormData.startDate.startOf('day') : false}
+                          onChange={(date) => {
+                            setAddFormData({ ...addFormData, endDate: date });
+                            clearFieldError('endDate');
+                          }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addFormErrors.endDate && (
+                        <div className="text-danger small mt-1">
+                          <i className="ti ti-alert-circle me-1" />{addFormErrors.endDate}
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* Day Type */}
                   <div className="col-md-6">
                     <div className="mb-3">
+                      <label className="form-label">
+                        Day Type <span className="text-danger">*</span>
+                      </label>
                       <CommonSelect
-                        className="select"
+                        className={`select${addFormErrors.session ? ' is-invalid' : ''}`}
                         options={dayTypeOptions}
                         value={addFormData.session}
                         disabled={!addFormData.leaveType}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, session: option?.value || '' })}
+                        onChange={(option: any) => {
+                          setAddFormData({ ...addFormData, session: option?.value || '' });
+                          clearFieldError('session');
+                        }}
                       />
+                      {addFormErrors.session && (
+                        <div className="text-danger small mt-1">
+                          <i className="ti ti-alert-circle me-1" />{addFormErrors.session}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="col-md-6">
+
+                  {/* No of Days (read-only, calculated) */}
+                  <div className="col-md-3">
                     <div className="mb-3">
                       <label className="form-label">No of Days</label>
                       <input
                         type="text"
-                        className="form-control"
-                        value={addFormData.noOfDays.toString()}
-                        disabled
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <label className="form-label">Remaining Days</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        defaultValue={8}
-                        disabled
-                      />
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Reason</label>
-                      <textarea
-                        className="form-control"
-                        rows={3}
-                        placeholder="Enter reason for leave"
-                        value={addFormData.reason}
-                        onChange={(e) => setAddFormData({ ...addFormData, reason: e.target.value })}
+                        className="form-control bg-light"
+                        value={addFormData.noOfDays === 0.5 ? '0.5 (Half Day)' : addFormData.noOfDays.toString()}
+                        readOnly
                       />
                     </div>
                   </div>
 
-                  {/* Attachment Upload - Phase 4 */}
-                  <div className="col-md-12">
+                  {/* Remaining Days (read-only) */}
+                  <div className="col-md-3">
                     <div className="mb-3">
-                      <label className="form-label">Attachments (Optional)</label>
-                      <div className="alert alert-info" role="alert">
-                        <i className="ti ti-info-circle me-2"></i>
-                        Supporting documents (medical certificates, etc.) can be uploaded after creating the leave request.
-                      </div>
+                      <label className="form-label">Remaining Days</label>
+                      <input
+                        type="text"
+                        className="form-control bg-light"
+                        value={addFormData.leaveType && balances[addFormData.leaveType]
+                          ? (balances[addFormData.leaveType].balance ?? 0).toString()
+                          : '-'}
+                        readOnly
+                      />
                     </div>
                   </div>
+
+                  {/* Reason */}
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">
+                        Reason <span className="text-danger">*</span>
+                      </label>
+                      <textarea
+                        className={`form-control${addFormErrors.reason ? ' border-danger' : ''}`}
+                        rows={3}
+                        placeholder="Enter reason for leave (min 3 characters)"
+                        value={addFormData.reason}
+                        onChange={(e) => {
+                          setAddFormData({ ...addFormData, reason: e.target.value });
+                          clearFieldError('reason');
+                        }}
+                      />
+                      {addFormErrors.reason && (
+                        <div className="text-danger small mt-1">
+                          <i className="ti ti-alert-circle me-1" />{addFormErrors.reason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               </div>
               <div className="modal-footer">
@@ -964,15 +1063,10 @@ const LeaveEmployee = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
-                  onClick={() => setAddFormData({
-                    leaveType: '',
-                    startDate: null,
-                    endDate: null,
-                    session: '',
-                    reason: '',
-                    noOfDays: 0,
-                    reportingManagerId: '',
-                  })}
+                  onClick={() => {
+                    setAddFormData({ leaveType: '', startDate: null, endDate: null, session: '', reason: '', noOfDays: 0 });
+                    setAddFormErrors({});
+                  }}
                 >
                   Cancel
                 </button>
@@ -981,7 +1075,7 @@ const LeaveEmployee = () => {
                   className="btn btn-primary"
                   onClick={handleAddLeaveSubmit}
                 >
-                  Add Leave
+                  Apply Leave
                 </button>
               </div>
             </form>

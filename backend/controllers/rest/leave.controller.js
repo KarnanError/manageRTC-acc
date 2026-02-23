@@ -22,6 +22,8 @@ import { generateId } from '../../utils/idGenerator.js';
 import logger, { logLeaveEvent } from '../../utils/logger.js';
 import { broadcastLeaveEvents, broadcastToCompany, getSocketIO } from '../../utils/socketBroadcaster.js';
 import { withTransactionRetry } from '../../utils/transactionHelper.js';
+import leaveLedgerService from '../../services/leaves/leaveLedger.service.js';
+import customLeavePolicyService from '../../services/leaves/customLeavePolicy.service.js';
 
 /**
  * Helper: Check for overlapping leave requests
@@ -66,51 +68,108 @@ function buildLeaveIdFilter(id) {
   return { leaveId: id };
 }
 
+// SIMPLIFIED STATUS NORMALIZATION
+// The main status field is the single source of truth
+// Deprecated fields are populated for backward compatibility with frontend
 function normalizeLeaveStatuses(leave) {
-  const finalStatus = leave.finalStatus || leave.status || 'pending';
-  const managerStatus = leave.managerStatus ||
-    (leave.status === 'approved' || leave.status === 'rejected' ? leave.status : 'pending');
+  const mainStatus = leave.status || 'pending';
 
   return {
     ...leave,
-    status: finalStatus,
-    finalStatus,
-    managerStatus,
-    employeeStatus: leave.employeeStatus || 'pending',
-    hrStatus: leave.hrStatus || 'pending'
+    status: mainStatus,
+    // ========== DEPRECATED FIELDS (kept for backward compatibility) ==========
+    // All deprecated fields now mirror the main status
+    finalStatus: mainStatus,
+    managerStatus: leave.managerStatus || mainStatus,
+    employeeStatus: leave.employeeStatus || mainStatus,
+    hrStatus: leave.hrStatus || mainStatus,
   };
 }
 
 /**
  * Helper: Get leave balance for an employee
+ * Checks for custom policies first, then falls back to default balance
  */
-async function getEmployeeLeaveBalance(collections, employeeId, leaveType) {
-  const employee = await collections.employees.findOne({
-    employeeId
-  });
+async function getEmployeeLeaveBalance(collections, employeeId, leaveType, companyId = null) {
+  const employee = await collections.employees.findOne({ employeeId });
 
-  if (!employee || !employee.leaveBalances) {
-    return { type: leaveType, balance: 0, used: 0, total: 0 };
+  // Check for custom policy first (before early return, so it can cover employees
+  // whose leaveBalance.balances array may not yet include this leave type)
+  let customPolicy = null;
+  if (companyId) {
+    try {
+      customPolicy = await customLeavePolicyService.getEmployeePolicy(companyId, employeeId, leaveType);
+    } catch (error) {
+      logger.warn('[Leave Balance] Custom policy check failed:', error.message);
+    }
   }
 
-  const balanceInfo = employee.leaveBalances.find(b => b.type === leaveType);
+  if (!employee || !employee.leaveBalance?.balances) {
+    // No embedded balance data — return custom policy quota if available, else zeros
+    if (customPolicy) {
+      // annualQuota is the canonical field; 'days' kept for legacy compatibility
+      const totalDays = customPolicy.annualQuota ?? customPolicy.days ?? 0;
+      return {
+        type: leaveType,
+        balance: totalDays,
+        used: 0,
+        total: totalDays,
+        hasCustomPolicy: true,
+        customPolicyId: customPolicy._id?.toString(),
+        customPolicyName: customPolicy.name
+      };
+    }
+    return { type: leaveType, balance: 0, used: 0, total: 0, hasCustomPolicy: false };
+  }
+
+  // Get the base balance from the embedded employee record
+  const balanceInfo = employee.leaveBalance.balances.find(b => b.type === leaveType);
+  let totalDays = balanceInfo?.total || 0;
+  let usedDays = balanceInfo?.used || 0;
+  let balanceDays = balanceInfo?.balance || 0;
+
+  if (customPolicy) {
+    // Override total with custom policy quota.
+    // The MongoDB document stores this as 'annualQuota'; 'days' is kept for backward compatibility.
+    totalDays = customPolicy.annualQuota ?? customPolicy.days ?? totalDays;
+    balanceDays = Math.max(0, totalDays - usedDays);
+
+    return {
+      type: leaveType,
+      balance: balanceDays,
+      used: usedDays,
+      total: totalDays,
+      hasCustomPolicy: true,
+      customPolicyId: customPolicy._id?.toString(),
+      customPolicyName: customPolicy.name
+    };
+  }
 
   return {
     type: leaveType,
-    balance: balanceInfo?.balance || 0,
-    used: balanceInfo?.used || 0,
-    total: balanceInfo?.total || 0
+    balance: balanceDays,
+    used: usedDays,
+    total: totalDays,
+    hasCustomPolicy: false
   };
 }
 
 /**
  * Helper: Get employee by clerk user ID
+ * Tries multiple lookup strategies for compatibility
  */
 async function getEmployeeByClerkId(collections, clerkUserId) {
-  return await collections.employees.findOne({
-    clerkUserId: clerkUserId,
+  // Try multiple lookup strategies in order of preference
+  const employee = await collections.employees.findOne({
+    $or: [
+      { clerkUserId: clerkUserId },
+      { userId: clerkUserId },
+      { employeeId: clerkUserId }  // In case metadata has employeeId
+    ],
     isDeleted: { $ne: true }
   });
+
+  return employee;
 }
 
 /**
@@ -153,14 +212,11 @@ export const getLeaves = asyncHandler(async (req, res) => {
     case 'manager':
       baseFilter.reportingManagerId = currentEmployee?.employeeId;
       break;
-    case 'hr': {
-      const deptId = currentEmployee?.departmentId || user.departmentId;
-      if (!deptId) {
-        throw buildForbiddenError('Department is required to view leaves');
-      }
-      baseFilter.departmentId = deptId;
+    case 'hr':
+      // HR sees all leaves in the company that are routed to the HR pool (isHRFallback = true)
+      // i.e. employees with no reporting manager — any HR user can approve/reject these
+      baseFilter.isHRFallback = true;
       break;
-    }
     case 'admin':
     case 'superadmin':
       // Full visibility within company
@@ -393,8 +449,16 @@ export const createLeave = asyncHandler(async (req, res) => {
   }
 
   const userRole = user.role?.toLowerCase();
-  if (userRole === 'employee' && !reportingManagerId) {
-    throw buildValidationError('reportingManagerId', 'Reporting manager is required');
+  // Route to HR when no reporting manager exists (applies to ALL roles — employee, hr, manager, etc.)
+  // Any HR user can then approve the request from their dashboard
+  const isHRFallback = !reportingManagerId;
+
+  if (isHRFallback) {
+    logger.info('[Leave Controller] No reporting manager — routing to HR pool for approval', {
+      employeeId: employee.employeeId,
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      userRole,
+    });
   }
 
   if (reportingManagerId && reportingManagerId === employee.employeeId) {
@@ -424,13 +488,25 @@ export const createLeave = asyncHandler(async (req, res) => {
   }
 
   // Get current leave balance
-  const currentBalance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveData.leaveType);
+  const currentBalance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveData.leaveType, user.companyId);
 
-  // Calculate duration in days
-  const diffTime = Math.abs(endDate - startDate);
-  const duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  // Calculate duration based on session type
+  const isHalfDay = leaveData.session === 'First Half' || leaveData.session === 'Second Half';
+  let duration;
+  if (isHalfDay) {
+    // Half-day: same-day leave = 0.5; multi-day range = totalCalendarDays - 0.5 (min 0.5)
+    const diffTimeMs = Math.abs(endDate - startDate);
+    const totalCalendarDays = Math.ceil(diffTimeMs / (1000 * 60 * 60 * 24)) + 1;
+    duration = Math.max(0.5, totalCalendarDays - 0.5);
+  } else {
+    const diffTimeMs = Math.abs(endDate - startDate);
+    duration = Math.ceil(diffTimeMs / (1000 * 60 * 60 * 24)) + 1;
+  }
 
   // Prepare leave data
+  // SIMPLIFIED APPROVAL WORKFLOW: Single status + isHRFallback flag determines who can approve
+  // - If isHRFallback = false: Reporting manager approves (HR only views)
+  // - If isHRFallback = true: HR approves (no reporting manager assigned)
   const leaveToInsert = {
     leaveId: `leave_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     companyId: user.companyId,
@@ -442,22 +518,32 @@ export const createLeave = asyncHandler(async (req, res) => {
     endDate: new Date(leaveData.endDate),
     fromDate: new Date(leaveData.startDate),
     toDate: new Date(leaveData.endDate),
+    session: leaveData.session || 'Full Day',
+    isHalfDay,
+    halfDayType: isHalfDay
+      ? (leaveData.session === 'First Half' ? 'first-half' : 'second-half')
+      : null,
     duration: duration,
     reason: leaveData.reason || '',
     detailedReason: leaveData.detailedReason || '',
+    // Main status field (single source of truth)
     status: 'pending',
-    employeeStatus: 'pending',
-    managerStatus: 'pending',
-    hrStatus: 'pending',
-    finalStatus: 'pending',
+    // Determines who can approve this request
+    isHRFallback,
+    // Reporting manager (null if HR fallback)
+    reportingManagerId: isHRFallback ? null : reportingManagerId,
     balanceAtRequest: currentBalance.balance,
-    reportingManagerId,
     handoverToId: leaveData.handoverTo || null,
     attachments: leaveData.attachments || [],
     createdBy: user.userId,
     createdAt: new Date(),
     updatedAt: new Date(),
-    isDeleted: false
+    isDeleted: false,
+    // ========== DEPRECATED FIELDS (kept for backward compatibility) ==========
+    employeeStatus: 'pending',
+    managerStatus: 'pending',  // No longer set to 'approved' - use isHRFallback flag instead
+    hrStatus: 'pending',
+    finalStatus: 'pending',
   };
 
   const result = await collections.leaves.insertOne(leaveToInsert);
@@ -765,14 +851,10 @@ export const getLeavesByStatus = asyncHandler(async (req, res) => {
     case 'manager':
       filter.reportingManagerId = currentEmployee?.employeeId;
       break;
-    case 'hr': {
-      const deptId = currentEmployee?.departmentId || user.departmentId;
-      if (!deptId) {
-        throw buildForbiddenError('Department is required to view leaves');
-      }
-      filter.departmentId = deptId;
+    case 'hr':
+      // HR sees all leaves in the company that are routed to the HR pool (isHRFallback = true)
+      filter.isHRFallback = true;
       break;
-    }
     case 'admin':
     case 'superadmin':
       break;
@@ -839,13 +921,21 @@ export const approveLeave = asyncHandler(async (req, res) => {
     const approverEmployeeId = currentEmployee?.employeeId;
     const approverDeptId = currentEmployee?.departmentId || user.departmentId;
 
+    // Check authorization based on role
+    // SIMPLIFIED APPROVAL WORKFLOW: Only ONE approval needed
     if (isManager) {
+      // Managers can ONLY approve if they are the assigned reporting manager
+      if (leave.isHRFallback) {
+        throw buildForbiddenError('This leave request is routed to HR for approval (no reporting manager assigned)');
+      }
       if (!leave.reportingManagerId || leave.reportingManagerId !== approverEmployeeId) {
         throw buildForbiddenError('Only the assigned reporting manager can approve this leave request');
       }
     } else if (isHR) {
-      if (!approverDeptId || !leave.departmentId || leave.departmentId !== approverDeptId) {
-        throw buildForbiddenError('Department mismatch for HR approval');
+      // Any HR user can approve leaves routed to the HR pool (isHRFallback = true)
+      // HR cannot approve leaves that have an assigned reporting manager
+      if (!leave.isHRFallback) {
+        throw buildForbiddenError('This leave has an assigned reporting manager. Only they can approve it.');
       }
     } else if (!isAdmin) {
       throw buildForbiddenError('Not authorized to approve this leave request');
@@ -860,15 +950,16 @@ export const approveLeave = asyncHandler(async (req, res) => {
       throw buildConflictError('Can only approve pending leave requests');
     }
 
-    // Prepare update object
+    // Prepare update object (SIMPLIFIED: only update main status field)
     const updateObj = {
       status: 'approved',
-      managerStatus: 'approved',
-      finalStatus: 'approved',
       approvedBy: user.userId,
       approvedAt: new Date(),
       approvalComments: comments || '',
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      // ========== DEPRECATED FIELDS (kept for backward compatibility) ==========
+      managerStatus: 'approved',
+      finalStatus: 'approved',
     };
 
     // Update leave status within transaction
@@ -885,23 +976,41 @@ export const approveLeave = asyncHandler(async (req, res) => {
     );
 
     let updatedLeaveBalances = null;
-    if (employee && employee.leaveBalances) {
-      const balanceIndex = employee.leaveBalances.findIndex(
+    if (employee && employee.leaveBalance?.balances) {
+      const balanceIndex = employee.leaveBalance.balances.findIndex(
         b => b.type === leave.leaveType
       );
 
       if (balanceIndex !== -1) {
         // Create a copy to avoid mutation
-        updatedLeaveBalances = employee.leaveBalances.map(b => ({ ...b }));
+        updatedLeaveBalances = employee.leaveBalance.balances.map(b => ({ ...b }));
         updatedLeaveBalances[balanceIndex].used += leave.duration;
         updatedLeaveBalances[balanceIndex].balance -= leave.duration;
 
         // Update employee leave balance
         await collections.employees.updateOne(
           { employeeId: leave.employeeId },
-          { $set: { leaveBalances: updatedLeaveBalances } },
+          { $set: { 'leaveBalance.balances': updatedLeaveBalances } },
           { session }
         );
+
+        // Create ledger entry for leave usage
+        try {
+          await leaveLedgerService.recordLeaveUsage(
+            user.companyId,
+            leave.employeeId,
+            leave.leaveType,
+            leave.duration,
+            leave._id.toString(),
+            leave.startDate,
+            leave.endDate,
+            `Leave approved by ${currentEmployee.firstName} ${currentEmployee.lastName}`
+          );
+          logger.info(`[Leave Approval] Ledger entry created for ${leave.employeeId}, ${leave.leaveType}, ${leave.duration} days`);
+        } catch (ledgerError) {
+          // Log error but don't fail the transaction
+          logger.error('[Leave Approval] Failed to create ledger entry:', ledgerError);
+        }
       }
     }
 
@@ -976,15 +1085,22 @@ export const rejectLeave = asyncHandler(async (req, res) => {
     }
 
     const rejectorEmployeeId = currentEmployee?.employeeId;
-    const rejectorDeptId = currentEmployee?.departmentId || user.departmentId;
 
+    // Check authorization based on role
+    // SIMPLIFIED APPROVAL WORKFLOW: Only ONE approval/rejection needed
     if (isManager) {
+      // Managers can ONLY reject if they are the assigned reporting manager
+      if (leave.isHRFallback) {
+        throw buildForbiddenError('This leave request is routed to HR for rejection (no reporting manager assigned)');
+      }
       if (!leave.reportingManagerId || leave.reportingManagerId !== rejectorEmployeeId) {
         throw buildForbiddenError('Only the assigned reporting manager can reject this leave request');
       }
     } else if (isHR) {
-      if (!rejectorDeptId || !leave.departmentId || leave.departmentId !== rejectorDeptId) {
-        throw buildForbiddenError('Department mismatch for HR rejection');
+      // Any HR user can reject leaves routed to the HR pool (isHRFallback = true)
+      // HR cannot reject leaves that have an assigned reporting manager
+      if (!leave.isHRFallback) {
+        throw buildForbiddenError('This leave has an assigned reporting manager. Only they can reject it.');
       }
     } else if (!isAdmin) {
       throw buildForbiddenError('Not authorized to reject this leave request');
@@ -999,15 +1115,16 @@ export const rejectLeave = asyncHandler(async (req, res) => {
       throw buildConflictError('Can only reject pending leave requests');
     }
 
-    // Prepare update object
+    // Prepare update object (SIMPLIFIED: only update main status field)
     const updateObj = {
       status: 'rejected',
-      managerStatus: 'rejected',
-      finalStatus: 'rejected',
       rejectedBy: user.userId,
       rejectedAt: new Date(),
       rejectionReason: reason,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      // ========== DEPRECATED FIELDS (kept for backward compatibility) ==========
+      managerStatus: 'rejected',
+      finalStatus: 'rejected',
     };
 
     // Update leave status within transaction
@@ -1081,13 +1198,18 @@ export const managerActionLeave = asyncHandler(async (req, res) => {
       throw buildNotFoundError('Leave request', id);
     }
 
-    if (leave.managerStatus && leave.managerStatus !== 'pending') {
-      throw buildConflictError('Manager action already taken for this leave');
+    if (leave.status && leave.status !== 'pending') {
+      throw buildConflictError('This leave has already been processed');
     }
 
     if (!isAdmin) {
       if (!isManager) {
         throw buildForbiddenError('Not authorized to approve or reject this leave request');
+      }
+
+      // For HR fallback leaves, managers cannot take action (only HR can)
+      if (leave.isHRFallback) {
+        throw buildForbiddenError('This leave request is routed to HR for approval');
       }
 
       if (leave.reportingManagerId && leave.reportingManagerId !== currentEmployee.employeeId) {
@@ -1099,11 +1221,13 @@ export const managerActionLeave = asyncHandler(async (req, res) => {
       }
     }
 
+    // Update object (SIMPLIFIED: only update main status field)
     const updateObj = {
       status: normalizedAction,
+      updatedAt: new Date(),
+      // ========== DEPRECATED FIELDS (kept for backward compatibility) ==========
       managerStatus: normalizedAction,
       finalStatus: normalizedAction,
-      updatedAt: new Date()
     };
 
     if (normalizedAction === 'approved') {
@@ -1131,19 +1255,19 @@ export const managerActionLeave = asyncHandler(async (req, res) => {
         { session }
       );
 
-      if (employee && employee.leaveBalances) {
-        const balanceIndex = employee.leaveBalances.findIndex(
+      if (employee && employee.leaveBalance?.balances) {
+        const balanceIndex = employee.leaveBalance.balances.findIndex(
           b => b.type === leave.leaveType
         );
 
         if (balanceIndex !== -1) {
-          updatedLeaveBalances = employee.leaveBalances.map(b => ({ ...b }));
+          updatedLeaveBalances = employee.leaveBalance.balances.map(b => ({ ...b }));
           updatedLeaveBalances[balanceIndex].used += leave.duration;
           updatedLeaveBalances[balanceIndex].balance -= leave.duration;
 
           await tenantCollections.employees.updateOne(
             { employeeId: leave.employeeId },
-            { $set: { leaveBalances: updatedLeaveBalances } },
+            { $set: { 'leaveBalance.balances': updatedLeaveBalances } },
             { session }
           );
         }
@@ -1257,25 +1381,41 @@ export const cancelLeave = asyncHandler(async (req, res) => {
       employeeId: leave.employeeId
     });
 
-    if (employee && employee.leaveBalances) {
-      const balanceIndex = employee.leaveBalances.findIndex(
+    if (employee && employee.leaveBalance?.balances) {
+      const balanceIndex = employee.leaveBalance.balances.findIndex(
         b => b.type === leave.leaveType
       );
 
       if (balanceIndex !== -1) {
         // Restore the deducted balance
-        employee.leaveBalances[balanceIndex].used -= leave.duration;
-        employee.leaveBalances[balanceIndex].balance += leave.duration;
+        employee.leaveBalance.balances[balanceIndex].used -= leave.duration;
+        employee.leaveBalance.balances[balanceIndex].balance += leave.duration;
 
         await collections.employees.updateOne(
           { employeeId: leave.employeeId },
-          { $set: { leaveBalances: employee.leaveBalances } }
+          { $set: { 'leaveBalance.balances': employee.leaveBalance.balances } }
         );
+
+        // Create ledger entry for balance restoration
+        try {
+          await leaveLedgerService.recordLeaveRestoration(
+            user.companyId,
+            leave.employeeId,
+            leave.leaveType,
+            leave.duration,
+            leave._id.toString(),
+            'Leave cancelled - balance restored'
+          );
+          logger.info(`[Leave Cancellation] Ledger entry created for ${leave.employeeId}, ${leave.leaveType}, ${leave.duration} days restored`);
+        } catch (ledgerError) {
+          // Log error but don't fail the cancellation
+          logger.error('[Leave Cancellation] Failed to create ledger entry:', ledgerError);
+        }
 
         // Broadcast balance update
         const io = getSocketIO(req);
         if (io) {
-          broadcastLeaveEvents.balanceUpdated(io, user.companyId, employee._id, employee.leaveBalances);
+          broadcastLeaveEvents.balanceUpdated(io, user.companyId, employee._id, employee.leaveBalance.balances);
         }
       }
     }
@@ -1311,12 +1451,21 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
   const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
-    throw buildNotFoundError('Employee', user.userId);
+    // Return zero balances gracefully instead of throwing an error
+    const leaveTypes = ['sick', 'casual', 'earned', 'maternity', 'paternity', 'bereavement', 'compensatory', 'unpaid', 'special'];
+    const emptyBalances = {};
+    for (const type of leaveTypes) {
+      emptyBalances[type] = { type, balance: 0, used: 0, total: 0 };
+    }
+    if (leaveType) {
+      return sendSuccess(res, { type: leaveType, balance: 0, used: 0, total: 0 }, 'Leave balance retrieved successfully');
+    }
+    return sendSuccess(res, emptyBalances, 'Leave balance retrieved successfully');
   }
 
   // Get balance for specific type or all types
   if (leaveType) {
-    const balance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveType);
+    const balance = await getEmployeeLeaveBalance(collections, employee.employeeId, leaveType, user.companyId);
     return sendSuccess(res, balance, 'Leave balance retrieved successfully');
   }
 
@@ -1325,7 +1474,7 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
   const leaveTypes = ['sick', 'casual', 'earned', 'maternity', 'paternity', 'bereavement', 'compensatory', 'unpaid', 'special'];
 
   for (const type of leaveTypes) {
-    balances[type] = await getEmployeeLeaveBalance(collections, employee.employeeId, type);
+    balances[type] = await getEmployeeLeaveBalance(collections, employee.employeeId, type, user.companyId);
   }
 
   return sendSuccess(res, balances, 'All leave balances retrieved successfully');
@@ -1634,6 +1783,93 @@ export const getAttachments = asyncHandler(async (req, res) => {
   return sendSuccess(res, leave.attachments || [], 'Attachments retrieved successfully');
 });
 
+/**
+ * @desc    Get leave statistics for admin dashboard
+ * @route   GET /api/leaves/stats
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const getLeaveStats = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  logger.debug('[Leave Controller] getLeaveStats called', { companyId: user.companyId });
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required. Please ensure your account is linked to a company.');
+  }
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get today's date range (start and end of today)
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+  // Get total active employees
+  const totalEmployees = await collections.employees.countDocuments({
+    companyId: user.companyId,
+    isActive: true,
+    isDeleted: { $ne: true }
+  });
+
+  // Get approved leaves for today
+  const approvedLeavesToday = await collections.leaves.find({
+    companyId: user.companyId,
+    status: 'approved',
+    isDeleted: { $ne: true },
+    $or: [
+      // Leave starts today
+      { startDate: { $gte: startOfToday, $lt: endOfToday } },
+      // Leave spans today (started before, ends after)
+      { startDate: { $lt: startOfToday }, endDate: { $gt: startOfToday } }
+    ]
+  }).toArray();
+
+  // Count unique employees on leave today
+  const employeesOnLeaveToday = new Set(approvedLeavesToday.map(l => l.employeeId)).size;
+
+  // Calculate total present
+  const totalPresent = Math.max(0, totalEmployees - employeesOnLeaveToday);
+
+  // Define planned and unplanned leave types
+  const plannedLeaveTypes = ['casual', 'earned', 'maternity', 'paternity', 'bereavement', 'special'];
+  const unplannedLeaveTypes = ['sick', 'compensatory', 'unpaid'];
+
+  // Count planned and unplanned leaves for today
+  let plannedLeaves = 0;
+  let unplannedLeaves = 0;
+
+  approvedLeavesToday.forEach(leave => {
+    if (plannedLeaveTypes.includes(leave.leaveType)) {
+      plannedLeaves++;
+    } else if (unplannedLeaveTypes.includes(leave.leaveType)) {
+      unplannedLeaves++;
+    }
+  });
+
+  // Get pending requests count
+  const pendingRequests = await collections.leaves.countDocuments({
+    companyId: user.companyId,
+    status: 'pending',
+    isDeleted: { $ne: true }
+  });
+
+  const stats = {
+    totalPresent,
+    plannedLeaves,
+    unplannedLeaves,
+    pendingRequests,
+    totalEmployees,
+    employeesOnLeaveToday,
+    approvedLeavesToday: approvedLeavesToday.length,
+    asOfDate: startOfToday
+  };
+
+  logger.debug('[Leave Controller] getLeaveStats result', stats);
+
+  return sendSuccess(res, stats, 'Leave statistics retrieved successfully');
+});
+
 export default {
   getLeaves,
   getLeaveById,
@@ -1650,5 +1886,6 @@ export default {
   getTeamLeaves,
   uploadAttachment,
   deleteAttachment,
-  getAttachments
+  getAttachments,
+  getLeaveStats
 };

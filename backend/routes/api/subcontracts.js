@@ -8,6 +8,7 @@ import {
   createSubContract,
   deleteSubContract,
   getAllSubContracts,
+  getContractsWithProjects,
   getSubContractById,
   getSubContractStats,
   updateSubContract,
@@ -25,6 +26,9 @@ router.use(attachRequestId);
 
 // Get sub-contract statistics
 router.get('/stats', authenticate, requireRole('admin', 'hr', 'superadmin'), getSubContractStats);
+
+// Get all contracts with their assigned projects
+router.get('/with-projects', authenticate, getContractsWithProjects);
 
 // Get all sub-contracts
 router.get('/', authenticate, getAllSubContracts);

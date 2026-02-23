@@ -101,25 +101,52 @@ const projectSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: 'SubContract',
         },
-        contractDate: {
+        // New fields (current structure)
+        startDate: {
           type: Date,
         },
-        numberOfMembers: {
-          type: Number,
-          default: 0,
+        endDate: {
+          type: Date,
         },
-        totalAmount: {
+        budget: {
           type: Number,
-          default: 0,
         },
         currency: {
           type: String,
-          default: '$',
+          default: 'USD',
         },
         description: {
           type: String,
           trim: true,
           default: '',
+        },
+        // Legacy fields (for backward compatibility)
+        contractDate: {
+          type: Date,
+        },
+        numberOfMembers: {
+          type: Number,
+        },
+        totalAmount: {
+          type: Number,
+        },
+        // Worker information (for contract details)
+        title: {
+          type: String,
+          trim: true,
+        },
+        numberOfWorkers: {
+          type: Number,
+        },
+        workedDate: {
+          type: Date,
+        },
+        // Legacy worker fields (deprecated)
+        workerPayRate: {
+          type: Number,
+        },
+        paymentDate: {
+          type: Date,
         },
         createdAt: {
           type: Date,
