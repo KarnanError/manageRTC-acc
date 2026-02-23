@@ -1,5 +1,10 @@
 name: Deploy Frontend
 
+# This workflow is identical in both repos.
+# Environment is determined entirely by the GitHub secrets configured in each repo:
+#   KarnanError/manageRTC-acc  → set ACC secrets → deploys to acceptance.manage-rtc.com
+#   Sudhakarnan/manageRTC      → set DEV secrets → deploys to dev.manage-rtc.com
+
 on:
   push:
     branches: [ main ]
@@ -7,13 +12,6 @@ on:
       - "react/**"
       - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
-
-env:
-  FRONTEND_DEPLOY_PATH: /var/www/acceptance.manage-rtc.com/frontend
-  FRONTEND_STAGING_DIR: frontend_release_acc
-  BACKEND_API_URL: https://apiacc.manage-rtc.com
-  FRONTEND_URL: https://acceptance.manage-rtc.com
-  BACKUP_PREFIX_FE: frontend-acc
 
 jobs:
   build-and-deploy:
@@ -23,9 +21,22 @@ jobs:
       run:
         working-directory: react
 
+    env:
+      FRONTEND_DEPLOY_PATH: ${{ secrets.FRONTEND_DEPLOY_PATH }}
+      FRONTEND_STAGING_DIR: ${{ secrets.FRONTEND_STAGING_DIR }}
+      BACKEND_API_URL:      ${{ secrets.BACKEND_API_URL }}
+      FRONTEND_URL:         ${{ secrets.FRONTEND_URL }}
+      BACKUP_PREFIX_FE:     ${{ secrets.BACKUP_PREFIX_FE }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Log deployment target
+        run: |
+          echo "Repo     : ${{ github.repository }}"
+          echo "Frontend : ${{ env.FRONTEND_URL }}"
+          echo "API      : ${{ env.BACKEND_API_URL }}"
 
       - name: Use Node
         uses: actions/setup-node@v4

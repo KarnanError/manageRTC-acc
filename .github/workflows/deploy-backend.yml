@@ -1,5 +1,10 @@
 name: Deploy Backend
 
+# This workflow is identical in both repos.
+# Environment is determined entirely by the GitHub secrets configured in each repo:
+#   KarnanError/manageRTC-acc  → set ACC secrets → deploys to apiacc.manage-rtc.com
+#   Sudhakarnan/manageRTC      → set DEV secrets → deploys to apidev.manage-rtc.com
+
 on:
   push:
     branches: [ main ]
@@ -8,16 +13,16 @@ on:
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
-env:
-  BACKEND_DEPLOY_PATH: /var/www/apiacc.manage-rtc.com/backend
-  BACKEND_STAGING_DIR: releases/backend-acc
-  PM2_APP_NAME: manage-rtc-api-acc
-  FRONTEND_URL: https://acceptance.manage-rtc.com
-  BACKUP_PREFIX_BE: backend-acc
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    env:
+      BACKEND_DEPLOY_PATH: ${{ secrets.BACKEND_DEPLOY_PATH }}
+      BACKEND_STAGING_DIR: ${{ secrets.BACKEND_STAGING_DIR }}
+      PM2_APP_NAME:        ${{ secrets.PM2_APP_NAME }}
+      FRONTEND_URL:        ${{ secrets.FRONTEND_URL }}
+      BACKUP_PREFIX_BE:    ${{ secrets.BACKUP_PREFIX_BE }}
 
     steps:
       - name: Checkout
@@ -99,24 +104,21 @@ jobs:
 
             cd $DEPLOY_PATH
 
-            # Write .env — ${{ secrets.* }} are resolved by GitHub Actions before this runs.
-            # FRONTEND_URL is appended separately as it comes from workflow env.
-            cat > .env << 'EOF'
-            PORT=${{ secrets.ENV_PORT }}
-            MONGO_URI=${{ secrets.ENV_MONGO_URI }}
-            CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}
-            CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}
-            CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}
-            JWT=${{ secrets.ENV_JWT }}
-            SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}
-            NODE_ENV=production
-            ZONE_ID=${{ secrets.ENV_ZONE_ID }}
-            CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}
-            DOMAIN=${{ secrets.ENV_DOMAIN }}
-            VPS_IP=${{ secrets.ENV_VPS_IP }}
-            EOF
-
-            echo "FRONTEND_URL=$FRONTEND_URL" >> .env
+            # Write .env — ${{ secrets.* }} are resolved by GitHub Actions before SSH runs.
+            # FRONTEND_URL comes from SSH envs (shell variable, not a GA expression).
+            echo "PORT=${{ secrets.ENV_PORT }}"                          >  .env
+            echo "MONGO_URI=${{ secrets.ENV_MONGO_URI }}"               >> .env
+            echo "CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}" >> .env
+            echo "CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}"       >> .env
+            echo "CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}" >> .env
+            echo "JWT=${{ secrets.ENV_JWT }}"                           >> .env
+            echo "SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}"  >> .env
+            echo "NODE_ENV=production"                                  >> .env
+            echo "ZONE_ID=${{ secrets.ENV_ZONE_ID }}"                  >> .env
+            echo "CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}" >> .env
+            echo "DOMAIN=${{ secrets.ENV_DOMAIN }}"                    >> .env
+            echo "VPS_IP=${{ secrets.ENV_VPS_IP }}"                    >> .env
+            echo "FRONTEND_URL=$FRONTEND_URL"                          >> .env
 
             # Install production dependencies
             npm ci --omit=dev
