@@ -464,6 +464,19 @@ export const getEmployees = asyncHandler(async (req, res) => {
     },
     {
       $addFields: {
+        // Compute fullName if not already set (from firstName and lastName)
+        fullName: {
+          $ifNull: [
+            '$fullName',
+            {
+              $concat: [
+                { $ifNull: ['$firstName', ''] },
+                ' ',
+                { $ifNull: ['$lastName', ''] }
+              ]
+            }
+          ]
+        },
         // Reporting Manager Name from populated manager
         reportingManagerName: {
           $cond: {
@@ -771,6 +784,19 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
     },
     {
       $addFields: {
+        // Compute fullName if not already set (from firstName and lastName)
+        fullName: {
+          $ifNull: [
+            '$fullName',
+            {
+              $concat: [
+                { $ifNull: ['$firstName', ''] },
+                ' ',
+                { $ifNull: ['$lastName', ''] }
+              ]
+            }
+          ]
+        },
         // Reporting Manager Name from populated manager
         reportingManagerName: {
           $cond: {

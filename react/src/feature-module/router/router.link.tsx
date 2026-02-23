@@ -281,6 +281,9 @@ import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
 import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
 import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
+import LeaveManager from '../hrm/attendance/leaves/leaveManager';
+import LeaveCalendar from '../hrm/attendance/leaves/leaveCalendar';
+import LeaveLedger from '../hrm/attendance/leaves/leaveLedger';
 import LeaveSettings from '../hrm/attendance/leaves/leavesettings';
 import OverTime from '../hrm/attendance/overtime';
 import ScheduleTiming from '../hrm/attendance/scheduletiming';
@@ -1813,6 +1816,24 @@ export const publicRoutes = [
     element: <LeaveEmployee />,
     route: Route,
     roles: ['employee', 'admin', 'hr', 'manager', 'superadmin'],
+  },
+  {
+    path: routes.leavemanager,
+    element: <LeaveManager />,
+    route: Route,
+    roles: ['manager', 'admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.leaveCalendar,
+    element: <LeaveCalendar />,
+    route: Route,
+    roles: ['employee', 'manager', 'admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.leaveLedger,
+    element: <LeaveLedger />,
+    route: Route,
+    roles: ['employee', 'manager', 'admin', 'hr', 'superadmin'],
   },
   {
     path: routes.leavesettings,

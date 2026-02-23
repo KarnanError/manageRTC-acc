@@ -7,9 +7,10 @@ import Table from "../../../../core/common/dataTable/index";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import Footer from "../../../../core/common/footer";
 import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
+import LeaveDetailsModal from "../../../../core/modals/LeaveDetailsModal";
 import { useAuth } from "../../../../hooks/useAuth";
 import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
-import { leaveTypeDisplayMap, statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
+import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
 
@@ -52,7 +53,7 @@ const StatusBadge = ({ status }: { status: LeaveStatus }) => {
 };
 
 // Leave type badge component
-const LeaveTypeBadge = ({ leaveType }: { leaveType: string }) => {
+const LeaveTypeBadge = ({ leaveType, onViewDetails, leaveTypeDisplayMap }: { leaveType: string; onViewDetails?: () => void; leaveTypeDisplayMap: Record<string, string> }) => {
   const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
   return (
     <span className="fs-14 fw-medium d-flex align-items-center">
@@ -60,9 +61,11 @@ const LeaveTypeBadge = ({ leaveType }: { leaveType: string }) => {
       <Link
         to="#"
         className="ms-2"
-        data-bs-toggle="tooltip"
+        data-bs-toggle="modal"
+        data-bs-target="#view_leave_details"
+        onClick={onViewDetails}
         data-bs-placement="right"
-        title="Leave details"
+        title="View leave details"
       >
         <i className="ti ti-info-circle text-info" />
       </Link>
@@ -105,10 +108,25 @@ const getLeaveIdentifier = (leave: any) => {
 
 const LeaveAdmin = () => {
   // API hooks
-  const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, deleteLeave, pagination, createLeave, updateLeave } = useLeaveREST();
+  const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, deleteLeave, pagination, createLeave, updateLeave, fetchStats, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
   const { employees, fetchEmployees } = useEmployeesREST();
   const { role } = useAuth();
+
+  // Stats state from API
+  const [stats, setStats] = useState<{
+    totalPresent: number;
+    plannedLeaves: number;
+    unplannedLeaves: number;
+    pendingRequests: number;
+    totalEmployees: number;
+  }>({
+    totalPresent: 0,
+    plannedLeaves: 0,
+    unplannedLeaves: 0,
+    pendingRequests: 0,
+    totalEmployees: 0,
+  });
 
   // Local state for filters
   const [filters, setFilters] = useState<{
@@ -168,6 +186,23 @@ const LeaveAdmin = () => {
   useEffect(() => {
     fetchActiveLeaveTypes();
   }, [fetchActiveLeaveTypes]);
+
+  // Fetch stats on mount
+  useEffect(() => {
+    const loadStats = async () => {
+      const statsData = await fetchStats();
+      if (statsData) {
+        setStats({
+          totalPresent: statsData.totalPresent || 0,
+          plannedLeaves: statsData.plannedLeaves || 0,
+          unplannedLeaves: statsData.unplannedLeaves || 0,
+          pendingRequests: statsData.pendingRequests || 0,
+          totalEmployees: statsData.totalEmployees || 0,
+        });
+      }
+    };
+    loadStats();
+  }, [fetchStats]);
 
   // Fetch leaves on mount and when filters change
   useEffect(() => {
@@ -485,7 +520,13 @@ const LeaveAdmin = () => {
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} />,
+      render: (_: string, record: any) => (
+        <LeaveTypeBadge
+          leaveType={record.LeaveType}
+          onViewDetails={() => setSelectedLeave(record.rawLeave)}
+          leaveTypeDisplayMap={leaveTypeDisplayMap}
+        />
+      ),
       sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
     },
     {
@@ -595,7 +636,7 @@ const LeaveAdmin = () => {
             to="#"
             className="me-2"
             data-bs-toggle="modal"
-            data-bs-target="#leave_details"
+            data-bs-target="#view_leave_details"
             title="View details"
             onClick={() => setSelectedLeave(record.rawLeave)}
           >
@@ -654,10 +695,10 @@ const LeaveAdmin = () => {
   const leaveTypeOptions = useMemo(() => {
     const fallbackOptions = Object.entries(leaveTypeDisplayMap).map(([value, label]) => ({ value, label }));
     const apiOptions = activeOptions.length
-      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: option.label }))
+      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) }))
       : fallbackOptions;
     return [{ value: "", label: "Select Leave Type" }, ...apiOptions];
-  }, [activeOptions]);
+  }, [activeOptions, leaveTypeDisplayMap]);
 
   // Filter handlers
   const handleStatusFilter = (status: LeaveStatus) => {
@@ -668,14 +709,7 @@ const LeaveAdmin = () => {
     setFilters(prev => ({ ...prev, leaveType, page: 1 }));
   };
 
-  // Calculate stats from leaves data
-  const stats = {
-    totalPresent: leaves.length > 0 ? leaves.length + 165 : 180,
-    plannedLeaves: leaves.filter(l => l.leaveType === 'casual' || l.leaveType === 'earned').length,
-    unplannedLeaves: leaves.filter(l => l.leaveType === 'sick').length,
-    pendingRequests: leaves.filter(l => l.status === 'pending').length,
-  };
-
+  // Stats are now fetched from API via fetchStats()
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
     return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
@@ -740,7 +774,7 @@ const LeaveAdmin = () => {
                   className="btn btn-primary d-flex align-items-center"
                 >
                   <i className="ti ti-circle-plus me-2" />
-                  Add Leave
+                  Apply Leave
                 </Link>
               </div>
               <div className="head-icons ms-2">
@@ -764,7 +798,7 @@ const LeaveAdmin = () => {
                     </div>
                     <div className="text-end">
                       <p className="mb-1">Total Present</p>
-                      <h4>{stats.totalPresent}/200</h4>
+                      <h4>{stats.totalPresent}/{stats.totalEmployees}</h4>
                     </div>
                   </div>
                 </div>
@@ -1333,6 +1367,8 @@ const LeaveAdmin = () => {
         </div>
       </div>
       {/* /Edit Leaves */}
+      {/* Leave Details Modal */}
+      <LeaveDetailsModal leave={selectedLeave} modalId="view_leave_details" leaveTypeDisplayMap={leaveTypeDisplayMap} />
       {/* Delete Modal */}
       <div className="modal fade" id="delete_modal" tabIndex={-1}>
         <div className="modal-dialog modal-dialog-centered">

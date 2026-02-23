@@ -1,0 +1,86 @@
+/**
+ * Check custom policies in amasQIS.ai database (6982468548550225cc5585a9)
+ */
+
+import { MongoClient } from 'mongodb';
+
+const DB_URI = 'mongodb+srv://admin:AdMin-2025@cluster0.iooxltd.mongodb.net/';
+const DB_NAME = '6982468548550225cc5585a9'; // amasQIS.ai
+
+async function checkCustomPolicies() {
+  const client = new MongoClient(DB_URI);
+
+  try {
+    await client.connect();
+    console.log('✅ Connected to MongoDB Atlas\n');
+
+    const db = client.db(DB_NAME);
+
+    // Check for custom_leave_policies collection
+    const collections = await db.listCollections().toArray();
+    const hasCustomPolicies = collections.some(c => c.name === 'custom_leave_policies');
+
+    console.log(`=== DATABASE: ${DB_NAME} (amasQIS.ai) ===`);
+    console.log(`Collections: ${collections.length}`);
+    console.log(`Has custom_leave_policies: ${hasCustomPolicies ? 'YES' : 'NO'}`);
+    console.log('');
+
+    if (hasCustomPolicies) {
+      const customPolicies = await db.collection('custom_leave_policies').find({}).toArray();
+      console.log(`Found ${customPolicies.length} custom policies:\n`);
+
+      customPolicies.forEach(policy => {
+        console.log(`📋 Policy: ${policy.name || 'Unnamed'}`);
+        console.log(`   - ID: ${policy._id}`);
+        console.log(`   - Leave Type: "${policy.leaveType}"`);
+        console.log(`   - Days: ${policy.days}`);
+        console.log(`   - Active: ${policy.isActive}`);
+        console.log(`   - Deleted: ${policy.isDeleted || false}`);
+        console.log(`   - Employees (${policy.employeeIds?.length || 0}):`);
+        if (policy.employeeIds && policy.employeeIds.length > 0) {
+          policy.employeeIds.forEach(empId => {
+            console.log(`      • ${empId}`);
+          });
+        } else {
+          console.log(`      (No employees assigned)`);
+        }
+        console.log(`   - Company ID: ${policy.companyId}`);
+        console.log(`   - Created: ${policy.createdAt}`);
+        console.log('');
+      });
+    } else {
+      console.log('❌ No custom_leave_policies collection found!');
+      console.log('\nAll collections in this database:');
+      collections.forEach(c => {
+        console.log(`   - ${c.name}`);
+      });
+    }
+
+    // Get all employees
+    console.log('\n=== EMPLOYEES IN THIS DATABASE ===');
+    const employees = await db.collection('employees').find({}).toArray();
+    console.log(`Found ${employees.length} employees:\n`);
+
+    employees.forEach(emp => {
+      console.log(`   - ${emp.firstName} ${emp.lastName} (${emp.employeeId}) - ${emp.email}`);
+    });
+
+    // Get leave types
+    console.log('\n=== LEAVE TYPES IN THIS DATABASE ===');
+    const leaveTypes = await db.collection('leaveTypes').find({ isActive: true }).toArray();
+    console.log(`Found ${leaveTypes.length} active leave types:\n`);
+
+    leaveTypes.forEach(lt => {
+      console.log(`   - ${lt.name} (${lt.code}): ${lt.annualQuota} days`);
+    });
+
+    console.log('\n✅ Done!');
+
+  } catch (error) {
+    console.error('❌ Error:', error);
+  } finally {
+    await client.close();
+  }
+}
+
+checkCustomPolicies();

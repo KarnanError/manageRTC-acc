@@ -85,6 +85,7 @@ export const buildPagination = (page, limit, total) => {
     limit: parseInt(limit),
     total,
     pages,
+    totalPages: pages,  // Add totalPages for frontend compatibility
     hasNext: page < pages,
     hasPrev: page > 1,
   };
@@ -278,9 +279,10 @@ export const sendResponse = (res, responseData, statusCode = 200) => {
 
 /**
  * Success Response Sender
+ * Handles both simple responses and paginated responses
  */
-export const sendSuccess = (res, data, message = 'Success', statusCode = 200) => {
-  return sendResponse(res, successResponse(data, message), statusCode);
+export const sendSuccess = (res, data, message = 'Success', statusCode = 200, pagination = null) => {
+  return sendResponse(res, successResponse(data, message, pagination), statusCode);
 };
 
 /**

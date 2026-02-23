@@ -159,7 +159,7 @@ export const authenticate = async (req, res, next) => {
     // In development mode, if admin/hr users don't have a companyId, use the DEV_COMPANY_ID from env
     // This is a TEMPORARY FIX that MUST be removed before production deployment!
     // This matches the Socket.IO authentication behavior
-    if (isDevelopment && (role === "admin" || role === "hr") && !companyId) {
+    if (isDevelopment && (role === "admin" || role === "hr" || role === "manager") && !companyId) {
       const devCompanyId = process.env.DEV_COMPANY_ID;
       if (devCompanyId) {
         companyId = devCompanyId;

@@ -129,7 +129,7 @@ const leaveSchema = new mongoose.Schema({
     maxlength: 2000
   },
 
-  // Leave status
+  // Leave status (MAIN STATUS FIELD - single source of truth)
   status: {
     type: String,
     enum: ['pending', 'approved', 'rejected', 'cancelled', 'on-hold'],
@@ -137,7 +137,17 @@ const leaveSchema = new mongoose.Schema({
     index: true
   },
 
-  // Employee-facing status
+  // HR Fallback flag - true if no reporting manager, HR should approve
+  isHRFallback: {
+    type: Boolean,
+    default: false
+  },
+
+  // ========== DEPRECATED STATUS FIELDS (kept for backward compatibility) ==========
+  // These fields are no longer used for approval logic
+  // All approval decisions now use only `status` + `isHRFallback`
+
+  // Employee-facing status (DEPRECATED - use status instead)
   employeeStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
@@ -145,7 +155,7 @@ const leaveSchema = new mongoose.Schema({
     index: true
   },
 
-  // Reporting manager status
+  // Reporting manager status (DEPRECATED - use status + isHRFallback instead)
   managerStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
@@ -153,7 +163,7 @@ const leaveSchema = new mongoose.Schema({
     index: true
   },
 
-  // HR notification status (view-only)
+  // HR notification status (DEPRECATED - HR no longer has separate approval)
   hrStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
@@ -161,7 +171,7 @@ const leaveSchema = new mongoose.Schema({
     index: true
   },
 
-  // Final status derived from manager action
+  // Final status derived from manager action (DEPRECATED - same as status)
   finalStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
