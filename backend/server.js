@@ -91,6 +91,8 @@ const allowedOrigins = [
   'http://localhost:5173',
   'https://dev.manage-rtc.com',
   'https://apidev.manage-rtc.com',
+  'https://acc.manage-rtc.com',
+  'https://apiacc.manage-rtc.com',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
