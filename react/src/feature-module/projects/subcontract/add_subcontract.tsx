@@ -311,7 +311,16 @@ const AddSubContract = () => {
 
       if (response.success) {
         console.log('Sub-contract created successfully');
-        message.success('Sub-contract created successfully');
+        message.success({
+          content: (
+            <div>
+              <strong>Sub-contract created successfully!</strong>
+              <br />
+              <small>Login credentials have been sent to {trimmedData.email}</small>
+            </div>
+          ),
+          duration: 5,
+        });
         setFormData({
           name: '',
           company: '',
@@ -344,7 +353,7 @@ const AddSubContract = () => {
           setTimeout(() => {
             setLoading(false);
           }, 300);
-        }, 300);
+        }, 1500);
       } else {
         message.error(response.message || 'Failed to create sub-contract');
       }
@@ -587,6 +596,10 @@ const AddSubContract = () => {
                             placeholder="Enter email address"
                             maxLength={254}
                           />
+                          <small className="text-muted">
+                            <i className="ti ti-info-circle me-1"></i>
+                            Login credentials will be automatically sent to this email
+                          </small>
                           {fieldErrors.email && (
                             <div className="invalid-feedback d-block">{fieldErrors.email}</div>
                           )}

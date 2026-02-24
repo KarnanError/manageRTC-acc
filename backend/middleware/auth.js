@@ -14,17 +14,23 @@ import { createClerkClient } from '@clerk/clerk-sdk-node';
 // This is a DEVELOPMENT workaround that MUST be removed before production deployment.
 const isDevelopment = process.env.NODE_ENV === 'development' || process.env.DEV_MODE === 'true';
 
-// Authorized parties for JWT verification
+// Authorized parties — set EXTRA_ALLOWED_ORIGINS in .env as comma-separated list
+const extraParties = process.env.EXTRA_ALLOWED_ORIGINS
+  ? process.env.EXTRA_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
 const authorizedParties = [
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://dev.manage-rtc.com',
-  'https://apidev.manage-rtc.com',
-];
+  process.env.FRONTEND_URL,
+  ...extraParties,
+].filter(Boolean);
 
-// Use JWT key directly - Clerk's verifyToken accepts the raw base64 key
-const CLERK_JWT_KEY = process.env.CLERK_JWT_KEY || '';
-const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY || '';
+// Clerk keys — required, no empty-string fallback
+const CLERK_JWT_KEY = process.env.CLERK_JWT_KEY;
+const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
+if (!CLERK_JWT_KEY || !CLERK_SECRET_KEY) {
+  throw new Error('CLERK_JWT_KEY and CLERK_SECRET_KEY must be set in environment variables');
+}
 
 /**
  * Authenticate - Main authentication middleware
