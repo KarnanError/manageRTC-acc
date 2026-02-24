@@ -3,10 +3,23 @@
  * Handles CRUD operations for sub-contracts
  */
 
+import { clerkClient } from '@clerk/clerk-sdk-node';
+import crypto from 'crypto';
 import { ObjectId } from 'mongodb';
 import { getTenantCollections } from '../../config/db.js';
+import mailTransporter from '../../config/email.js';
 import { extractUser } from '../../utils/apiResponse.js';
 import { devError, devLog } from '../../utils/logger.js';
+
+/**
+ * Generate secure random password for new sub-contracts
+ */
+function generateSecurePassword(length = 12) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
+  const randomValues = new Uint32Array(length);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (v) => chars[v % chars.length]).join('');
+}
 
 /**
  * Get all sub-contracts for a company
@@ -146,9 +159,147 @@ export const createSubContract = async (req, res) => {
     const paddedSequence = String(sequence).padStart(4, '0');
     const contractId = `SUBC-${year}-${paddedSequence}`;
 
+    // Generate secure password for sub-contract login
+    const password = generateSecurePassword(12);
+    devLog('[SubContract] Generated password for sub-contract');
+
+    // Generate username from email (must be 4-64 characters for Clerk)
+    let username = email.trim().toLowerCase().split('@')[0];
+
+    // Ensure username meets Clerk's minimum length requirement (4 characters)
+    if (username.length < 4) {
+      const namePart = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+      username = username + namePart.substring(0, 4 - username.length);
+
+      // If still too short, pad with random numbers
+      if (username.length < 4) {
+        username =
+          username +
+          Math.floor(1000 + Math.random() * 9000)
+            .toString()
+            .substring(0, 4 - username.length);
+      }
+    }
+
+    // Ensure username doesn't exceed maximum length (64 characters)
+    if (username.length > 64) {
+      username = username.substring(0, 64);
+    }
+
+    // Create Clerk user with retry if username collides
+    const createClerkUserWithFallback = async (baseUsername) => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const candidate =
+          attempt === 0
+            ? baseUsername
+            : `${baseUsername}-${Math.floor(1000 + Math.random() * 9000)}`.substring(0, 64);
+
+        try {
+          devLog('[SubContract] Creating Clerk user with username:', candidate);
+          const createdUser = await clerkClient.users.createUser({
+            emailAddress: [email.trim().toLowerCase()],
+            username: candidate,
+            password: password,
+            publicMetadata: {
+              role: 'contractor',
+              companyId: companyId,
+            },
+          });
+          return createdUser;
+        } catch (error) {
+          lastError = error;
+          const isUsernameTaken =
+            Array.isArray(error?.errors) &&
+            error.errors.some(
+              (e) =>
+                e.code === 'form_identifier_exists' &&
+                ((e.meta && e.meta.paramName === 'username') ||
+                  (e.message || '').toLowerCase().includes('username'))
+            );
+          if (isUsernameTaken) {
+            devError('[SubContract] Username already taken in Clerk, retrying with suffix', {
+              candidate,
+            });
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError;
+    };
+
+    // Create Clerk user
+    let clerkUserId;
+    try {
+      const createdUser = await createClerkUserWithFallback(username);
+      clerkUserId = createdUser.id;
+      devLog('[SubContract] Clerk user created:', clerkUserId);
+    } catch (clerkError) {
+      devError('[SubContract] Failed to create Clerk user:', clerkError);
+      devError('[SubContract] Clerk error details:', {
+        code: clerkError.code,
+        message: clerkError.message,
+        errors: clerkError.errors,
+        clerkTraceId: clerkError.clerkTraceId,
+      });
+
+      // Parse Clerk errors and return field-specific errors
+      if (clerkError.errors && Array.isArray(clerkError.errors)) {
+        for (const error of clerkError.errors) {
+          devError('[SubContract] Clerk error code:', error.code, 'message:', error.message);
+
+          // Email already exists in Clerk
+          if (
+            error.code === 'form_identifier_exists' &&
+            error.message.toLowerCase().includes('email')
+          ) {
+            return res.status(400).json({
+              success: false,
+              error: {
+                code: 'EMAIL_EXISTS_IN_CLERK',
+                message: 'This email is already registered in the system.',
+                field: 'email',
+                details: error.message,
+              },
+            });
+          }
+
+          // Password validation errors
+          if (error.code === 'form_password_pwned' || error.code === 'password_too_weak') {
+            return res.status(400).json({
+              success: false,
+              error: {
+                code: 'PASSWORD_TOO_WEAK',
+                message:
+                  'Password is too weak or has been compromised. Please use a stronger password.',
+                field: 'password',
+                details: error.message,
+              },
+            });
+          }
+        }
+      }
+
+      // Generic Clerk error
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'CLERK_USER_CREATION_FAILED',
+          message: 'Failed to create user account. Please try again.',
+          details: clerkError.message,
+          clerkTraceId: clerkError.clerkTraceId,
+        },
+      });
+    }
+
     // Create sub-contract document
     const subContractData = {
       contractId,
+      clerkUserId: clerkUserId,
       name: name.trim(),
       company: company.trim(),
       email: email.trim().toLowerCase(),
@@ -156,6 +307,7 @@ export const createSubContract = async (req, res) => {
       address: address.trim(),
       logo: logo?.trim() || '',
       status: status || 'Active',
+      password: password, // Store password for reference
       socialLinks: {
         instagram: socialLinks?.instagram?.trim() || '',
         facebook: socialLinks?.facebook?.trim() || '',
@@ -171,10 +323,95 @@ export const createSubContract = async (req, res) => {
 
     devLog(`[SubContract] Created sub-contract ${result.insertedId}`);
 
+    // Send email with credentials
+    try {
+      const mailOptions = {
+        from: '"ManageRTC" <noreply@manage-rtc.com>',
+        to: email.trim().toLowerCase(),
+        subject: 'Your Sub-Contract Account Credentials - ManageRTC',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+              .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .credentials { background-color: white; padding: 20px; border-left: 4px solid #4CAF50; margin: 20px 0; border-radius: 4px; }
+              .label { font-weight: bold; color: #555; }
+              .value { color: #2196F3; font-size: 16px; margin: 5px 0 15px 0; }
+              .password { font-family: 'Courier New', monospace; background-color: #f0f0f0; padding: 8px 12px; border-radius: 4px; display: inline-block; }
+              .footer { text-align: center; margin-top: 30px; color: #777; font-size: 12px; }
+              .warning { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1 style="margin: 0;">Welcome to ManageRTC</h1>
+              </div>
+              <div class="content">
+                <p>Dear <strong>${name.trim()}</strong>,</p>
+                <p>Your sub-contract account has been successfully created in ManageRTC. Here are your login credentials:</p>
+
+                <div class="credentials">
+                  <div class="label">Contract ID:</div>
+                  <div class="value">${contractId}</div>
+
+                  <div class="label">Company:</div>
+                  <div class="value">${company.trim()}</div>
+
+                  <div class="label">Email (Username):</div>
+                  <div class="value">${email.trim().toLowerCase()}</div>
+
+                  <div class="label">Password:</div>
+                  <div class="value"><span class="password">${password}</span></div>
+                </div>
+
+                <div class="warning">
+                  <strong>⚠️ Important Security Notice:</strong>
+                  <ul style="margin: 10px 0;">
+                    <li>Please change your password after your first login</li>
+                    <li>Do not share your password with anyone</li>
+                    <li>Keep this email secure and delete it after changing your password</li>
+                  </ul>
+                </div>
+
+                <p>You can now access the ManageRTC portal to:</p>
+                <ul>
+                  <li>View assigned projects</li>
+                  <li>Manage worker assignments</li>
+                  <li>Track project progress</li>
+                  <li>Access contract documents</li>
+                </ul>
+
+                <p>If you have any questions or need assistance, please contact your administrator.</p>
+
+                <p>Best regards,<br><strong>ManageRTC Team</strong></p>
+              </div>
+              <div class="footer">
+                <p>This is an automated message. Please do not reply to this email.</p>
+                <p>&copy; ${new Date().getFullYear()} ManageRTC. All rights reserved.</p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `,
+      };
+
+      await mailTransporter.sendMail(mailOptions);
+      devLog(`[SubContract] Credentials email sent to ${email.trim().toLowerCase()}`);
+    } catch (emailError) {
+      devError('[SubContract] Failed to send credentials email:', emailError);
+      // Don't fail the request if email sending fails
+    }
+
     return res.status(201).json({
       success: true,
       data: { ...subContractData, _id: result.insertedId },
-      message: 'Sub-contract created successfully',
+      message:
+        'Sub-contract created successfully. Login credentials have been sent to the email address.',
     });
   } catch (error) {
     devError('[SubContract] Error creating sub-contract:', error);
