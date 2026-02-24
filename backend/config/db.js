@@ -2,8 +2,8 @@ import { MongoClient } from 'mongodb';
 import mongoose from 'mongoose';
 import logger from '../utils/logger.js';
 
-const uri =
-  process.env.MONGODB_URI || 'mongodb+srv://admin:AdMin-2025@cluster0.iooxltd.mongodb.net/';
+const uri = process.env.MONGODB_URI;
+if (!uri) throw new Error('MONGODB_URI is not set in environment variables');
 
 const client = new MongoClient(uri);
 let isConnected = false;

@@ -106,19 +106,28 @@ jobs:
 
             # Write .env — ${{ secrets.* }} are resolved by GitHub Actions before SSH runs.
             # FRONTEND_URL comes from SSH envs (shell variable, not a GA expression).
-            echo "PORT=${{ secrets.ENV_PORT }}"                          >  .env
-            echo "MONGO_URI=${{ secrets.ENV_MONGO_URI }}"               >> .env
-            echo "CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}" >> .env
-            echo "CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}"       >> .env
-            echo "CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}" >> .env
-            echo "JWT=${{ secrets.ENV_JWT }}"                           >> .env
-            echo "SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}"  >> .env
-            echo "NODE_ENV=production"                                  >> .env
-            echo "ZONE_ID=${{ secrets.ENV_ZONE_ID }}"                  >> .env
-            echo "CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}" >> .env
-            echo "DOMAIN=${{ secrets.ENV_DOMAIN }}"                    >> .env
-            echo "VPS_IP=${{ secrets.ENV_VPS_IP }}"                    >> .env
-            echo "FRONTEND_URL=$FRONTEND_URL"                          >> .env
+            echo "PORT=${{ secrets.ENV_PORT }}"                                         >  .env
+            echo "MONGO_URI=${{ secrets.ENV_MONGO_URI }}"                            >> .env
+            echo "MONGODB_URI=${{ secrets.ENV_MONGO_URI }}"                          >> .env
+            echo "MONGODB_DATABASE=${{ secrets.ENV_MONGODB_DATABASE }}"              >> .env
+            echo "CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}"              >> .env
+            echo "CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}"                    >> .env
+            echo "CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}"    >> .env
+            echo "JWT=${{ secrets.ENV_JWT }}"                                        >> .env
+            echo "SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}"               >> .env
+            echo "NODE_ENV=production"                                               >> .env
+            echo "ZONE_ID=${{ secrets.ENV_ZONE_ID }}"                               >> .env
+            echo "CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}"         >> .env
+            echo "DOMAIN=${{ secrets.ENV_DOMAIN }}"                                 >> .env
+            echo "VPS_IP=${{ secrets.ENV_VPS_IP }}"                                 >> .env
+            echo "FRONTEND_URL=$FRONTEND_URL"                                        >> .env
+            echo "EXTRA_ALLOWED_ORIGINS=${{ secrets.ENV_EXTRA_ALLOWED_ORIGINS }}"   >> .env
+            echo "SMTP_HOST=${{ secrets.ENV_SMTP_HOST }}"                           >> .env
+            echo "SMTP_PORT=${{ secrets.ENV_SMTP_PORT }}"                           >> .env
+            echo "SMTP_SECURE=${{ secrets.ENV_SMTP_SECURE }}"                       >> .env
+            echo "SMTP_USER=${{ secrets.ENV_SMTP_USER }}"                           >> .env
+            echo "SMTP_PASS=${{ secrets.ENV_SMTP_PASS }}"                           >> .env
+            echo "SMTP_FROM=${{ secrets.ENV_SMTP_FROM }}"                           >> .env
 
             # Install production dependencies
             npm ci --omit=dev

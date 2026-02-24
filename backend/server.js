@@ -1,5 +1,4 @@
-import { config } from 'dotenv';
-config();
+import 'dotenv/config';
 
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import compression from 'compression';
@@ -85,15 +84,15 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
-// CORS configuration
+// CORS configuration — set EXTRA_ALLOWED_ORIGINS in .env as comma-separated list for additional origins
+const extraOrigins = process.env.EXTRA_ALLOWED_ORIGINS
+  ? process.env.EXTRA_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://dev.manage-rtc.com',
-  'https://apidev.manage-rtc.com',
-  'https://acc.manage-rtc.com',
-  'https://apiacc.manage-rtc.com',
   process.env.FRONTEND_URL,
+  ...extraOrigins,
 ].filter(Boolean);
 
 app.use(
