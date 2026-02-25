@@ -1623,11 +1623,11 @@ export const resignationSchemas = {
     reportingManagerId: commonSchemas.objectId.required().messages({
       'any.required': 'Reporting manager is required',
     }),
-    resignationDate: commonSchemas.ddmmyyyy.required().messages({
-      'any.required': 'Resignation date is required',
+    resignationDate: commonSchemas.ddmmyyyy.optional().allow(null, '').messages({
+      'date.base': 'Resignation date must be in DD-MM-YYYY format',
     }),
-    noticeDate: commonSchemas.ddmmyyyy.required().messages({
-      'any.required': 'Notice date is required',
+    noticeDate: commonSchemas.ddmmyyyy.optional().allow(null, '').messages({
+      'date.base': 'Notice date must be in DD-MM-YYYY format',
     }),
     noticePeriodDays: Joi.number().integer().min(0).max(180).default(30).optional().messages({
       'number.min': 'Notice period cannot be negative',
@@ -1643,6 +1643,17 @@ export const resignationSchemas = {
       'any.invalid': 'Last working date must be after resignation date',
     }),
   }).custom((value, helpers) => {
+    const hasNotice = Boolean(value.noticeDate);
+    const hasResignation = Boolean(value.resignationDate);
+
+    if (hasNotice !== hasResignation) {
+      return helpers.message('Notice date and resignation date must both be provided together');
+    }
+
+    if (!hasNotice && !hasResignation) {
+      return value;
+    }
+
     const notice = DateTime.fromFormat(value.noticeDate, 'dd-MM-yyyy', { zone: 'utc' });
     const resignation = DateTime.fromFormat(value.resignationDate, 'dd-MM-yyyy', { zone: 'utc' });
 
@@ -1662,6 +1673,7 @@ export const resignationSchemas = {
     // Validate lastWorkingDate is after resignationDate
     if (value.lastWorkingDate) {
       const lastWorkingDate = new Date(value.lastWorkingDate);
+
       if (lastWorkingDate <= resignation.toJSDate()) {
         return helpers.message('Last working date must be after resignation date');
       }

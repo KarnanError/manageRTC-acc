@@ -35,6 +35,13 @@ router.get('/departments', requireRole('admin', 'hr', 'superadmin', 'manager', '
 router.get('/employees/:departmentId', requireRole('admin', 'hr', 'superadmin', 'manager', 'employee'), resignationController.getEmployeesByDepartmentId);
 
 /**
+ * @route   GET /api/resignations/check-status
+ * @desc    Check if current employee can apply for resignation
+ * @access  Private (Admin, HR, Manager, Employee)
+ */
+router.get('/check-status', requireRole('admin', 'hr', 'superadmin', 'manager', 'employee'), resignationController.checkResignationStatus);
+
+/**
  * @route   GET /api/resignations
  * @desc    Get all resignations (role-based: employees see own, managers see team)
  * @access  Private (Admin, HR, Superadmin, Manager, Employee)
