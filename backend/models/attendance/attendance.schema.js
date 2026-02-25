@@ -177,6 +177,18 @@ const attendanceSchema = new mongoose.Schema({
     ref: 'Shift'
   },
 
+  // PHASE 2 FIX: Timezone support for accurate time calculations
+  timezone: {
+    type: String,
+    default: 'UTC',
+    enum: [
+      'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+      'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
+      'Asia/Kolkata', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Dubai',
+      'Australia/Sydney', 'Pacific/Auckland'
+    ]
+  },
+
   // Schedule details
   scheduledStart: Date,
   scheduledEnd: Date,
@@ -307,11 +319,23 @@ attendanceSchema.virtual('workSession').get(function() {
 attendanceSchema.pre('save', async function(next) {
   // Calculate hours worked if both clock in and clock out are present
   if (this.clockIn?.time && this.clockOut?.time) {
-    const totalMs = this.clockOut.time - this.clockIn.time;
+    const clockInTime = new Date(this.clockIn.time);
+    const clockOutTime = new Date(this.clockOut.time);
+
+    // PHASE 2 FIX: Handle overnight shifts
+    let totalMs = clockOutTime - clockInTime;
+
+    // If clockOut is before clockIn, it's an overnight shift
+    // Add 24 hours to get the correct duration
+    if (totalMs < 0) {
+      totalMs += 24 * 60 * 60 * 1000; // Add 24 hours in milliseconds
+    }
+
     const totalHours = totalMs / (1000 * 60 * 60);
 
     // Subtract break duration
-    const workHours = totalHours - (this.breakDuration || 0) / 60;
+    const breakHours = (this.breakDuration || 0) / 60; // Convert minutes to hours
+    const workHours = totalHours - breakHours;
 
     this.hoursWorked = Math.max(0, workHours);
 

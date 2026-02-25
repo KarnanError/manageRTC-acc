@@ -14,6 +14,7 @@ import CollapseHeader from "../../../core/common/collapse-header/collapse-header
 import Footer from "../../../core/common/footer";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import RequestModals from "../../../core/modals/requestModal";
+import { resolveDesignation } from "../../../utils/designationUtils";
 import { all_routes } from "../../router/all_routes";
 import CircleProgress from "./circleProgress";
 import CircleProgressSmall from "./circleProgressSmall";
@@ -227,7 +228,7 @@ const EmployeeDashboard = () => {
           yPosition
         );
         yPosition += 8;
-        doc.text(`Designation: ${employee.designation}`, 20, yPosition);
+        doc.text(`Designation: ${resolveDesignation(employee.designation)}`, 20, yPosition);
         yPosition += 8;
         doc.text(`Email: ${employee.contact.email}`, 20, yPosition);
         yPosition += 8;
@@ -401,7 +402,7 @@ const EmployeeDashboard = () => {
           ["Employee Information", ""],
           ["FirstName", dashboardData.employeeDetails.firstName],
           ["LastName", dashboardData.employeeDetails.lastName],
-          ["Designation", dashboardData.employeeDetails.designation],
+          ["Designation", resolveDesignation(dashboardData.employeeDetails.designation)],
           ["Email", dashboardData.employeeDetails.contact.email],
           ["Phone", dashboardData.employeeDetails.contact.phone],
           ["Report Office", dashboardData.employeeDetails.reportOffice],
@@ -1568,7 +1569,7 @@ const EmployeeDashboard = () => {
                       </h5>
                       <div className="d-flex align-items-center">
                         <p className="text-white fs-12 mb-0">
-                          {dashboardData?.employeeDetails?.designation}
+                          {resolveDesignation(dashboardData?.employeeDetails?.designation)}
                         </p>
                         <span className="mx-1">
                           <i className="ti ti-point-filled text-primary" />

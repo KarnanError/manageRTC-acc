@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import React from "react";
 import type { Department, Promotion } from "../../hooks/usePromotionsREST";
+import { resolveDesignation as resolveDesignationValue } from "../../utils/designationUtils";
 
 interface PromotionDetailsModalProps {
   promotion: Promotion | null;
@@ -28,7 +29,7 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
     name || (id ? departmentMap[id] : undefined) || "N/A";
 
   const resolveDesignation = (name?: string, id?: string) =>
-    name || (id ? designationLookup[id] : undefined) || "N/A";
+    resolveDesignationValue(name) || (id ? designationLookup[id] : undefined) || "N/A";
 
   // Always render modal structure, just show empty/loading state when no data
   if (!promotion) {

@@ -22,7 +22,7 @@ interface FormData {
 
 const TimeSheet = () => {
   // Role-based access control
-  const { role, employeeId } = useAuth();
+  const { role, employeeId, userId: clerkUserId } = useAuth();
   const isEmployeeOrManager = ['employee', 'manager'].includes(role);
   const canManageTimesheet = ['admin', 'hr', 'superadmin'].includes(role);
 
@@ -35,7 +35,9 @@ const TimeSheet = () => {
     getTimeEntriesByUser,
     createTimeEntry,
     updateTimeEntry,
-    deleteTimeEntry
+    deleteTimeEntry,
+    stats,
+    fetchStats
   } = useTimeTrackingREST();
 
   const { projects, fetchProjects } = useProjectsREST();
@@ -58,14 +60,22 @@ const TimeSheet = () => {
   // Fetch data on mount
   useEffect(() => {
     fetchProjects();
-    if (isEmployeeOrManager && employeeId) {
+    // Use Clerk userId (from auth) for time tracking API - backend resolves to employee internally
+    // The getTimeEntriesByUser service handles both Clerk userId and employeeId formats
+    const userIdForApi = clerkUserId || employeeId;
+
+    if (isEmployeeOrManager && userIdForApi) {
       // Employees/Managers see only their own time entries
-      getTimeEntriesByUser(employeeId, { page: 1, limit: 50, ...dateRange });
+      getTimeEntriesByUser(userIdForApi, { page: 1, limit: 50, ...dateRange });
+      // Fetch stats for the current user
+      fetchStats({ userId: userIdForApi });
     } else {
       // Admin/HR see all time entries
       fetchTimeEntries({ page: 1, limit: 50, ...dateRange });
+      // Fetch stats for all users
+      fetchStats();
     }
-  }, [dateRange, isEmployeeOrManager, employeeId]);
+  }, [dateRange, isEmployeeOrManager, employeeId, clerkUserId, fetchStats, fetchTimeEntries, getTimeEntriesByUser]);
 
   // Build table columns
   const columns = [
@@ -305,9 +315,13 @@ const TimeSheet = () => {
     }
   };
 
-  // Calculate total hours for display
-  const totalHours = timeEntries.reduce((sum, entry) => sum + (entry.duration || 0), 0);
-  const billableHours = timeEntries.filter(e => e.billable).reduce((sum, entry) => sum + (entry.duration || 0), 0);
+  // Calculate total hours for display - use backend stats when available, otherwise calculate from entries
+  const totalHours = stats?.totalHours ?? timeEntries.reduce((sum, entry) => sum + (entry.duration || 0), 0);
+  const billableHours = stats?.billableHours ?? timeEntries.filter(e => e.billable).reduce((sum, entry) => sum + (entry.duration || 0), 0);
+  const totalEntriesCount = stats?.totalEntries ?? timeEntries.length;
+  const draftCount = stats?.draftEntries ?? timeEntries.filter(e => e.status === 'Draft').length;
+  const submittedCount = stats?.submittedEntries ?? timeEntries.filter(e => e.status === 'Submitted').length;
+  const approvedCount = stats?.approvedEntries ?? timeEntries.filter(e => e.status === 'Approved').length;
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
@@ -405,20 +419,20 @@ const TimeSheet = () => {
             <div className="col-md-3">
               <div className="card">
                 <div className="card-body">
-                  <h6 className="mb-1">Entries</h6>
-                  <h4 className="mb-0">{timeEntries.length}</h4>
+                  <h6 className="mb-1">Total Entries</h6>
+                  <h4 className="mb-0">{totalEntriesCount}</h4>
                 </div>
               </div>
             </div>
             <div className="col-md-3">
               <div className="card">
                 <div className="card-body">
-                  <h6 className="mb-1">Date Range</h6>
-                  <p className="mb-0 text-truncate" style={{ fontSize: '13px' }}>
-                    {dateRange.startDate && dateRange.endDate
-                      ? `${new Date(dateRange.startDate).toLocaleDateString('en-GB')} - ${new Date(dateRange.endDate).toLocaleDateString('en-GB')}`
-                      : 'All Time'}
-                  </p>
+                  <h6 className="mb-1">Status</h6>
+                  <div className="d-flex align-items-center gap-1">
+                    <span className="badge bg-secondary rounded-1">{draftCount} Draft</span>
+                    <span className="badge bg-info rounded-1">{submittedCount} Submitted</span>
+                    <span className="badge bg-success rounded-1">{approvedCount} Approved</span>
+                  </div>
                 </div>
               </div>
             </div>

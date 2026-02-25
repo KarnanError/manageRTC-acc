@@ -14,6 +14,7 @@ import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
 import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
+import { useLeaveLedger } from "../../../../hooks/useLeaveLedger";
 import { all_routes } from "../../../router/all_routes";
 
 // Loading spinner component
@@ -113,8 +114,9 @@ const LeaveAdmin = () => {
   const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, deleteLeave, pagination, createLeave, updateLeave, fetchStats, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
   const { employees, fetchEmployees } = useEmployeesREST();
+  const { fetchEmployeeBalanceSummary } = useLeaveLedger();
   const { user: clerkUser } = useUser();
-  const { role, employeeId: currentEmployeeId } = useAuth();
+  const { role, employeeId: currentEmployeeId, isLoaded, isSignedIn } = useAuth();
 
   // Returns true when the current HR user is also the assigned reporting manager for a leave.
   // Primary check: employeeId from Clerk metadata matches the leave's reportingManagerId.
@@ -196,6 +198,22 @@ const LeaveAdmin = () => {
     noOfDays: 0,
   });
 
+  // Validation errors for Add Leave modal
+  const [addFormErrors, setAddFormErrors] = useState<Record<string, string>>({});
+
+  // Balance state for selected employee and leave type
+  const [selectedEmployeeBalance, setSelectedEmployeeBalance] = useState<{
+    balance: number;
+    used: number;
+    total: number;
+    hasCustomPolicy?: boolean;
+    customPolicyName?: string;
+  } | null>(null);
+
+  // Loading states for Add Leave modal
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [addLeaveLoading, setAddLeaveLoading] = useState(false);
+
   // Form state for Edit Leave modal
   const [editFormData, setEditFormData] = useState<{
     _id: string;
@@ -209,17 +227,20 @@ const LeaveAdmin = () => {
     noOfDays: number;
   } | null>(null);
 
-  // Fetch employees on mount for dropdown
+  // Fetch employees on mount for dropdown (gated on auth readiness)
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchEmployees({ status: 'Active' }); // Only fetch active employees
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchActiveLeaveTypes();
-  }, [fetchActiveLeaveTypes]);
+  }, [isLoaded, isSignedIn, fetchActiveLeaveTypes]);
 
-  // Fetch stats on mount
+  // Fetch stats on mount (gated on auth readiness)
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     const loadStats = async () => {
       const statsData = await fetchStats();
       if (statsData) {
@@ -233,12 +254,179 @@ const LeaveAdmin = () => {
       }
     };
     loadStats();
-  }, [fetchStats]);
+  }, [isLoaded, isSignedIn, fetchStats]);
 
-  // Fetch leaves on mount and when filters change
+  // Fetch leaves on mount and when filters change (gated on auth readiness)
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchLeaves(filters);
-  }, [filters]);
+  }, [isLoaded, isSignedIn, filters]);
+
+  // Auto-populate reporting manager when employee is selected (Add Leave modal)
+  useEffect(() => {
+    if (addFormData.employeeId) {
+      const selectedEmployee = employees.find(emp => emp._id === addFormData.employeeId);
+      if (selectedEmployee?.reportingToEmployeeId) {
+        setAddFormData(prev => ({ ...prev, reportingManagerId: selectedEmployee.reportingToEmployeeId! }));
+      } else {
+        setAddFormData(prev => ({ ...prev, reportingManagerId: '' }));
+      }
+    }
+  }, [addFormData.employeeId, employees]);
+
+  // Fetch balance when employeeId or leaveType changes in Add Leave modal
+  // Uses Leave Ledger API to get accurate balance from ledger collection
+  // Now uses ObjectId-based lookups (modern approach) instead of string codes
+  useEffect(() => {
+    const fetchEmployeeBalance = async () => {
+      console.log('[leaveAdmin] fetchEmployeeBalance called', {
+        employeeId: addFormData.employeeId,
+        leaveType: addFormData.leaveType,
+        hasEmployees: employees.length > 0
+      });
+
+      if (addFormData.employeeId && addFormData.leaveType) {
+        setBalanceLoading(true); // Start loading
+        // Find the employee object to get the employeeId string (e.g., "EMP-2865")
+        // addFormData.employeeId contains MongoDB _id, we need the employeeId string for Ledger API
+        const selectedEmployee = employees.find(emp => emp._id === addFormData.employeeId);
+        const employeeIdString = selectedEmployee?.employeeId; // e.g., "EMP-2865"
+
+        console.log('[leaveAdmin] Found employee:', {
+          selectedEmployee,
+          employeeIdString,
+          allEmployees: employees.map(e => ({ _id: e._id, employeeId: e.employeeId, name: e.firstName }))
+        });
+
+        if (!employeeIdString) {
+          console.warn('[leaveAdmin] No employeeIdString found, setting balance to null');
+          setSelectedEmployeeBalance(null);
+          setBalanceLoading(false);
+          return;
+        }
+
+        // addFormData.leaveType is already the ObjectId (from dropdown value)
+        // No need to convert to code - backend now returns summary keyed by ObjectId
+        const leaveTypeId = addFormData.leaveType;
+
+        console.log('[leaveAdmin] Leave type ObjectId:', leaveTypeId);
+
+        // Use Leave Ledger API to get accurate balance from ledger collection (source of truth)
+        console.log('[leaveAdmin] Calling fetchEmployeeBalanceSummary with:', employeeIdString);
+        const balanceSummary = await fetchEmployeeBalanceSummary(employeeIdString);
+        console.log('[leaveAdmin] Balance summary received:', balanceSummary);
+        console.log('[leaveAdmin] Available keys in balanceSummary:', balanceSummary ? Object.keys(balanceSummary) : 'balanceSummary is null/undefined');
+
+        if (balanceSummary && leaveTypeId) {
+          // MODERN APPROACH: balanceSummary is now keyed by ObjectId (leaveTypeId)
+          const balance = balanceSummary[leaveTypeId];
+
+          console.log('[leaveAdmin] Balance for leave type ObjectId:', leaveTypeId, balance);
+
+          if (balance) {
+            console.log('[leaveAdmin] Setting balance state:', {
+              balance: balance.balance,
+              used: balance.used,
+              total: balance.total
+            });
+            setSelectedEmployeeBalance({
+              balance: balance.balance || 0,
+              used: balance.used || 0,
+              total: balance.total || 0,
+              hasCustomPolicy: balance.hasCustomPolicy,
+              customPolicyName: balance.customPolicyName,
+            });
+          } else {
+            console.warn('[leaveAdmin] Balance not found for leave type ObjectId:', leaveTypeId);
+            setSelectedEmployeeBalance(null);
+          }
+        } else {
+          console.warn('[leaveAdmin] Balance summary is null or leaveTypeId is missing');
+          setSelectedEmployeeBalance(null);
+        }
+        setBalanceLoading(false); // End loading
+      } else {
+        console.log('[leaveAdmin] employeeId or leaveType is missing, setting balance to null');
+        setSelectedEmployeeBalance(null);
+        setBalanceLoading(false);
+      }
+    };
+
+    fetchEmployeeBalance();
+  }, [addFormData.employeeId, addFormData.leaveType, employees, fetchEmployeeBalanceSummary]);
+
+  // Fetch balance when employeeId or leaveType changes in Edit Leave modal
+  // Uses Leave Ledger API to get accurate balance from ledger collection
+  // Now uses ObjectId-based lookups (modern approach) instead of string codes
+  useEffect(() => {
+    const fetchEmployeeBalanceForEdit = async () => {
+      console.log('[leaveAdmin] Edit mode - fetchEmployeeBalance called', {
+        employeeId: editFormData?.employeeId,
+        leaveType: editFormData?.leaveType,
+        hasEmployees: employees.length > 0
+      });
+
+      if (editFormData?.employeeId && editFormData.leaveType) {
+        // Find the employee object to get the employeeId string (e.g., "EMP-2865")
+        const selectedEmployee = employees.find(emp => emp._id === editFormData.employeeId);
+        const employeeIdString = selectedEmployee?.employeeId;
+
+        console.log('[leaveAdmin] Edit mode - Found employee:', {
+          selectedEmployee,
+          employeeIdString
+        });
+
+        if (!employeeIdString) {
+          setSelectedEmployeeBalance(null);
+          return;
+        }
+
+        // editFormData.leaveType is already the ObjectId (from dropdown value)
+        // No need to convert to code - backend now returns summary keyed by ObjectId
+        const leaveTypeId = editFormData.leaveType;
+
+        console.log('[leaveAdmin] Edit mode - Leave type ObjectId:', leaveTypeId);
+        console.log('[leaveAdmin] Edit mode - Calling fetchEmployeeBalanceSummary for:', employeeIdString);
+
+        // Use Leave Ledger API to get accurate balance from ledger collection (source of truth)
+        const balanceSummary = await fetchEmployeeBalanceSummary(employeeIdString);
+        console.log('[leaveAdmin] Edit mode - Balance summary received:', balanceSummary);
+
+        if (balanceSummary && leaveTypeId) {
+          // MODERN APPROACH: balanceSummary is now keyed by ObjectId (leaveTypeId)
+          const balance = balanceSummary[leaveTypeId];
+
+          console.log('[leaveAdmin] Edit mode - Balance for leave type ObjectId:', leaveTypeId, balance);
+
+          if (balance) {
+            setSelectedEmployeeBalance({
+              balance: balance.balance || 0,
+              used: balance.used || 0,
+              total: balance.total || 0,
+              hasCustomPolicy: balance.hasCustomPolicy,
+              customPolicyName: balance.customPolicyName,
+            });
+          } else {
+            setSelectedEmployeeBalance(null);
+          }
+        } else {
+          setSelectedEmployeeBalance(null);
+        }
+      }
+    };
+
+    fetchEmployeeBalanceForEdit();
+  }, [editFormData?.employeeId, editFormData?.leaveType, employees, fetchEmployeeBalanceSummary]);
+
+  // Auto-populate reporting manager when employee is selected (Edit Leave modal)
+  useEffect(() => {
+    if (editFormData?.employeeId) {
+      const selectedEmployee = employees.find(emp => emp._id === editFormData.employeeId);
+      if (selectedEmployee?.reportingToEmployeeId) {
+        setEditFormData(prev => prev ? { ...prev, reportingManagerId: selectedEmployee.reportingToEmployeeId! } : prev);
+      }
+    }
+  }, [editFormData?.employeeId, employees]);
 
   useEffect(() => {
     if (!addFormData.leaveType && addFormData.session) {
@@ -269,18 +457,45 @@ const LeaveAdmin = () => {
     return new Map<string, string>(entries);
   }, [employees]);
 
+  // Employee data map for avatar, role, etc.
+  const employeeDataMap = useMemo(() => {
+    const map = new Map<string, { avatar?: string; avatarUrl?: string; profileImage?: string; role?: string; designation?: string }>();
+    employees.forEach(emp => {
+      map.set(emp.employeeId, {
+        avatar: emp.avatar,
+        avatarUrl: emp.avatarUrl || emp.profileImage,
+        profileImage: emp.profileImage,
+        role: emp.role,
+        designation: emp.designation,
+      });
+    });
+    return map;
+  }, [employees]);
+
   // Transform leaves for table display
   const data = leaves.map((leave) => {
     const employeeName = employeeNameById.get(leave.employeeId) || leave.employeeName || "Unknown";
+    const employeeData = employeeDataMap.get(leave.employeeId);
     const managerStatusValue = leave.managerStatus || 'pending';
     const statusValue = leave.finalStatus || leave.status || 'pending';
+
+    // Get avatar URL (priority: avatarUrl > profileImage > avatar > default)
+    const avatarUrl = employeeData?.avatarUrl || employeeData?.profileImage || employeeData?.avatar;
+    // Get role or designation (priority: role > designation > "Employee")
+    // designation may be a populated MongoDB object with a .designation string field
+    const rawDesignation = employeeData?.designation;
+    const designationStr = typeof rawDesignation === 'object' && rawDesignation !== null
+      ? (rawDesignation as any).designation || (rawDesignation as any).name || ''
+      : rawDesignation;
+    const roleOrDesignation = employeeData?.role || designationStr || "Employee";
 
     return {
       key: leave._id,
       _id: leave._id,
-      Image: "user-32.jpg",
+      Image: avatarUrl || "user-32.jpg", // Use employee avatar or fallback to default
       Employee: employeeName,
-      Role: "Employee",
+      Role: roleOrDesignation,
+      EmpId: leave.employeeId || "-",
       ReportingManager: leave.reportingManagerName || "-",
       LeaveType: leave.leaveType,
       LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
@@ -346,8 +561,20 @@ const LeaveAdmin = () => {
     setRejectModal({ show: false, leaveId: null, reason: '', isManagerAction: false });
   };
 
+  const openLeaveDetailsModal = (leave: any) => {
+    setSelectedLeave(leave);
+    // Use setTimeout to ensure React state update is flushed before Bootstrap opens modal
+    setTimeout(() => {
+      const modalEl = document.getElementById('view_leave_details');
+      if (modalEl) {
+        const modal = new (window as any).bootstrap.Modal(modalEl);
+        modal.show();
+      }
+    }, 0);
+  };
+
   const closeLeaveDetailsModal = () => {
-    const modalEl = document.getElementById('leave_details');
+    const modalEl = document.getElementById('view_leave_details');
     if (modalEl) {
       const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
       if (modal) modal.hide();
@@ -366,35 +593,32 @@ const LeaveAdmin = () => {
 
   // Handler for Add Leave form submission
   const handleAddLeaveSubmit = async () => {
-    if (!addFormData.employeeId) {
-      message.error('Please select an employee');
-      return;
+    // Prevent duplicate submissions
+    if (addLeaveLoading) return;
+
+    const errors: Record<string, string> = {};
+    if (!addFormData.employeeId) errors.employeeId = 'Please select an employee';
+    // Note: reportingManagerId is auto-populated from employee data, no validation required
+    if (!addFormData.leaveType) errors.leaveType = 'Please select a leave type';
+    if (!addFormData.startDate) errors.startDate = 'Please select a start date';
+    if (!addFormData.endDate) errors.endDate = 'Please select an end date';
+    if (addFormData.startDate && addFormData.endDate && addFormData.endDate.isBefore(addFormData.startDate, 'day')) {
+      errors.endDate = '"To" date must be same as or after "From" date';
     }
-    if (!addFormData.reportingManagerId) {
-      message.error('Please select a reporting manager');
-      return;
-    }
-    if (!addFormData.leaveType) {
-      message.error('Please select a leave type');
-      return;
-    }
-    if (!addFormData.startDate) {
-      message.error('Please select a start date');
-      return;
-    }
-    if (!addFormData.endDate) {
-      message.error('Please select an end date');
-      return;
-    }
-    if (!addFormData.session) {
-      message.error('Please select day type');
-      return;
-    }
-    if (!addFormData.reason.trim()) {
-      message.error('Please provide a reason for the leave');
-      return;
+    if (!addFormData.session) errors.session = 'Please select day type';
+    if (!addFormData.reason.trim()) errors.reason = 'Please provide a reason for the leave';
+    // Balance validation
+    if (addFormData.employeeId && addFormData.leaveType && selectedEmployeeBalance !== null && selectedEmployeeBalance.balance <= 0) {
+      errors.remainingDays = 'No remaining leave balance. Cannot add leave for this employee.';
     }
 
+    if (Object.keys(errors).length > 0) {
+      setAddFormErrors(errors);
+      return;
+    }
+    setAddFormErrors({});
+
+    setAddLeaveLoading(true); // Start loading
     const success = await createLeave({
       employeeId: addFormData.employeeId,
       reportingManagerId: addFormData.reportingManagerId || undefined,
@@ -403,6 +627,7 @@ const LeaveAdmin = () => {
       endDate: addFormData.endDate.format('YYYY-MM-DD'),
       reason: addFormData.reason,
     });
+    setAddLeaveLoading(false); // End loading
 
     if (success) {
       // Reset form and close modal
@@ -416,6 +641,7 @@ const LeaveAdmin = () => {
         reason: '',
         noOfDays: 0,
       });
+      setAddFormErrors({});
       // Close modal using Bootstrap API
       const modalEl = document.getElementById('add_leaves');
       if (modalEl) {
@@ -450,10 +676,7 @@ const LeaveAdmin = () => {
       message.error('Please select an employee');
       return;
     }
-    if (!editFormData.reportingManagerId) {
-      message.error('Please select a reporting manager');
-      return;
-    }
+    // Note: reportingManagerId is auto-populated from employee data, no validation required
     if (!editFormData.leaveType) {
       message.error('Please select a leave type');
       return;
@@ -499,16 +722,15 @@ const LeaveAdmin = () => {
 
   // Employee options for dropdown - Phase 2: Using real employees from API
   const getEmployeeOptionLabel = (emp: any) => {
-    const name = `${emp.firstName} ${emp.lastName}`.trim();
-    const id = emp.employeeId ? ` (${emp.employeeId})` : '';
-    const department = emp.department || emp.departmentId ? ` - ${emp.department || emp.departmentId}` : '';
-    return `${name}${id}${department}`;
+    const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+    const id = emp.employeeId || '';
+    return id ? `${id} ${name}` : name;
   };
 
   const employeename = [
     { value: "", label: "Select Employee" },
     ...employees.map(emp => ({
-      value: emp.employeeId,
+      value: emp._id, // Use MongoDB _id instead of employeeId
       label: getEmployeeOptionLabel(emp)
     }))
   ];
@@ -528,19 +750,26 @@ const LeaveAdmin = () => {
       render: (text: String, record: any) => (
         <div className="d-flex align-items-center file-name-icon">
           <Link to="#" className="avatar avatar-md border avatar-rounded">
-            <ImageWithBasePath
-              src={`assets/img/users/${record.Image}`}
-              className="img-fluid"
-              alt="img"
-            />
+            {record.Image && record.Image !== "user-32.jpg" ? (
+              <img
+                src={record.Image}
+                className="img-fluid rounded-circle"
+                alt="img"
+                onError={(e) => { (e.target as HTMLImageElement).src = 'assets/img/users/user-32.jpg'; }}
+              />
+            ) : (
+              <ImageWithBasePath
+                src={`assets/img/users/${record.Image}`}
+                className="img-fluid"
+                alt="img"
+              />
+            )}
           </Link>
           <div className="ms-2">
             <h6 className="fw-medium">
               <Link
                 to="#"
-                data-bs-toggle="modal"
-                data-bs-target="#leave_details"
-                onClick={() => setSelectedLeave(record.rawLeave)}
+                onClick={(e) => { e.preventDefault(); openLeaveDetailsModal(record.rawLeave); }}
               >
                 {record.Employee}
               </Link>
@@ -550,6 +779,12 @@ const LeaveAdmin = () => {
         </div>
       ),
       sorter: (a: any, b: any) => a.Employee.length - b.Employee.length,
+    },
+    {
+      title: "Emp ID",
+      dataIndex: "EmpId",
+      width: 100,
+      sorter: (a: any, b: any) => (a.EmpId || '').localeCompare(b.EmpId || ''),
     },
     {
       title: "Leave Type",
@@ -563,9 +798,7 @@ const LeaveAdmin = () => {
             <Link
               to="#"
               className="ms-2"
-              data-bs-toggle="modal"
-              data-bs-target="#view_leave_details"
-              onClick={() => setSelectedLeave(record.rawLeave)}
+              onClick={(e) => { e.preventDefault(); openLeaveDetailsModal(record.rawLeave); }}
               data-bs-placement="right"
               title="View leave details"
             >
@@ -601,53 +834,35 @@ const LeaveAdmin = () => {
       },
     },
     {
-      title: "Manager Status",
-      dataIndex: "ManagerStatus",
-      key: "ManagerStatus",
-      render: (status: string) => {
-        const bgColor = status === 'approved' ? '#03c95a' : status === 'rejected' ? '#f8220a' : '#fed24e';
-        return (
-          <div
-            style={{
-              backgroundColor: bgColor,
-              color: '#ffffff',
-              padding: '6px 16px',
-              borderRadius: '4px',
-              display: 'inline-block',
-              minWidth: '90px',
-              textAlign: 'center',
-              fontSize: '13px',
-              fontWeight: '500'
-            }}
-          >
-            {status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Pending'}
-          </div>
-        );
-      },
-      sorter: (a: any, b: any) => (a.ManagerStatus || '').localeCompare(b.ManagerStatus || ''),
-    },
-    {
       title: "Status",
       dataIndex: "Status",
       key: "Status",
       render: (status: string) => {
-        const bgColor = status === 'approved' ? '#03c95a' : status === 'rejected' ? '#f8220a' : '#fed24e';
+        // Normalize status for comparison (handle case-insensitive)
+        const normalizedStatus = (status || 'pending').toLowerCase();
+
+        // Determine badge color based on status
+        let badgeClass = "badge-warning"; // Default yellow for pending
+
+        if (normalizedStatus === "approved") {
+          badgeClass = "badge-success"; // Green
+        } else if (normalizedStatus === "rejected") {
+          badgeClass = "badge-danger"; // Red
+        } else if (normalizedStatus === "cancelled") {
+          badgeClass = "badge-secondary"; // Gray
+        } else if (normalizedStatus === "on-hold") {
+          badgeClass = "badge-info"; // Blue
+        } else if (normalizedStatus === "pending") {
+          badgeClass = "badge-warning"; // Yellow
+        }
+
         return (
-          <div
-            style={{
-              backgroundColor: bgColor,
-              color: '#ffffff',
-              padding: '6px 16px',
-              borderRadius: '4px',
-              display: 'inline-block',
-              minWidth: '90px',
-              textAlign: 'center',
-              fontSize: '13px',
-              fontWeight: '500'
-            }}
+          <span
+            className={`badge ${badgeClass} d-inline-flex align-items-center badge-xs`}
           >
+            <i className="ti ti-point-filled me-1" />
             {status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Pending'}
-          </div>
+          </span>
         );
       },
       sorter: (a: any, b: any) => (a.Status || '').localeCompare(b.Status || ''),
@@ -682,10 +897,8 @@ const LeaveAdmin = () => {
           <Link
             to="#"
             className="me-2"
-            data-bs-toggle="modal"
-            data-bs-target="#view_leave_details"
             title="View details"
-            onClick={() => setSelectedLeave(record.rawLeave)}
+            onClick={(e) => { e.preventDefault(); openLeaveDetailsModal(record.rawLeave); }}
           >
             <i className="ti ti-eye" style={{ fontSize: '18px' }} />
           </Link>
@@ -763,6 +976,40 @@ const LeaveAdmin = () => {
 
   return (
     <>
+      {/* Timeline Styles */}
+      <style>{`
+        .leave-timeline .timeline-item {
+          position: relative;
+          padding-bottom: 20px;
+          padding-left: 30px;
+        }
+        .leave-timeline .timeline-item:last-child {
+          padding-bottom: 0;
+        }
+        .leave-timeline .timeline-item:last-child .timeline-line {
+          display: none;
+        }
+        .leave-timeline .timeline-dot {
+          position: absolute;
+          left: 0;
+          top: 2px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          z-index: 1;
+          border: 2px solid white;
+          box-shadow: 0 0 0 2px #dee2e6;
+        }
+        .leave-timeline .timeline-line {
+          position: absolute;
+          left: 5px;
+          top: 14px;
+          width: 2px;
+          height: calc(100% + 6px);
+          background-color: #dee2e6;
+          z-index: 0;
+        }
+      `}</style>
       {/* Page Wrapper */}
       <div className="page-wrapper">
         <div className="content">
@@ -992,22 +1239,27 @@ const LeaveAdmin = () => {
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <h4 className="modal-title">Add Leave</h4>
+              <h4 className="modal-title">Apply Leave</h4>
               <button
                 type="button"
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
-                onClick={() => setAddFormData({
-                  employeeId: '',
-                  reportingManagerId: '',
-                  leaveType: '',
-                  startDate: null,
-                  endDate: null,
-                  session: '',
-                  reason: '',
-                  noOfDays: 0,
-                })}
+                onClick={() => {
+                  setAddFormData({
+                    employeeId: '',
+                    reportingManagerId: '',
+                    leaveType: '',
+                    startDate: null,
+                    endDate: null,
+                    session: '',
+                    reason: '',
+                    noOfDays: 0,
+                  });
+                  setAddFormErrors({});
+                  setBalanceLoading(false);
+                  setAddLeaveLoading(false);
+                }}
               >
                 <i className="ti ti-x" />
               </button>
@@ -1017,40 +1269,51 @@ const LeaveAdmin = () => {
                 <div className="row">
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Employee Name</label>
+                      <label className="form-label">Employee Name <span className="text-danger">*</span></label>
                       <CommonSelect
                         className="select"
                         options={employeename}
                         value={addFormData.employeeId}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, employeeId: option?.value || '' })}
+                        onChange={(option: any) => { setAddFormData({ ...addFormData, employeeId: option?.value || '' }); setAddFormErrors(prev => { const { employeeId, ...rest } = prev; return rest; }); }}
                       />
+                      {addFormErrors.employeeId && <small className="text-danger">{addFormErrors.employeeId}</small>}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">Reporting Manager</label>
-                      <CommonSelect
-                        className="select"
-                        options={reportingManagerOptions}
-                        value={addFormData.reportingManagerId}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, reportingManagerId: option?.value || '' })}
+                      <input
+                        type="text"
+                        className="form-control bg-light"
+                        value={(() => {
+                          const manager = employees.find(emp => emp.employeeId === addFormData.reportingManagerId);
+                          return manager ? `${manager.employeeId} ${manager.firstName} ${manager.lastName}`.trim() : 'No reporting manager assigned';
+                        })()}
+                        disabled
                       />
+                      {!addFormData.reportingManagerId && addFormData.employeeId && (
+                        <small className="text-warning fs-11">
+                          <i className="ti ti-alert-triangle me-1"></i>
+                          This employee has no reporting manager assigned
+                        </small>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Leave Type</label>
+                      <label className="form-label">Leave Type <span className="text-danger">*</span></label>
                       <CommonSelect
                         className="select"
                         options={leaveTypeOptions}
                         value={leaveTypeOptions.find(opt => opt.value === addFormData.leaveType)?.value || addFormData.leaveType}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, leaveType: option?.value || '' })}
+                        onChange={(option: any) => { setAddFormData({ ...addFormData, leaveType: option?.value || '' }); setAddFormErrors(prev => { const { leaveType, ...rest } = prev; return rest; }); }}
                       />
+                      {addFormErrors.leaveType && <small className="text-danger">{addFormErrors.leaveType}</small>}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">From </label>
+                      <label className="form-label">From <span className="text-danger">*</span></label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -1061,17 +1324,18 @@ const LeaveAdmin = () => {
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={addFormData.startDate}
-                          onChange={(date) => setAddFormData({ ...addFormData, startDate: date })}
+                          onChange={(date) => { setAddFormData({ ...addFormData, startDate: date }); setAddFormErrors(prev => { const { startDate, ...rest } = prev; return rest; }); }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addFormErrors.startDate && <small className="text-danger">{addFormErrors.startDate}</small>}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">To </label>
+                      <label className="form-label">To <span className="text-danger">*</span></label>
                       <div className="input-icon-end position-relative">
                         <DatePicker
                           className="form-control datetimepicker"
@@ -1082,42 +1346,26 @@ const LeaveAdmin = () => {
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
                           value={addFormData.endDate}
-                          onChange={(date) => setAddFormData({ ...addFormData, endDate: date })}
+                          onChange={(date) => { setAddFormData({ ...addFormData, endDate: date }); setAddFormErrors(prev => { const { endDate, ...rest } = prev; return rest; }); }}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addFormErrors.endDate && <small className="text-danger">{addFormErrors.endDate}</small>}
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                          disabled
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
+                      <label className="form-label">Day Type <span className="text-danger">*</span></label>
                       <CommonSelect
                         className="select"
                         options={dayTypeOptions}
                         value={addFormData.session}
                         disabled={!addFormData.leaveType}
-                        onChange={(option: any) => setAddFormData({ ...addFormData, session: option?.value || '' })}
+                        onChange={(option: any) => { setAddFormData({ ...addFormData, session: option?.value || '' }); setAddFormErrors(prev => { const { session, ...rest } = prev; return rest; }); }}
                       />
+                      {addFormErrors.session && <small className="text-danger">{addFormErrors.session}</small>}
                     </div>
                   </div>
                   <div className="col-md-6">
@@ -1134,23 +1382,47 @@ const LeaveAdmin = () => {
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">Remaining Days</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        defaultValue={8}
-                        disabled
-                      />
+                      <div className="input-group">
+                        <input
+                          type="text"
+                          className="form-control bg-light"
+                          value={balanceLoading ? '' : (selectedEmployeeBalance?.balance?.toString() || '-')}
+                          disabled
+                          placeholder={balanceLoading ? 'Loading...' : ''}
+                        />
+                        {balanceLoading && (
+                          <span className="input-group-text bg-light border-start-0">
+                            <span className="spinner-border spinner-border-sm text-primary" role="status">
+                              <span className="visually-hidden">Loading...</span>
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                      {selectedEmployeeBalance !== null && selectedEmployeeBalance.balance <= 0 && (
+                        <small className="text-danger">
+                          <i className="ti ti-alert-circle me-1"></i>
+                          No remaining leave balance. Cannot add leave for this employee.
+                        </small>
+                      )}
+                      {addFormErrors.remainingDays && !selectedEmployeeBalance && <small className="text-danger">{addFormErrors.remainingDays}</small>}
+                      {selectedEmployeeBalance?.hasCustomPolicy && selectedEmployeeBalance.balance > 0 && (
+                        <small className="text-primary fs-11">
+                          <i className="ti ti-discount-check me-1"></i>
+                          Custom Policy: {selectedEmployeeBalance.customPolicyName || 'N/A'} ({selectedEmployeeBalance.total} days/year)
+                        </small>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Reason</label>
+                      <label className="form-label">Reason <span className="text-danger">*</span></label>
                       <textarea
                         className="form-control"
                         rows={3}
                         value={addFormData.reason}
-                        onChange={(e) => setAddFormData({ ...addFormData, reason: e.target.value })}
+                        onChange={(e) => { setAddFormData({ ...addFormData, reason: e.target.value }); setAddFormErrors(prev => { const { reason, ...rest } = prev; return rest; }); }}
                       />
+                      {addFormErrors.reason && <small className="text-danger">{addFormErrors.reason}</small>}
                     </div>
                   </div>
                 </div>
@@ -1160,16 +1432,21 @@ const LeaveAdmin = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
-                  onClick={() => setAddFormData({
-                    employeeId: '',
-                    reportingManagerId: '',
-                    leaveType: '',
-                    startDate: null,
-                    endDate: null,
-                    session: '',
-                    reason: '',
-                    noOfDays: 0,
-                  })}
+                  onClick={() => {
+                    setAddFormData({
+                      employeeId: '',
+                      reportingManagerId: '',
+                      leaveType: '',
+                      startDate: null,
+                      endDate: null,
+                      session: '',
+                      reason: '',
+                      noOfDays: 0,
+                    });
+                    setAddFormErrors({});
+                    setBalanceLoading(false);
+                    setAddLeaveLoading(false);
+                  }}
                 >
                   Cancel
                 </button>
@@ -1177,8 +1454,16 @@ const LeaveAdmin = () => {
                   type="button"
                   className="btn btn-primary"
                   onClick={handleAddLeaveSubmit}
+                  disabled={addLeaveLoading || (selectedEmployeeBalance !== null && selectedEmployeeBalance.balance <= 0)}
                 >
-                  Add Leave
+                  {addLeaveLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Submitting...
+                    </>
+                  ) : (
+                    'Apply Leave'
+                  )}
                 </button>
               </div>
             </form>
@@ -1219,11 +1504,14 @@ const LeaveAdmin = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">Reporting Manager</label>
-                      <CommonSelect
-                        className="select"
-                        options={reportingManagerOptions}
-                        value={editFormData?.reportingManagerId || ''}
-                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, reportingManagerId: option?.value || '' })}
+                      <input
+                        type="text"
+                        className="form-control bg-light"
+                        value={(() => {
+                          const manager = employees.find(emp => emp.employeeId === editFormData?.reportingManagerId);
+                          return manager ? `${manager.employeeId} ${manager.firstName} ${manager.lastName}`.trim() : 'No reporting manager assigned';
+                        })()}
+                        disabled
                       />
                     </div>
                   </div>
@@ -1326,10 +1614,16 @@ const LeaveAdmin = () => {
                       <label className="form-label">Remaining Days</label>
                       <input
                         type="text"
-                        className="form-control"
-                        defaultValue={"07"}
+                        className="form-control bg-light"
+                        value={selectedEmployeeBalance?.balance?.toString() || '-'}
                         disabled
                       />
+                      {selectedEmployeeBalance?.hasCustomPolicy && (
+                        <small className="text-primary fs-11">
+                          <i className="ti ti-discount-check me-1"></i>
+                          Custom Policy: {selectedEmployeeBalance.customPolicyName || 'N/A'} ({selectedEmployeeBalance.total} days/year)
+                        </small>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -1414,7 +1708,23 @@ const LeaveAdmin = () => {
       </div>
       {/* /Edit Leaves */}
       {/* Leave Details Modal */}
-      <LeaveDetailsModal leave={selectedLeave} modalId="view_leave_details" leaveTypeDisplayMap={leaveTypeDisplayMap} />
+      <LeaveDetailsModal
+        leave={selectedLeave}
+        modalId="view_leave_details"
+        leaveTypeDisplayMap={leaveTypeDisplayMap}
+        employeeNameById={employeeNameById}
+        employeeDataById={employeeDataMap}
+        onClose={closeLeaveDetailsModal}
+        onApprove={async (leave) => {
+          await handleApprove(leave);
+          closeLeaveDetailsModal();
+        }}
+        onReject={(leave) => {
+          closeLeaveDetailsModal();
+          handleRejectClick(leave);
+        }}
+        canApproveReject={selectedLeave ? canApproveRejectLeave(selectedLeave) : false}
+      />
       {/* Delete Modal */}
       <div className="modal fade" id="delete_modal" tabIndex={-1}>
         <div className="modal-dialog modal-dialog-centered">
@@ -1449,122 +1759,6 @@ const LeaveAdmin = () => {
         </div>
       </div>
       {/* /Delete Modal */}
-      {/* Leave Details Modal */}
-      <div className="modal fade" id="leave_details" tabIndex={-1}>
-        <div className="modal-dialog modal-dialog-centered modal-lg">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h4 className="modal-title">Leave Details</h4>
-              <button
-                type="button"
-                className="btn-close custom-btn-close"
-                data-bs-dismiss="modal"
-                aria-label="Close"
-                onClick={closeLeaveDetailsModal}
-              >
-                <i className="ti ti-x" />
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="p-3 rounded border bg-light">
-                <div className="row g-3">
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Employee</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave
-                        ? employeeNameById.get(selectedLeave.employeeId) || selectedLeave.employeeName || "Unknown"
-                        : "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Reporting Manager</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave?.reportingManagerName || "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Leave Type</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave ? (leaveTypeDisplayMap[selectedLeave.leaveType?.toLowerCase?.()] || selectedLeave.leaveType) : "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">No. of Days</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave ? `${selectedLeave.duration} Day${selectedLeave.duration > 1 ? 's' : ''}` : "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">From</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave ? formatDate(selectedLeave.startDate) : "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">To</p>
-                    <div className="fw-semibold text-dark">
-                      {selectedLeave ? formatDate(selectedLeave.endDate) : "-"}
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Status</p>
-                    <div className="d-inline-flex align-items-center gap-2">
-                      <StatusBadge status={(selectedLeave?.finalStatus || selectedLeave?.status || 'pending') as LeaveStatus} />
-                    </div>
-                  </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Manager Status</p>
-                    <div className="d-inline-flex align-items-center gap-2">
-                      <StatusBadge status={(selectedLeave?.managerStatus || 'pending') as LeaveStatus} />
-                    </div>
-                  </div>
-                  <div className="col-12">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Reason</p>
-                    <div className="fw-semibold text-dark bg-white rounded p-2 border">
-                      {selectedLeave?.reason || "-"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer d-flex justify-content-end gap-3 flex-wrap">
-              <button
-                type="button"
-                className="btn btn-light px-4"
-                data-bs-dismiss="modal"
-                onClick={closeLeaveDetailsModal}
-              >
-                Close
-              </button>
-              {(selectedLeave?.finalStatus || selectedLeave?.status) === 'pending' && canApproveRejectLeave(selectedLeave) && (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-danger px-4"
-                    onClick={() => {
-                      closeLeaveDetailsModal();
-                      handleRejectClick(selectedLeave);
-                    }}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-success px-4"
-                    onClick={async () => {
-                      await handleApprove(selectedLeave);
-                      closeLeaveDetailsModal();
-                    }}
-                  >
-                    Approve
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* /Leave Details Modal */}
       {/* Reject Modal */}
       {rejectModal.show && (
         <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>

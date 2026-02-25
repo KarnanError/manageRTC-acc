@@ -37,18 +37,20 @@ if (!CLERK_JWT_KEY || !CLERK_SECRET_KEY) {
  * Verifies Clerk JWT token and attaches user info to request
  * Uses the same approach as Socket.IO authentication
  */
+// Track auth request count for session identification
+let authRequestCount = 0;
+
 export const authenticate = async (req, res, next) => {
-  console.log('[Auth Middleware] Starting authentication...', {
-    hasAuthHeader: !!req.headers.authorization,
-    authHeaderPrefix: req.headers.authorization?.substring(0, 10),
-    requestId: req.id,
-  });
+  authRequestCount++;
+  const authSeq = authRequestCount;
+
+  console.log(`\n🔐 [Auth #${authSeq}] ${req.id} → ${req.method} ${req.path}`);
 
   try {
     // Extract token from Authorization header
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('[Auth Middleware] No Bearer token found', { requestId: req.id });
+      console.log(`   ❌ No Bearer token - ${req.id}`);
       return res.status(401).json({
         success: false,
         error: {
@@ -76,13 +78,7 @@ export const authenticate = async (req, res, next) => {
         secretKey: CLERK_SECRET_KEY,
       });
     } catch (verifyError) {
-      console.error('[Auth Middleware] Token verification error:', {
-        name: verifyError.name,
-        message: verifyError.message,
-        code: verifyError.code,
-        stack: verifyError.stack,
-        requestId: req.id,
-      });
+      console.log(`   ❌ Token failed: ${verifyError.message} - ${req.id}`);
       return res.status(401).json({
         success: false,
         error: {
@@ -95,11 +91,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     if (!verifiedToken || !verifiedToken.sub) {
-      console.error('[Auth Middleware] Token verification failed - no sub claim', {
-        hasVerifiedToken: !!verifiedToken,
-        keys: verifiedToken ? Object.keys(verifiedToken) : [],
-        requestId: req.id,
-      });
+      console.log(`   ❌ Invalid token (no sub) - ${req.id}`);
       return res.status(401).json({
         success: false,
         error: {
@@ -110,21 +102,12 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    console.log('[Auth Middleware] Token verified', {
-      userId: verifiedToken.sub,
-      requestId: req.id,
-    });
-
     // Fetch user from Clerk to get metadata (same as Socket.IO)
     let user;
     try {
       user = await clerkClient.users.getUser(verifiedToken.sub);
     } catch (clerkError) {
-      console.error('[Auth Middleware] Failed to fetch user from Clerk:', {
-        error: clerkError.message,
-        userId: verifiedToken.sub,
-        requestId: req.id,
-      });
+      console.log(`   ❌ Clerk fetch failed: ${clerkError.message} - ${req.id}`);
       return res.status(401).json({
         success: false,
         error: {
@@ -142,25 +125,6 @@ export const authenticate = async (req, res, next) => {
     let companyId = user.publicMetadata?.companyId || user.publicMetadata?.company || null;
     let employeeId = user.publicMetadata?.employeeId || null;
 
-    // DEBUG: Log role detection details
-    console.log('[Auth Middleware] Role detection:', {
-      rawRole: user.publicMetadata?.role,
-      normalizedRole: role,
-      roleType: typeof user.publicMetadata?.role,
-      isAdminVerified: user.publicMetadata?.isAdminVerified,
-      isAdminVerifiedType: typeof user.publicMetadata?.isAdminVerified,
-      isDevelopment,
-    });
-
-    console.log('[Auth Middleware] User metadata:', {
-      userId: user.id,
-      role,
-      companyId,
-      employeeId,
-      publicMetadata: user.publicMetadata,
-      requestId: req.id,
-    });
-
     // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
     // In development mode, if users don't have a companyId, use the DEV_COMPANY_ID from env
     // This is a TEMPORARY FIX that MUST be removed before production deployment!
@@ -170,16 +134,9 @@ export const authenticate = async (req, res, next) => {
       const devCompanyId = process.env.DEV_COMPANY_ID;
       if (devCompanyId) {
         companyId = devCompanyId;
-        console.warn(
-          `🔧 DEVELOPMENT WORKAROUND: Using DEV_COMPANY_ID ${companyId} for ${role} user`
-        );
+        console.log(`   ⚠️  DEV_MODE: Using DEV_COMPANY_ID for ${role}`);
       } else {
-        console.error(
-          `❌ SECURITY ERROR: ${role} user missing companyId and DEV_COMPANY_ID not set in environment!`
-        );
-        console.error(
-          '⚠️ Please either set the companyId in Clerk user metadata or set DEV_COMPANY_ID environment variable'
-        );
+        console.log(`   ❌ No companyId for ${role} user`);
         return res.status(403).json({
           success: false,
           error: {
@@ -209,22 +166,13 @@ export const authenticate = async (req, res, next) => {
       primaryEmailAddress: user.primaryEmailAddress,
     };
 
-    console.log('[Auth Success]', {
-      userId: req.user.userId,
-      role: req.user.role,
-      companyId: req.user.companyId,
-      requestId: req.id,
-    });
+    console.log(`   ✅ ${role.toUpperCase()} | ${user.id.substring(0, 10)}... | ${companyId || 'N/A'}`);
 
     next();
   } catch (error) {
     // Check if the error is due to token expiration (normal occurrence)
     if (error.message && (error.message.includes('expired') || error.message.includes('JWT is expired'))) {
-      console.warn('[Auth Middleware] Token expired (normal) - client should refresh:', {
-        error: error.message,
-        requestId: req.id
-      });
-
+      console.log(`   ⏰ Token expired - ${req.id}`);
       return res.status(401).json({
         success: false,
         error: {
@@ -236,12 +184,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     // Other authentication errors (actual problems)
-    console.error('[Auth Middleware Error]', {
-      error: error.message,
-      stack: error.stack,
-      requestId: req.id,
-    });
-
+    console.log(`   ❌ Auth error: ${error.message} - ${req.id}`);
     return res.status(401).json({
       success: false,
       error: {
@@ -279,13 +222,7 @@ export const requireRole = (...roles) => {
 
     // Check if user has one of the required roles (case-insensitive)
     if (!normalizedRoles.includes(req.user.role?.toLowerCase())) {
-      console.warn('[Authorization Failed]', {
-        userId: req.user.userId,
-        userRole: req.user.role,
-        requiredRoles: normalizedRoles,
-        requestId: req.id,
-      });
-
+      console.log(`   🔒 FORBIDDEN: ${req.user.role} needs ${roles.join('/')}`);
       return res.status(403).json({
         success: false,
         error: {
@@ -297,13 +234,6 @@ export const requireRole = (...roles) => {
     }
 
     // User is authenticated and has required role
-    console.log('[Authorization Success]', {
-      userId: req.user.userId,
-      role: req.user.role,
-      companyId: req.user.companyId,
-      requestId: req.id,
-    });
-
     next();
   };
 };
@@ -313,29 +243,13 @@ export const requireRole = (...roles) => {
  * Superadmin bypasses this check (case-insensitive)
  */
 export const requireCompany = (req, res, next) => {
-  console.log('[RequireCompany] Checking company requirement...', {
-    hasUser: !!req.user,
-    userId: req.user?.userId,
-    role: req.user?.role,
-    companyId: req.user?.companyId,
-    requestId: req.id,
-  });
-
   // Superadmin doesn't need company (case-insensitive check)
   if (req.user && req.user.role?.toLowerCase() === 'superadmin') {
-    console.log('[RequireCompany] Superadmin bypass', { requestId: req.id });
     return next();
   }
 
   if (!req.user || !req.user.companyId) {
-    console.warn('[Company Check Failed]', {
-      userId: req.user?.userId,
-      role: req.user?.role,
-      hasCompanyId: !!req.user?.companyId,
-      companyId: req.user?.companyId,
-      requestId: req.id,
-    });
-
+    console.log(`   ❌ No company for ${req.user?.role}`);
     return res.status(403).json({
       success: false,
       error: {
