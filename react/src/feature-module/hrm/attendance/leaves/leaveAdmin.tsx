@@ -12,15 +12,83 @@ import LeaveDetailsModal from "../../../../core/modals/LeaveDetailsModal";
 import { useAuth } from "../../../../hooks/useAuth";
 import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
+import { useLeaveLedger } from "../../../../hooks/useLeaveLedger";
 import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
-import { useLeaveLedger } from "../../../../hooks/useLeaveLedger";
 import { all_routes } from "../../../router/all_routes";
 
 // Loading spinner component
 const LoadingSpinner = () => (
   <div style={{ textAlign: 'center', padding: '50px' }}>
     <Spin size="large" />
+  </div>
+);
+
+// Skeleton Loader Components
+const StatCardSkeleton = () => (
+  <div className="card">
+    <div className="card-body">
+      <div className="d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center">
+          <div className="flex-shrink-0 me-2">
+            <div className="skeleton-avatar"></div>
+          </div>
+        </div>
+        <div className="text-end">
+          <div className="skeleton-text skeleton-stat-label mb-2"></div>
+          <div className="skeleton-text skeleton-stat-value"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const TableRowSkeleton = () => (
+  <tr>
+    <td><div className="skeleton-checkbox"></div></td>
+    <td>
+      <div className="d-flex align-items-center">
+        <div className="skeleton-avatar me-2"></div>
+        <div>
+          <div className="skeleton-text skeleton-name mb-1"></div>
+          <div className="skeleton-text skeleton-role"></div>
+        </div>
+      </div>
+    </td>
+    <td><div className="skeleton-text skeleton-emp-id"></div></td>
+    <td><div className="skeleton-text skeleton-leave-type"></div></td>
+    <td><div className="skeleton-text skeleton-manager"></div></td>
+    <td><div className="skeleton-text skeleton-date"></div></td>
+    <td><div className="skeleton-text skeleton-date"></div></td>
+    <td><div className="skeleton-text skeleton-days"></div></td>
+    <td><div className="skeleton-badge"></div></td>
+    <td><div className="skeleton-actions"></div></td>
+  </tr>
+);
+
+const TableSkeleton = () => (
+  <div className="table-responsive">
+    <table className="table datanew">
+      <thead>
+        <tr>
+          <th><div className="skeleton-checkbox"></div></th>
+          <th>Employee</th>
+          <th>Emp ID</th>
+          <th>Leave Type</th>
+          <th>Reporting Manager</th>
+          <th>From</th>
+          <th>To</th>
+          <th>No of Days</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <TableRowSkeleton key={i} />
+        ))}
+      </tbody>
+    </table>
   </div>
 );
 
@@ -112,11 +180,14 @@ const getLeaveIdentifier = (leave: any) => {
 const LeaveAdmin = () => {
   // API hooks
   const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, deleteLeave, pagination, createLeave, updateLeave, fetchStats, leaveTypeDisplayMap } = useLeaveREST();
-  const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
-  const { employees, fetchEmployees } = useEmployeesREST();
+  const { activeOptions, fetchActiveLeaveTypes, loading: leaveTypesLoading } = useLeaveTypesREST();
+  const { employees, fetchEmployees, loading: employeesLoading } = useEmployeesREST();
   const { fetchEmployeeBalanceSummary } = useLeaveLedger();
   const { user: clerkUser } = useUser();
   const { role, employeeId: currentEmployeeId, isLoaded, isSignedIn } = useAuth();
+
+  // Loading states
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Returns true when the current HR user is also the assigned reporting manager for a leave.
   // Primary check: employeeId from Clerk metadata matches the leave's reportingManagerId.
@@ -242,6 +313,7 @@ const LeaveAdmin = () => {
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     const loadStats = async () => {
+      setStatsLoading(true);
       const statsData = await fetchStats();
       if (statsData) {
         setStats({
@@ -252,6 +324,7 @@ const LeaveAdmin = () => {
           totalEmployees: statsData.totalEmployees || 0,
         });
       }
+      setStatsLoading(false);
     };
     loadStats();
   }, [isLoaded, isSignedIn, fetchStats]);
@@ -976,8 +1049,104 @@ const LeaveAdmin = () => {
 
   return (
     <>
-      {/* Timeline Styles */}
+      {/* Skeleton & Timeline Styles */}
       <style>{`
+        /* Skeleton Loader Styles */
+        .skeleton-text {
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+          border-radius: 4px;
+          height: 16px;
+        }
+
+        .skeleton-avatar {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+        }
+
+        .skeleton-checkbox {
+          width: 20px;
+          height: 20px;
+          border-radius: 4px;
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+        }
+
+        .skeleton-badge {
+          width: 80px;
+          height: 24px;
+          border-radius: 12px;
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+        }
+
+        .skeleton-actions {
+          width: 100px;
+          height: 20px;
+          border-radius: 4px;
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+        }
+
+        .skeleton-stat-label {
+          width: 120px;
+          height: 16px;
+        }
+
+        .skeleton-stat-value {
+          width: 60px;
+          height: 32px;
+        }
+
+        .skeleton-name {
+          width: 140px;
+          height: 14px;
+        }
+
+        .skeleton-role {
+          width: 80px;
+          height: 12px;
+        }
+
+        .skeleton-emp-id {
+          width: 80px;
+          height: 14px;
+        }
+
+        .skeleton-leave-type {
+          width: 100px;
+          height: 14px;
+        }
+
+        .skeleton-manager {
+          width: 120px;
+          height: 14px;
+        }
+
+        .skeleton-date {
+          width: 90px;
+          height: 14px;
+        }
+
+        .skeleton-days {
+          width: 60px;
+          height: 14px;
+        }
+
+        @keyframes skeleton-loading {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        /* Timeline Styles */
         .leave-timeline .timeline-item {
           position: relative;
           padding-bottom: 20px;
@@ -1067,7 +1236,7 @@ const LeaveAdmin = () => {
                   className="btn btn-primary d-flex align-items-center"
                 >
                   <i className="ti ti-circle-plus me-2" />
-                  Apply Leave
+                  Add Leave
                 </Link>
               </div>
               <div className="head-icons ms-2">
@@ -1078,6 +1247,23 @@ const LeaveAdmin = () => {
           {/* /Breadcrumb */}
           {/* Leaves Info */}
           <div className="row">
+            {statsLoading ? (
+              <>
+                <div className="col-xl-3 col-md-6">
+                  <StatCardSkeleton />
+                </div>
+                <div className="col-xl-3 col-md-6">
+                  <StatCardSkeleton />
+                </div>
+                <div className="col-xl-3 col-md-6">
+                  <StatCardSkeleton />
+                </div>
+                <div className="col-xl-3 col-md-6">
+                  <StatCardSkeleton />
+                </div>
+              </>
+            ) : (
+              <>
             <div className="col-xl-3 col-md-6">
               <div className="card bg-green-img">
                 <div className="card-body">
@@ -1154,6 +1340,8 @@ const LeaveAdmin = () => {
                 </div>
               </div>
             </div>
+              </>
+            )}
           </div>
           {/* /Leaves Info */}
           {/* Leaves list */}
@@ -1218,7 +1406,7 @@ const LeaveAdmin = () => {
             </div>
             <div className="card-body p-0">
               {loading ? (
-                <LoadingSpinner />
+                <TableSkeleton />
               ) : (
                 <Table
                   dataSource={data}
@@ -1239,7 +1427,7 @@ const LeaveAdmin = () => {
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <h4 className="modal-title">Apply Leave</h4>
+              <h4 className="modal-title">Add Leave</h4>
               <button
                 type="button"
                 className="btn-close custom-btn-close"
@@ -1462,7 +1650,7 @@ const LeaveAdmin = () => {
                       Submitting...
                     </>
                   ) : (
-                    'Apply Leave'
+                    'Add Leave'
                   )}
                 </button>
               </div>

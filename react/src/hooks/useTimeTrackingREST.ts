@@ -4,7 +4,7 @@
  * Pure REST - No Socket.IO dependency
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { message } from 'antd';
 import { get, post, put, del, buildParams, ApiResponse } from '../services/api';
 
@@ -47,6 +47,7 @@ export interface TimeEntry {
     lastName?: string;
     employeeId?: string;
     userId?: string;
+    avatar?: string | null;
   };
 }
 
@@ -102,11 +103,8 @@ export const useTimeTrackingREST = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Store current filters for re-fetching after mutations
-  const [currentFilters, setCurrentFilters] = useState<TimeEntryFilters>({
-    page: 1,
-    limit: 50
-  });
+  // Store current filters for re-fetching after mutations (ref avoids causing re-renders/loop)
+  const currentFiltersRef = useRef<TimeEntryFilters>({ page: 1, limit: 50 });
 
   /**
    * Fetch time entries with optional filters
@@ -120,7 +118,7 @@ export const useTimeTrackingREST = () => {
 
       if (response.success && response.data) {
         setTimeEntries(response.data);
-        setCurrentFilters({ ...currentFilters, ...filters });
+        currentFiltersRef.current = { ...currentFiltersRef.current, ...filters };
       } else {
         throw new Error(response.error?.message || 'Failed to fetch time entries');
       }
@@ -131,7 +129,7 @@ export const useTimeTrackingREST = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentFilters]);
+  }, []);
 
   /**
    * Fetch statistics
