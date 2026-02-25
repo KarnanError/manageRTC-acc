@@ -132,6 +132,33 @@ export const useTimeTrackingREST = () => {
   }, []);
 
   /**
+   * Fetch time entries for Project Managers / Team Leaders
+   * Hits the same GET /timetracking endpoint — backend scopes results to PM/TL's managed projects automatically.
+   * Use instead of fetchTimeEntries when the caller is a PM or TL (not admin/hr).
+   */
+  const fetchManagedTimeEntries = useCallback(async (filters: TimeEntryFilters = {}) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = buildParams(filters);
+      const response: ApiResponse<TimeEntry[]> = await get('/timetracking', { params });
+
+      if (response.success && response.data) {
+        setTimeEntries(response.data);
+        currentFiltersRef.current = { ...currentFiltersRef.current, ...filters };
+      } else {
+        throw new Error(response.error?.message || 'Failed to fetch managed time entries');
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch managed time entries';
+      setError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
    * Fetch statistics
    */
   const fetchStats = useCallback(async (filters: Omit<TimeEntryFilters, 'page' | 'limit' | 'sortBy' | 'sortOrder'> = {}) => {
@@ -410,6 +437,7 @@ export const useTimeTrackingREST = () => {
     loading,
     error,
     fetchTimeEntries,
+    fetchManagedTimeEntries,
     fetchStats,
     getTimeEntryById,
     getTimeEntriesByUser,

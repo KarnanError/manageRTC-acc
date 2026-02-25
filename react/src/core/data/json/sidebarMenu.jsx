@@ -98,6 +98,11 @@ const useSidebarData = () => {
                   link: routes.superAdminModules,
                   base: 'modules',
                 },
+                {
+                  label: 'Pages',
+                  link: routes.superAdminPages,
+                  base: 'super-admin-pages',
+                },
                 // {
                 //   label: "Purchase Transaction",
                 //   link: routes.superAdminPurchaseTransaction,
@@ -415,14 +420,6 @@ const useSidebarData = () => {
               roles: ['superadmin'],
             },
             {
-              label: 'Pages',
-              link: routes.superAdminPages,
-              base: 'super-admin-pages',
-              submenu: false,
-              showSubRoute: false,
-              roles: ['superadmin'],
-            },
-            {
               label: 'Super Admins',
               link: routes.superAdminUsers,
               base: 'super-admin-users',
@@ -585,12 +582,6 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
 
-                {
-                  label: 'Timesheet',
-                  link: routes.timesheet,
-                  base: 'timesheet',
-                  customSubmenuTwo: false,
-                },
                 {
                   label: 'Shift & Schedule',
                   link: routes.scheduletiming,
@@ -764,6 +755,11 @@ const useSidebarData = () => {
                   label: 'Task Board',
                   link: routes.taskboard,
                   base: 'task-board',
+                },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
                 },
               ],
             },
@@ -2595,12 +2591,6 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
                 {
-                  label: 'Timesheet',
-                  link: routes.timesheet,
-                  base: 'timesheet',
-                  customSubmenuTwo: false,
-                },
-                {
                   label: 'Shift & Schedule',
                   link: routes.scheduletiming,
                   base: 'shift-schedule',
@@ -2773,6 +2763,11 @@ const useSidebarData = () => {
                   label: 'Task Board',
                   link: routes.taskboard,
                   base: 'task-board',
+                },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
                 },
               ],
             },
@@ -3384,12 +3379,6 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
                 {
-                  label: 'Timesheet',
-                  link: routes.timesheet,
-                  base: 'timesheet',
-                  customSubmenuTwo: false,
-                },
-                {
                   label: 'Shift & Schedule',
                   link: routes.scheduletiming,
                   base: 'shift-schedule',
@@ -3562,6 +3551,11 @@ const useSidebarData = () => {
                   label: 'Task Board',
                   link: routes.taskboard,
                   base: 'task-board',
+                },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
                 },
               ],
             },
@@ -3996,12 +3990,6 @@ const useSidebarData = () => {
                   customSubmenuTwo: false,
                 },
                 {
-                  label: 'Timesheet',
-                  link: routes.timesheet,
-                  base: 'timesheet',
-                  customSubmenuTwo: false,
-                },
-                {
                   label: 'Shift & Schedule',
                   link: routes.scheduletiming,
                   base: 'shift-schedule',
@@ -4171,6 +4159,11 @@ const useSidebarData = () => {
                 },
                 { label: 'Tasks', link: 'tasks', base: 'tasks' },
                 { label: 'Task Board', link: routes.taskboard, base: 'task-board' },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
+                },
               ],
             },
           ],
@@ -4504,16 +4497,6 @@ const useSidebarData = () => {
           separateRoute: false,
           submenuItems: [
             {
-              label: 'Time Sheet',
-              link: routes.timesheet,
-              submenu: false,
-              showSubRoute: false,
-              icon: 'file-time',
-              base: 'timesheet',
-              materialicons: 'schedule',
-              submenuItems: [],
-            },
-            {
               label: 'Leave Management',
               link: routes.leaveemployee,
               submenu: true,
@@ -4645,6 +4628,11 @@ const useSidebarData = () => {
                 },
                 { label: 'Tasks', link: 'tasks', base: 'tasks' },
                 { label: 'Task Board', link: routes.taskboard, base: 'task-board' },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
+                },
               ],
             },
           ],
@@ -5308,12 +5296,6 @@ const useSidebarData = () => {
                 },
 
                 {
-                  label: 'Timesheet',
-                  link: routes.timesheet,
-                  base: 'timesheet',
-                  customSubmenuTwo: false,
-                },
-                {
                   label: 'Shift & Schedule',
                   link: routes.scheduletiming,
                   base: 'shift-schedule',
@@ -5466,6 +5448,11 @@ const useSidebarData = () => {
                   label: 'Task Board',
                   link: routes.taskboard,
                   base: 'task-board',
+                },
+                {
+                  label: 'Timesheet',
+                  link: routes.timesheet,
+                  base: 'timesheet',
                 },
               ],
             },

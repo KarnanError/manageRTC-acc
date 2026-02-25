@@ -430,8 +430,10 @@ export const getTimeEntries = async (companyId, filters = {}) => {
       query.userId = filters.userId;
     }
 
-    // Apply project filter
-    if (filters.projectId && ObjectId.isValid(filters.projectId)) {
+    // Apply project filter — single projectId or array of projectIds (for PM/TL scope)
+    if (filters.projectIds && Array.isArray(filters.projectIds) && filters.projectIds.length > 0) {
+      query.projectId = { $in: filters.projectIds.map(id => new ObjectId(id)) };
+    } else if (filters.projectId && ObjectId.isValid(filters.projectId)) {
       query.projectId = new ObjectId(filters.projectId);
     }
 

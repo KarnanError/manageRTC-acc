@@ -91,8 +91,9 @@ export const socketHandler = (httpServer) => {
 
     try {
       const verifiedToken = await verifyToken(token, {
-        jwtKey: process.env.CLERK_JWT_KEY,
+        secretKey: process.env.CLERK_SECRET_KEY,
         authorizedParties,
+        clockSkewInMs: 30000, // Allow 30s clock skew between Clerk and this server
       });
 
       if (verifiedToken) {

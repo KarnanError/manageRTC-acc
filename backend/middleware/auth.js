@@ -76,6 +76,7 @@ export const authenticate = async (req, res, next) => {
       // Clerk will fetch the correct JWT key from the API
       verifiedToken = await verifyToken(token, {
         secretKey: CLERK_SECRET_KEY,
+        clockSkewInMs: 30000, // Allow 30 seconds clock skew between Clerk and this server
       });
     } catch (verifyError) {
       console.log(`   ❌ Token failed: ${verifyError.message} - ${req.id}`);
@@ -277,6 +278,7 @@ export const optionalAuth = async (req, res, next) => {
 
       const verifiedToken = await verifyToken(token, {
         secretKey: CLERK_SECRET_KEY,
+        clockSkewInMs: 30000, // Allow 30 seconds clock skew between Clerk and this server
       });
 
       if (verifiedToken && verifiedToken.sub) {

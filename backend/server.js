@@ -36,6 +36,7 @@ import assetCategoryRoutes from './routes/api/asset-categories.js';
 import assetRoutes from './routes/api/assets.js';
 import assetUserRoutes from './routes/api/assetUsers.js';
 import attendanceRoutes from './routes/api/attendance.js';
+import employeeDashboardRoutes from './routes/api/employee-dashboard.js';
 import batchRoutes from './routes/api/batches.js';
 import clientRoutes from './routes/api/clients.js';
 import departmentRoutes from './routes/api/departments.js';
@@ -219,6 +220,7 @@ const initializeServer = async () => {
     app.use('/api/leads', leadRoutes);
     app.use('/api/clients', clientRoutes);
     app.use('/api/attendance', attendanceRoutes);
+    app.use('/api/employee/dashboard', employeeDashboardRoutes);
     app.use('/api/leaves', leaveRoutes);
     app.use('/api/leave-types', leaveTypeRoutes);
     app.use('/api/assets', assetRoutes);
