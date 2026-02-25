@@ -2,6 +2,7 @@ import { DatePicker } from "antd";
 import dayjs from "dayjs";
 import React, { useEffect, useState } from "react";
 import type { Resignation } from "../../hooks/useResignationsREST";
+import { resolveDesignation } from "../../utils/designationUtils";
 import ImageWithBasePath from "../common/imageWithBasePath";
 
 interface ResignationDetailsModalProps {
@@ -209,7 +210,7 @@ const ResignationDetailsModal: React.FC<ResignationDetailsModalProps> = ({
                       {resignation.designation && (
                         <div className="col-md-6 mb-3">
                           <label className="form-label text-muted mb-1">Designation</label>
-                          <p className="fw-medium mb-0">{resignation.designation}</p>
+                          <p className="fw-medium mb-0">{resolveDesignation(resignation.designation, 'N/A')}</p>
                         </div>
                       )}
 

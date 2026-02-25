@@ -10,6 +10,7 @@ import {
     asyncHandler, buildNotFoundError, buildValidationError, ConflictError
 } from '../../middleware/errorHandler.js';
 import attendanceAuditService from '../../services/audit/attendanceAudit.service.js';
+import auditLogService from '../../services/audit/auditLog.service.js';
 import {
     buildPagination,
     extractUser, sendCreated, sendSuccess
@@ -35,6 +36,110 @@ const sanitizeInput = (str) => {
     .replace(/'/g, '&#x27;')
     .replace(/\//g, '&#x2F;')
     .trim();
+};
+
+/**
+ * Helper: Calculate hours worked between clock in and clock out
+ * Handles overnight shifts (e.g., 10 PM to 6 AM next day)
+ * @param {Date} clockInTime - Clock in time
+ * @param {Date} clockOutTime - Clock out time
+ * @param {number} breakDuration - Break duration in minutes
+ * @returns {number} Hours worked
+ */
+const calculateHoursWorked = (clockInTime, clockOutTime, breakDuration = 0) => {
+  // Ensure we have Date objects
+  const start = new Date(clockInTime);
+  const end = new Date(clockOutTime);
+
+  // Calculate raw duration in milliseconds
+  let workDuration = end - start;
+
+  // PHASE 2 FIX: Handle overnight shifts
+  // If clockOut is before clockIn, it's an overnight shift
+  // Add 24 hours to get the correct duration
+  if (workDuration < 0) {
+    workDuration += 24 * 60 * 60 * 1000; // Add 24 hours in milliseconds
+  }
+
+  // Subtract break duration (convert minutes to milliseconds)
+  const breakMs = breakDuration * 60 * 1000;
+  workDuration -= breakMs;
+
+  // Convert to hours and ensure non-negative
+  return Math.max(0, workDuration / (60 * 60 * 1000));
+};
+
+/**
+ * Helper: Calculate regular and overtime hours
+ * Splits total hours into regular (up to threshold) and overtime
+ * @param {number} totalHours - Total hours worked
+ * @param {number} regularThreshold - Hours before overtime (default: 8)
+ * @returns {object} { regularHours, overtimeHours }
+ */
+const calculateRegularAndOvertimeHours = (totalHours, regularThreshold = 8) => {
+  if (totalHours <= regularThreshold) {
+    return {
+      regularHours: totalHours,
+      overtimeHours: 0
+    };
+  }
+  return {
+    regularHours: regularThreshold,
+    overtimeHours: totalHours - regularThreshold
+  };
+};
+
+/**
+ * Helper: Get employee timezone from employee record or use default
+ * @param {object} employee - Employee document
+ * @returns {string} Timezone (e.g., 'Asia/Kolkata', 'America/New_York')
+ */
+const getEmployeeTimezone = (employee) => {
+  // Check for timeZone in preferences or settings
+  if (employee?.preferences?.timeZone) {
+    return employee.preferences.timeZone;
+  }
+  if (employee?.settings?.timeZone) {
+    return employee.settings.timeZone;
+  }
+  if (employee?.timeZone) {
+    return employee.timeZone;
+  }
+  // Default to UTC if no timezone specified
+  return 'UTC';
+};
+
+/**
+ * Helper: Convert date to UTC while preserving the intended local time
+ * This is used when storing times - we want to store what the user intended
+ * @param {Date|string} inputDate - Date in user's local timezone
+ * @param {string} timezone - User's timezone
+ * @returns {Date} Date in UTC
+ */
+const convertToUTC = (inputDate, timezone = 'UTC') => {
+  const date = new Date(inputDate);
+
+  // If timezone is UTC, no conversion needed
+  if (timezone === 'UTC') {
+    return date;
+  }
+
+  // Create a date string in the target timezone
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+
+  // Create an ISO string with timezone info
+  const isoString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+  // Parse in the target timezone and convert to UTC
+  const targetDate = new Date(isoString + timezone);
+  const utcDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+
+  return utcDate;
 };
 
 /**
@@ -255,6 +360,9 @@ export const createAttendance = asyncHandler(async (req, res) => {
   }
 
   // Prepare attendance data
+  // PHASE 2 FIX: Add timezone support
+  const employeeTimezone = getEmployeeTimezone(employee);
+
   const attendanceToInsert = {
     attendanceId: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     employee: employee._id, // ObjectId reference for Mongoose features
@@ -268,6 +376,8 @@ export const createAttendance = asyncHandler(async (req, res) => {
     },
     status: 'present',
     shiftId: attendanceData.shiftId || null,
+    // PHASE 2 FIX: Store timezone for accurate calculations
+    timezone: employeeTimezone,
     createdBy: user.userId,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -390,9 +500,15 @@ export const updateAttendance = asyncHandler(async (req, res) => {
   if (updateObj.clockOut?.time && attendance.clockIn?.time) {
     const clockInTime = new Date(attendance.clockIn.time);
     const clockOutTime = new Date(updateObj.clockOut.time);
-    const breakDuration = updateObj.breakDuration || 0;
-    const workDuration = clockOutTime - clockInTime - (breakDuration * 60 * 1000);
-    updateObj.hoursWorked = Math.max(0, workDuration / (60 * 60 * 1000)); // in hours
+    const breakDuration = updateObj.breakDuration || attendance.breakDuration || 0;
+
+    // PHASE 2 FIX: Use new helper that handles overnight shifts
+    updateObj.hoursWorked = calculateHoursWorked(clockInTime, clockOutTime, breakDuration);
+
+    // Calculate regular and overtime hours
+    const { regularHours, overtimeHours } = calculateRegularAndOvertimeHours(updateObj.hoursWorked);
+    updateObj.regularHours = regularHours;
+    updateObj.overtimeHours = overtimeHours;
   }
 
   const result = await collections.attendance.updateOne(
@@ -1010,6 +1126,16 @@ export const approveRegularization = asyncHandler(async (req, res) => {
   // Get updated attendance
   const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
 
+  // Log to new comprehensive audit service
+  await auditLogService.logAttendanceAction(
+    user.companyId,
+    'ATTENDANCE_REGULARIZATION_APPROVED',
+    { ...updatedAttendance, before: attendance.regularizationRequest, after: updatedAttendance.regularizationRequest },
+    user,
+    req,
+    auditLogService.calculateChanges(attendance.regularizationRequest, updatedAttendance.regularizationRequest)
+  );
+
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
   if (io) {
@@ -1076,6 +1202,16 @@ export const rejectRegularization = asyncHandler(async (req, res) => {
 
   // Get updated attendance
   const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
+
+  // Log to new comprehensive audit service
+  await auditLogService.logAttendanceAction(
+    user.companyId,
+    'ATTENDANCE_REGULARIZATION_REJECTED',
+    { ...updatedAttendance, before: attendance.regularizationRequest, after: updatedAttendance.regularizationRequest },
+    user,
+    req,
+    auditLogService.calculateChanges(attendance.regularizationRequest, updatedAttendance.regularizationRequest)
+  );
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);

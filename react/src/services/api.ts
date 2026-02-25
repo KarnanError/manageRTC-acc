@@ -107,7 +107,11 @@ const createApiClient = (): AxiosInstance => {
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
         } else if (!token) {
-          console.warn('[API] No authentication token available for request');
+          console.warn('[API] No authentication token available for request, skipping');
+          // Abort the request to prevent "Failed to fetch" errors
+          const controller = new AbortController();
+          controller.abort();
+          config.signal = controller.signal;
         }
 
         console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {

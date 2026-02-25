@@ -7,8 +7,10 @@ import CommonSelect from "../../../../core/common/commonSelect";
 import Table from "../../../../core/common/dataTable/index";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import Footer from "../../../../core/common/footer";
+import { useAuth } from "../../../../hooks/useAuth";
 import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
-import { statusDisplayMap, useLeaveREST, type LeaveBalance, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
+import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
+import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { useSocket } from "../../../../SocketContext";
 import { all_routes } from "../../../router/all_routes";
@@ -80,6 +82,8 @@ const LeaveEmployee = () => {
   const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
   const socket = useSocket();
+  const { employeeId, isLoaded, isSignedIn } = useAuth();
+  const { employees, fetchEmployees } = useEmployeesREST();
 
   // Auto-reload hook for refetching after actions
   const { refetchAfterAction } = useAutoReloadActions({
@@ -143,16 +147,27 @@ const LeaveEmployee = () => {
 
   const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
 
-  // Fetch employee leaves on mount
+  // Fetch employee leaves on mount (gated on auth readiness)
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchMyLeaves();
     // Also fetch balance
     fetchBalanceData();
-  }, []);
+    // Fetch employee data to get avatar and role
+    if (employeeId) {
+      fetchEmployees({ status: 'Active' });
+    }
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchActiveLeaveTypes();
-  }, [fetchActiveLeaveTypes]);
+  }, [isLoaded, isSignedIn, fetchActiveLeaveTypes]);
+
+  // Get current employee data for avatar and role
+  const currentEmployee = useMemo(() => {
+    return employees.find(emp => emp.employeeId === employeeId);
+  }, [employees, employeeId]);
 
   useEffect(() => {
     if (!addFormData.leaveType && addFormData.session) {
@@ -253,21 +268,34 @@ const LeaveEmployee = () => {
   }, [socket]);
 
   // Transform leaves for table display
-  const data = leaves.map((leave) => ({
-    key: leave._id,
-    _id: leave._id,
-    LeaveType: leave.leaveType,      // Code for backward compatibility
-    LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
-    From: formatDate(leave.startDate),
-    To: formatDate(leave.endDate),
-    NoOfDays: leave.duration === 0.5 ? 'Half Day (0.5)' : `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
-    ReportingManager: leave.reportingManagerName || "-",
-    ManagerStatus: (leave.managerStatus || 'pending').toLowerCase() as LeaveStatus,
-    Status: (leave.finalStatus || leave.status || 'pending').toLowerCase() as LeaveStatus,
-    Roll: "Employee", // Should come from employee data
-    Image: "user-32.jpg", // Default image
-    rawLeave: leave,
-  }));
+  const data = leaves.map((leave) => {
+    // Get avatar from current employee data
+    const avatarUrl = currentEmployee?.avatarUrl || currentEmployee?.profileImage || currentEmployee?.avatar;
+    // Get role or designation from current employee data
+    // designation may be a populated MongoDB object with a .designation string field
+    const rawDesignation = currentEmployee?.designation;
+    const designationStr = typeof rawDesignation === 'object' && rawDesignation !== null
+      ? (rawDesignation as any).designation || (rawDesignation as any).name || ''
+      : rawDesignation;
+    const roleOrDesignation = currentEmployee?.role || designationStr || "Employee";
+
+    return {
+      key: leave._id,
+      _id: leave._id,
+      LeaveType: leave.leaveType,      // Code for backward compatibility
+      LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
+      From: formatDate(leave.startDate),
+      To: formatDate(leave.endDate),
+      NoOfDays: leave.duration === 0.5 ? 'Half Day (0.5)' : `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
+      ReportingManager: leave.reportingManagerName || "-",
+      ManagerStatus: (leave.managerStatus || 'pending').toLowerCase() as LeaveStatus,
+      Status: (leave.finalStatus || leave.status || 'pending').toLowerCase() as LeaveStatus,
+      Role: roleOrDesignation, // Fixed: "Roll" -> "Role", fetched from employee data
+      Image: avatarUrl || "user-32.jpg", // Use employee avatar or default
+      EmpId: leave.employeeId || employeeId || "-", // Add EmpId column
+      rawLeave: leave,
+    };
+  });
 
   // Helper function to format dates
   function formatDate(dateString: string): string {
@@ -423,6 +451,12 @@ const LeaveEmployee = () => {
         );
       },
       sorter: (a: any, b: any) => (a.LeaveTypeName || '').localeCompare(b.LeaveTypeName || ''),
+    },
+    {
+      title: "Emp ID",
+      dataIndex: "EmpId",
+      width: 120,
+      sorter: (a: any, b: any) => (a.EmpId || '').localeCompare(b.EmpId || ''),
     },
     {
       title: "Reporting Manager",

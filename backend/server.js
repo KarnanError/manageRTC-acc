@@ -4,6 +4,7 @@ import { clerkClient } from '@clerk/clerk-sdk-node';
 import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
+import { attachRequestId } from './middleware/auth.js';
 import fs from 'fs';
 import { createServer } from 'http';
 import path from 'path';
@@ -64,6 +65,8 @@ import trainingRoutes from './routes/api/training.js';
 import userProfileRoutes from './routes/api/user-profile.js';
 import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
+import auditRoutes from './routes/api/audit.js';
+import timesheetRoutes from './routes/api/timesheets.js';
 
 // RBAC Routes
 import adminUsersRoutes from "./routes/api/admin.users.js";
@@ -117,6 +120,9 @@ app.use(
 app.use(compression());
 
 app.use(express.json());
+
+// Attach unique request ID to all requests for tracing
+app.use(attachRequestId);
 
 // Note: We use manual token verification in the authenticate middleware
 // No need for clerkMiddleware() since we use verifyToken() directly
@@ -236,8 +242,10 @@ const initializeServer = async () => {
     app.use('/api/user-profile', userProfileRoutes);
     app.use('/api/timetracking', timetrackingRoutes);
     app.use('/api/overtime', overtimeRoutes);
+    app.use('/api/timesheets', timesheetRoutes);
     app.use('/api/schedule', scheduleRoutes);
     app.use('/api/sync-role', syncRoleRoutes);
+    app.use('/api/audit', auditRoutes);
 
     // RBAC Routes
     app.use('/api/rbac/categories', rbacPageCategoriesRoutes);

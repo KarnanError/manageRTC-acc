@@ -573,6 +573,43 @@ export const useLeaveREST = () => {
   }, []);
 
   /**
+   * Get leave balance for a specific employee (by MongoDB ObjectId _id)
+   * Used by HR/Admin when adding leave for other employees
+   */
+  const getLeaveBalanceByEmployeeId = useCallback(async (employeeId: string, leaveType?: LeaveTypeCode): Promise<LeaveBalance | Record<string, LeaveBalance> | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params: Record<string, string> = { employee: employeeId };
+      if (leaveType) {
+        params.leaveType = leaveType;
+      }
+      console.log('[useLeaveREST] getLeaveBalanceByEmployeeId called with params:', params);
+
+      const response: ApiResponse<any> = await get('/leaves/balance', { params });
+
+      console.log('[useLeaveREST] getLeaveBalanceByEmployeeId response:', response);
+
+      if (response.success && response.data) {
+        return response.data;
+      }
+
+      throw new Error(response.error?.message || 'Failed to fetch leave balance');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch leave balance';
+      console.error('[useLeaveREST] Error fetching balance by employeeId:', err);
+      setError(errorMessage);
+      // Only show error message if not a network/auth error
+      if (err.response?.status !== 401 && err.response?.status !== 403) {
+        message.error(errorMessage);
+      }
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
    * Fetch leave statistics
    */
   const fetchStats = useCallback(async (): Promise<LeaveStats | null> => {
@@ -755,6 +792,7 @@ export const useLeaveREST = () => {
     cancelLeave,
     deleteLeave,
     getLeaveBalance,
+    getLeaveBalanceByEmployeeId,
     fetchStats,
     refresh,
     refreshKey,

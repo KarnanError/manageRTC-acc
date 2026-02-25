@@ -152,6 +152,13 @@ export const getTenantCollections = (tenantDbName) => {
     // Overtime
     overtimeRequests: db.collection('overtimeRequests'),
 
+    // Timesheets
+    weeklyTimesheets: db.collection('weeklyTimesheets'),
+    timesheetEntries: db.collection('timesheetEntries'),
+
+    // Audit Logs
+    auditLogs: db.collection('auditLogs'),
+
     // invoice section
     addInvoices: db.collection('invoices'),
 

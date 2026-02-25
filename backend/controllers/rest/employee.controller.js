@@ -491,6 +491,28 @@ export const getEmployees = asyncHandler(async (req, res) => {
             else: null
           }
         },
+        // Reporting Manager Employee ID from populated manager (for frontend lookups)
+        reportingToEmployeeId: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: '$reportingToManager.employeeId',
+            else: null
+          }
+        },
+        // Reporting To Name (alias for reportingManagerName for consistency)
+        reportingToName: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: {
+              $concat: [
+                { $ifNull: ['$reportingToManager.firstName', ''] },
+                ' ',
+                { $ifNull: ['$reportingToManager.lastName', ''] }
+              ]
+            },
+            else: null
+          }
+        },
         // Shift information from populated shift
         shiftName: { $ifNull: ['$shiftData.name', null] },
         shiftColor: { $ifNull: ['$shiftData.color', null] },
@@ -799,6 +821,28 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
         },
         // Reporting Manager Name from populated manager
         reportingManagerName: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: {
+              $concat: [
+                { $ifNull: ['$reportingToManager.firstName', ''] },
+                ' ',
+                { $ifNull: ['$reportingToManager.lastName', ''] }
+              ]
+            },
+            else: null
+          }
+        },
+        // Reporting Manager Employee ID from populated manager (for frontend lookups)
+        reportingToEmployeeId: {
+          $cond: {
+            if: { $ne: ['$reportingToManager', null] },
+            then: '$reportingToManager.employeeId',
+            else: null
+          }
+        },
+        // Reporting To Name (alias for reportingManagerName for consistency)
+        reportingToName: {
           $cond: {
             if: { $ne: ['$reportingToManager', null] },
             then: {

@@ -5,11 +5,14 @@ import { Link } from "react-router-dom";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
 import CommonSelect from "../../../../core/common/commonSelect";
 import Footer from "../../../../core/common/footer";
+import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
 import { useAuth } from "../../../../hooks/useAuth";
+import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
+import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
 import { useLeaveREST, type Leave } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
+import { resolveDesignation } from "../../../../utils/designationUtils";
 import { all_routes } from "../../../router/all_routes";
-import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 
 // Extend dayjs with plugins
 dayjs.extend(isBetween);
@@ -25,6 +28,7 @@ const LeaveCalendar = () => {
   const { leaves, loading, fetchLeaves, fetchMyLeaves, leaveTypeDisplayMap } = useLeaveREST();
   const { role, userId } = useAuth();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
+  const { employees, fetchEmployees } = useEmployeesREST();
 
   // Auto-reload hook for refetching data
   const { refetchAfterAction } = useAutoReloadActions({
@@ -55,7 +59,26 @@ const LeaveCalendar = () => {
       fetchMyLeaves({ limit: 1000 });
     }
     fetchActiveLeaveTypes();
+    // Fetch employees for avatar and role data
+    fetchEmployees({ status: 'Active' });
   }, []);
+
+  // Employee data map for avatar, role, etc.
+  const employeeDataMap = useMemo(() => {
+    const map = new Map<string, { avatar?: string; avatarUrl?: string; profileImage?: string; role?: string; designation?: string; firstName?: string; lastName?: string }>();
+    employees.forEach(emp => {
+      map.set(emp.employeeId, {
+        avatar: emp.avatar,
+        avatarUrl: emp.avatarUrl || emp.profileImage,
+        profileImage: emp.profileImage,
+        role: emp.role,
+        designation: resolveDesignation(emp.designation),
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+      });
+    });
+    return map;
+  }, [employees]);
 
   // Leave type colors
   const getLeaveTypeColor = (leaveType: string): { bg: string; border: string; text: string } => {
@@ -122,8 +145,8 @@ const LeaveCalendar = () => {
         const leaveEnd = dayjs(leave.endDate);
 
         return dateStart.isSame(leaveEnd, 'day') ||
-               dateStart.isBefore(leaveEnd) && dateEnd.isAfter(leaveStart) ||
-               dateStart.isAfter(leaveStart) && dateStart.isBefore(leaveEnd);
+          dateStart.isBefore(leaveEnd) && dateEnd.isAfter(leaveStart) ||
+          dateStart.isAfter(leaveStart) && dateStart.isBefore(leaveEnd);
       })
       .map(leave => {
         const colors = getLeaveTypeColor(leave.leaveType);
@@ -370,29 +393,37 @@ const LeaveCalendar = () => {
                           <div className="day-number">{date.format('D')}</div>
                         </div>
                         <div className="week-day-content">
-                          {events.map((event) => (
-                            <div
-                              key={event.leave._id}
-                              className="week-event"
-                              style={{
-                                backgroundColor: event.backgroundColor,
-                                borderColor: event.borderColor,
-                                color: event.textColor,
-                              }}
-                            >
-                              <div className="event-type">
-                                {event.leave.leaveTypeName?.substring(0, 15) || leaveTypeDisplayMap[event.leave.leaveType]?.substring(0, 15) || event.leave.leaveType}
-                              </div>
-                              <div className="event-details">
-                                <div className="event-employee">
-                                  {event.leave.employeeName || 'Employee'}
+                          {events.map((event) => {
+                            const empData = employeeDataMap.get(event.leave.employeeId || '');
+                            const avatarUrl = empData?.avatarUrl || empData?.profileImage || empData?.avatar;
+                            const roleOrDesignation = empData?.role || empData?.designation || 'Employee';
+                            const employeeName = empData ? `${empData.firstName} ${empData.lastName}`.trim() : (event.leave.employeeName || 'Employee');
+
+                            return (
+                              <div
+                                key={event.leave._id}
+                                className="week-event"
+                                style={{
+                                  backgroundColor: event.backgroundColor,
+                                  borderColor: event.borderColor,
+                                  color: event.textColor,
+                                }}
+                              >
+                                <div className="event-type">
+                                  {event.leave.leaveTypeName?.substring(0, 15) || leaveTypeDisplayMap[event.leave.leaveType]?.substring(0, 15) || event.leave.leaveType}
                                 </div>
-                                <div className="event-status">
-                                  {getStatusStyle(event.leave.status)}
+                                <div className="event-details">
+                                  <div className="event-employee">
+                                    {employeeName}
+                                    <span className="event-role"> ({roleOrDesignation})</span>
+                                  </div>
+                                  <div className="event-status">
+                                    {getStatusStyle(event.leave.status)}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -425,50 +456,73 @@ const LeaveCalendar = () => {
 
                   return (
                     <div className="row">
-                      {events.map((event) => (
-                        <div key={event.leave._id} className="col-md-6 mb-3">
-                          <div
-                            className="card border"
-                            style={{
-                              borderLeft: `4px solid ${event.borderColor}`,
-                              backgroundColor: event.backgroundColor,
-                            }}
-                          >
-                            <div className="card-body">
-                              <div className="d-flex justify-content-between align-items-start mb-2">
-                                <div>
-                                  <h6 className="mb-1">
-                                    {event.leave.leaveTypeName || leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType}
-                                  </h6>
-                                  <p className="mb-0">
-                                    <strong>{event.leave.employeeName || 'Employee'}</strong>
-                                  </p>
+                      {events.map((event) => {
+                        const empData = employeeDataMap.get(event.leave.employeeId || '');
+                        const avatarUrl = empData?.avatarUrl || empData?.profileImage || empData?.avatar;
+                        const roleOrDesignation = empData?.role || empData?.designation || 'Employee';
+                        const employeeName = empData ? `${empData.firstName} ${empData.lastName}`.trim() : (event.leave.employeeName || 'Employee');
+                        const empId = event.leave.employeeId || '-';
+
+                        return (
+                          <div key={event.leave._id} className="col-md-6 mb-3">
+                            <div
+                              className="card border"
+                              style={{
+                                borderLeft: `4px solid ${event.borderColor}`,
+                                backgroundColor: event.backgroundColor,
+                              }}
+                            >
+                              <div className="card-body">
+                                <div className="d-flex justify-content-between align-items-start mb-2">
+                                  <div className="d-flex align-items-center">
+                                    <span className="avatar avatar-md me-2">
+                                      {avatarUrl ? (
+                                        <img
+                                          src={avatarUrl}
+                                          className="rounded-circle"
+                                          alt="img"
+                                          onError={(e) => { (e.target as HTMLImageElement).src = 'assets/img/users/user-32.jpg'; }}
+                                        />
+                                      ) : (
+                                        <ImageWithBasePath src="assets/img/users/user-32.jpg" className="rounded-circle" alt="img" />
+                                      )}
+                                    </span>
+                                    <div>
+                                      <h6 className="mb-1">
+                                        {event.leave.leaveTypeName || leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType}
+                                      </h6>
+                                      <div>
+                                        <strong>{employeeName}</strong>
+                                        <span className="badge bg-light text-dark ms-2">{roleOrDesignation}</span>
+                                      </div>
+                                      <small className="text-muted">Emp ID: {empId}</small>
+                                    </div>
+                                  </div>
+                                  <span className={`badge ${event.leave.status === 'approved' ? 'bg-success' :
+                                      event.leave.status === 'rejected' ? 'bg-danger' :
+                                        event.leave.status === 'pending' ? 'bg-warning' :
+                                          'bg-secondary'
+                                    }`}>
+                                    {event.leave.status.charAt(0).toUpperCase() + event.leave.status.slice(1)}
+                                  </span>
                                 </div>
-                                <span className={`badge ${
-                                  event.leave.status === 'approved' ? 'bg-success' :
-                                  event.leave.status === 'rejected' ? 'bg-danger' :
-                                  event.leave.status === 'pending' ? 'bg-warning' :
-                                  'bg-secondary'
-                                }`}>
-                                  {event.leave.status.charAt(0).toUpperCase() + event.leave.status.slice(1)}
-                                </span>
-                              </div>
-                              <div className="mb-2">
-                                <small className="text-muted">
-                                  <i className="ti ti-calendar me-1" />
-                                  {dayjs(event.leave.startDate).format('DD MMM YYYY')} - {dayjs(event.leave.endDate).format('DD MMM YYYY')}
-                                  ({event.leave.duration} day{event.leave.duration > 1 ? 's' : ''})
-                                </small>
-                              </div>
-                              {event.leave.reason && (
-                                <div className="text-muted small">
-                                  <i>"{event.leave.reason}"</i>
+                                <div className="mb-2">
+                                  <small className="text-muted">
+                                    <i className="ti ti-calendar me-1" />
+                                    {dayjs(event.leave.startDate).format('DD MMM YYYY')} - {dayjs(event.leave.endDate).format('DD MMM YYYY')}
+                                    ({event.leave.duration} day{event.leave.duration > 1 ? 's' : ''})
+                                  </small>
                                 </div>
-                              )}
+                                {event.leave.reason && (
+                                  <div className="text-muted small">
+                                    <i>"{event.leave.reason}"</i>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })()}
@@ -673,6 +727,12 @@ const LeaveCalendar = () => {
         .event-employee {
           font-size: 10px;
           opacity: 0.9;
+        }
+
+        .event-role {
+          font-size: 9px;
+          opacity: 0.7;
+          font-style: italic;
         }
 
         .event-status {
