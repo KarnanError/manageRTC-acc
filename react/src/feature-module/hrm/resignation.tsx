@@ -1,7 +1,7 @@
 import { DatePicker } from "antd";
 import { format, parse } from "date-fns";
 import dayjs from "dayjs";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Socket } from "socket.io-client";
@@ -17,7 +17,8 @@ import { useAuth } from "../../hooks/useAuth";
 import { useDepartmentsREST } from "../../hooks/useDepartmentsREST";
 import { useEmployeesREST } from "../../hooks/useEmployeesREST";
 import { useProfileRest } from "../../hooks/useProfileRest";
-import { useResignationsREST, type Resignation as APIResignation } from "../../hooks/useResignationsREST";
+import { useResignationsREST } from "../../hooks/useResignationsREST";
+import type { Resignation as APIResignation } from "../../hooks/useResignationsREST";
 
 type ResignationRow = {
   employeeName: string;
@@ -61,7 +62,8 @@ const Resignation = () => {
     updateResignation,
     deleteResignations,
     approveResignation,
-    rejectResignation
+    rejectResignation,
+    checkResignationEligibility
   } = useResignationsREST();
 
   // REST API Hooks for Departments and Employees
@@ -95,6 +97,9 @@ const Resignation = () => {
   const [filterDateRange, setFilterDateRange] = useState<{ start?: string; end?: string }>({});
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
+  const [canApply, setCanApply] = useState<boolean>(true);
+  const [eligibilityMessage, setEligibilityMessage] = useState<string>("");
+
   // Use useAuth for reliable role detection from Clerk
   const { role: authRole } = useAuth();
   const userRole = authRole || currentUserProfile?.role?.toLowerCase() || "employee";
@@ -103,6 +108,18 @@ const Resignation = () => {
   const isHrRole = userRole === "hr";
   const isAdminRole = userRole === "admin" || userRole === "superadmin";
   const canAddResignation = isEmployeeRole || isHrRole || isAdminRole;
+
+  // Additional client-side guard: if employee already has an active resignation in the list, block applying
+  const hasActiveResignation = useMemo(() => {
+    if (!isEmployeeRole || !currentEmployee?._id) return false;
+    const activeStatuses = ['pending', 'approved', 'on_notice', 'resigned'];
+    return apiResignations.some(r => {
+      const status = (r.resignationStatus || r.status || '').toLowerCase();
+      return r.employee_id === currentEmployee._id && activeStatuses.includes(status);
+    });
+  }, [apiResignations, currentEmployee?._id, isEmployeeRole]);
+
+  const effectiveCanApply = isEmployeeRole ? canApply && !hasActiveResignation : true;
 
   // State for viewing resignation details - use API type
   const [viewingResignation, setViewingResignation] = useState<APIResignation | null>(null);
@@ -113,8 +130,6 @@ const Resignation = () => {
     departmentId: "",
     reportingManagerId: "",
     reason: "",
-    noticeDate: "", // YYYY-MM-DD from DatePicker
-    resignationDate: "",
   });
 
   // Validation errors for Add Resignation
@@ -123,8 +138,6 @@ const Resignation = () => {
     employeeId: "",
     reportingManagerId: "",
     reason: "",
-    noticeDate: "",
-    resignationDate: "",
   });
 
   // Controlled edit form data
@@ -146,6 +159,31 @@ const Resignation = () => {
   useEffect(() => {
     fetchCurrentUserProfile();
   }, [fetchCurrentUserProfile]);
+
+  useEffect(() => {
+    const checkEligibility = async () => {
+      if (!isEmployeeRole) return;
+      const result = await checkResignationEligibility();
+      if (!result) return;
+
+      const normalizedStatus = (result.status || 'none').toLowerCase();
+      setCanApply(result.canApply);
+
+      if (!result.canApply) {
+        const msg =
+          normalizedStatus === 'pending'
+            ? 'You have already applied for resignation.'
+            : ['approved', 'on_notice', 'resigned'].includes(normalizedStatus)
+              ? 'Your resignation has been approved. You cannot apply again.'
+              : result.message || 'Resignation already applied.';
+        setEligibilityMessage(msg);
+      } else {
+        setEligibilityMessage('');
+      }
+    };
+
+    checkEligibility();
+  }, [checkResignationEligibility, isEmployeeRole]);
 
   useEffect(() => {
     const loadCurrentEmployee = async () => {
@@ -233,13 +271,18 @@ const Resignation = () => {
   // Handle opening Add modal - reset form
   const handleAddModalOpen = () => {
     console.log("[Resignation] handleAddModalOpen - Resetting Add form");
+
+    // Block employees who are not eligible from opening the modal
+    if (isEmployeeRole && !effectiveCanApply) {
+      toast.error(eligibilityMessage || 'You cannot apply for resignation at this time.');
+      return;
+    }
+
     const baseForm = {
       employeeId: "",
       departmentId: "",
       reportingManagerId: "",
       reason: "",
-      noticeDate: "",
-      resignationDate: "",
     };
 
     if (isEmployeeRole && currentEmployee) {
@@ -266,8 +309,6 @@ const Resignation = () => {
       employeeId: "",
       reportingManagerId: "",
       reason: "",
-      noticeDate: "",
-      resignationDate: "",
     });
     if (!isEmployeeRole) {
       setEmployeeOptions([]);
@@ -284,16 +325,12 @@ const Resignation = () => {
       departmentId: "",
       reportingManagerId: "",
       reason: "",
-      noticeDate: "",
-      resignationDate: "",
     });
     setAddErrors({
       departmentId: "",
       employeeId: "",
       reportingManagerId: "",
       reason: "",
-      noticeDate: "",
-      resignationDate: "",
     });
     setEmployeeOptions([]);
     setReportingManagerOptions([]);
@@ -349,8 +386,15 @@ const Resignation = () => {
 
   const fmtYMD = (s?: string) => {
     if (!s) return "";
-    const d = parse(s, "yyyy-MM-dd", new Date());
-    return isNaN(d.getTime()) ? s : format(d, "dd MMM yyyy");
+    const parsed = dayjs(s, ["YYYY-MM-DD", "DD-MM-YYYY", "YYYY/MM/DD", "DD/MM/YYYY"], true);
+    if (parsed.isValid()) return parsed.format("DD MMM YYYY");
+
+    const fallback = dayjs(s);
+    return fallback.isValid() ? fallback.format("DD MMM YYYY") : s;
+  };
+
+  const pickDateValue = (...values: Array<string | null | undefined>) => {
+    return values.find((val) => typeof val === "string" && val.trim() !== "") || "";
   };
 
   // Calculate stats from current resignation data
@@ -441,6 +485,8 @@ const Resignation = () => {
     const transformedResignations: ResignationRow[] = apiResignations.map(resignation => {
       const statusValue = resignation.resignationStatus as string | undefined;
       const normalizedStatus = (statusValue === 'approved' ? 'on_notice' : statusValue) as ResignationRow['resignationStatus'];
+      const noticeDate = pickDateValue(resignation.noticeDate, resignation.effectiveDate, resignation.approvedAt, resignation.created_at);
+      const resignationDate = pickDateValue(resignation.resignationDate, resignation.effectiveDate, resignation.processedAt, resignation.approvedAt);
       return {
         ...resignation,
         employeeName: resignation.employeeName || 'Unknown',
@@ -449,8 +495,8 @@ const Resignation = () => {
         resignationId: resignation.resignationId || resignation._id || '',
         employeeId: resignation.employeeId || '',
         reason: resignation.reason || '',
-        noticeDate: resignation.noticeDate || '',
-        resignationDate: resignation.resignationDate || '',
+        noticeDate,
+        resignationDate,
         status: resignation.status || normalizedStatus || 'pending',
         resignationStatus: normalizedStatus,
         reportingManagerId: resignation.reportingManagerId || '',
@@ -522,9 +568,7 @@ const Resignation = () => {
       employeeId: addForm.employeeId || currentEmployee?._id || "",
       departmentId: addForm.departmentId || currentEmployee?.departmentId || "",
       reportingManagerId: addForm.reportingManagerId || currentEmployee?.reportingTo || currentUserProfile?.reportingManager?._id || "",
-      noticeDate: addForm.noticeDate,
       reason: addForm.reason,
-      resignationDate: addForm.resignationDate,
     };
 
     console.log("[Resignation] Creating resignation via REST API:", payload);
@@ -771,8 +815,6 @@ const Resignation = () => {
       employeeId: "",
       reportingManagerId: "",
       reason: "",
-      noticeDate: "",
-      resignationDate: "",
     };
 
     let isValid = true;
@@ -801,42 +843,6 @@ const Resignation = () => {
     } else if (addForm.reason.trim().length > 500) {
       errors.reason = "Reason cannot exceed 500 characters";
       isValid = false;
-    }
-
-    if (!addForm.noticeDate || addForm.noticeDate === "") {
-      errors.noticeDate = "Please select a notice date";
-      isValid = false;
-    } else if (!parseDDMMYYYY(addForm.noticeDate)) {
-      errors.noticeDate = "Notice date must be in DD-MM-YYYY format";
-      isValid = false;
-    }
-
-    if (!addForm.resignationDate || addForm.resignationDate === "") {
-      errors.resignationDate = "Please select a resignation date";
-      isValid = false;
-    } else if (!parseDDMMYYYY(addForm.resignationDate)) {
-      errors.resignationDate = "Resignation date must be in DD-MM-YYYY format";
-      isValid = false;
-    }
-
-    // Date validation: resignation date should be after or equal to notice date
-    if (addForm.noticeDate && addForm.resignationDate) {
-      const noticeDate = parseDDMMYYYY(addForm.noticeDate);
-      const resignationDate = parseDDMMYYYY(addForm.resignationDate);
-
-      if (noticeDate && resignationDate && resignationDate < noticeDate) {
-        errors.resignationDate = "Resignation date cannot be earlier than notice date";
-        isValid = false;
-      }
-
-      if (resignationDate) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (resignationDate < today) {
-          errors.resignationDate = "Resignation date cannot be before today";
-          isValid = false;
-        }
-      }
     }
 
     setAddErrors(errors);
@@ -936,20 +942,60 @@ const Resignation = () => {
   };
 
   // Handle approve resignation (using REST API)
-  const handleApproveResignation = async (resignationId: string) => {
-    if (!isHrRole && !isAdminRole && !isManagerRole) {
+  const handleApproveResignation = async (
+    resignationId: string,
+    dates?: { noticeDate: string; resignationDate: string }
+  ) => {
+    if (!isHrRole && !isAdminRole) {
       toast.error("You do not have permission to approve resignations");
       return;
     }
-    if (window.confirm("Are you sure you want to approve this resignation? Employee status will be updated to 'On Notice'.")) {
-      console.log("[Resignation] Approving resignation via REST API:", resignationId);
-      await approveResignation(resignationId);
+
+    if (!dates?.noticeDate || !dates?.resignationDate) {
+      toast.error("Notice date and resignation date are required to approve.");
+      return;
+    }
+
+    const notice = parse(dates.noticeDate, "dd-MM-yyyy", new Date());
+    const resignationDt = parse(dates.resignationDate, "dd-MM-yyyy", new Date());
+    if (isNaN(notice.getTime()) || isNaN(resignationDt.getTime())) {
+      toast.error("Please provide valid dates.");
+      return;
+    }
+    if (resignationDt < notice) {
+      toast.error("Resignation date cannot be earlier than notice date.");
+      return;
+    }
+
+    console.log("[Resignation] Approving resignation via REST API:", resignationId, dates);
+    setIsSubmitting(true);
+    const updated = await updateResignation(resignationId, {
+      // Backend Joi expects dd-MM-yyyy
+      noticeDate: dates.noticeDate,
+      resignationDate: dates.resignationDate,
+    });
+
+    if (!updated) {
+      setIsSubmitting(false);
+      return;
+    }
+
+    await approveResignation(resignationId);
+    setIsSubmitting(false);
+
+    await fetchList(filterType, customRange);
+    await fetchStats();
+
+    const modalElement = document.getElementById("view_resignation");
+    if (modalElement) {
+      const modal = (window as any).bootstrap?.Modal?.getInstance(modalElement) || new (window as any).bootstrap.Modal(modalElement);
+      modal.hide();
     }
   };
 
   // Handle reject resignation (using REST API)
   const handleRejectResignation = async (resignationId: string) => {
-    if (!isHrRole && !isAdminRole && !isManagerRole) {
+    if (!isHrRole && !isAdminRole) {
       toast.error("You do not have permission to reject resignations");
       return;
     }
@@ -957,6 +1003,14 @@ const Resignation = () => {
     if (reason !== null) { // User clicked OK (even if empty string)
       console.log("[Resignation] Rejecting resignation via REST API:", resignationId);
       await rejectResignation(resignationId, reason);
+      await fetchList(filterType, customRange);
+      await fetchStats();
+
+      const modalElement = document.getElementById("view_resignation");
+      if (modalElement) {
+        const modal = (window as any).bootstrap?.Modal?.getInstance(modalElement) || new (window as any).bootstrap.Modal(modalElement);
+        modal.hide();
+      }
     }
   };
 
@@ -1211,10 +1265,17 @@ const Resignation = () => {
                     data-bs-toggle="modal"
                     data-bs-target="#new_resignation"
                     onClick={handleAddModalOpen}
+                    aria-disabled={isEmployeeRole && !effectiveCanApply}
+                    style={isEmployeeRole && !effectiveCanApply ? { pointerEvents: 'none', opacity: 0.6 } : undefined}
                   >
                     <i className="ti ti-circle-plus me-2" />
                     Add Resignation
                   </Link>
+                </div>
+              )}
+              {isEmployeeRole && !effectiveCanApply && (
+                <div className="mb-2 text-danger fw-semibold">
+                  {eligibilityMessage || 'You already have an active resignation.'}
                 </div>
               )}
               <div className="head-icons ms-2">
@@ -1508,72 +1569,6 @@ const Resignation = () => {
                       {addErrors.reason && <div className="text-danger">{addErrors.reason}</div>}
                     </div>
                   </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Notice Date <span className="text-danger">*</span>
-                      </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                          value={addForm.noticeDate ? dayjs(addForm.noticeDate, "DD-MM-YYYY") : null}
-                          onChange={(_, dateString) => {
-                            setAddForm({
-                              ...addForm,
-                              noticeDate: dateString as string,
-                            });
-                            // Clear error when date is selected
-                            if (dateString && addErrors.noticeDate) {
-                              setAddErrors(prev => ({ ...prev, noticeDate: "" }));
-                            }
-                          }}
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                      {addErrors.noticeDate && <div className="text-danger">{addErrors.noticeDate}</div>}
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">
-                        Resignation Date <span className="text-danger">*</span>
-                      </label>
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
-                          value={addForm.resignationDate ? dayjs(addForm.resignationDate, "DD-MM-YYYY") : null}
-                          onChange={(_, dateString) => {
-                            setAddForm({
-                              ...addForm,
-                              resignationDate: dateString as string,
-                            });
-                            // Clear error when date is selected
-                            if (dateString && addErrors.resignationDate) {
-                              setAddErrors(prev => ({ ...prev, resignationDate: "" }));
-                            }
-                          }}
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                      {addErrors.resignationDate && <div className="text-danger">{addErrors.resignationDate}</div>}
-                    </div>
-                  </div>
                 </div>
               </div>
               <div className="modal-footer">
@@ -1836,7 +1831,14 @@ const Resignation = () => {
       </div>
       {/* /Delete Modal */}
       {/* View Resignation Details Modal */}
-      <ResignationDetailsModal resignation={viewingResignation} modalId="view_resignation" />
+      <ResignationDetailsModal
+        resignation={viewingResignation}
+        modalId="view_resignation"
+        canApproveReject={isHrRole || isAdminRole}
+        onApprove={handleApproveResignation}
+        onReject={handleRejectResignation}
+        isSubmitting={isSubmitting}
+      />
       {/* /View Resignation Details Modal */}
     </>
   );
