@@ -6,6 +6,7 @@ import CollapseHeader from '../../../core/common/collapse-header/collapse-header
 import CommonSelect from '../../../core/common/commonSelect';
 import Footer from '../../../core/common/footer';
 import { Profile, useProfileRest } from '../../../hooks/useProfileRest';
+import { resolveDesignation } from '../../../utils/designationUtils';
 import { all_routes } from '../../router/all_routes';
 import { BankInfoSection } from './components/BankInfoSection';
 import { EducationSection } from './components/EducationSection';
@@ -206,7 +207,7 @@ const ProfilePage = () => {
         profilePhoto: currentUserProfile.profilePhoto || '',
         employeeId: currentUserProfile.employeeId || '',
         department: currentUserProfile.department || '',
-        designation: currentUserProfile.designation || '',
+        designation: resolveDesignation(currentUserProfile.designation),
         joiningDate: currentUserProfile.joiningDate ? new Date(currentUserProfile.joiningDate).toISOString().split('T')[0] : '',
         role: currentUserProfile.role || '',
         employmentType: currentUserProfile.employmentType || '',
@@ -396,7 +397,7 @@ const ProfilePage = () => {
         profilePhoto: currentUserProfile.profilePhoto || '',
         employeeId: currentUserProfile.employeeId || '',
         department: currentUserProfile.department || '',
-        designation: currentUserProfile.designation || '',
+        designation: resolveDesignation(currentUserProfile.designation),
         joiningDate: currentUserProfile.joiningDate ? new Date(currentUserProfile.joiningDate).toISOString().split('T')[0] : '',
         role: currentUserProfile.role || '',
         employmentType: currentUserProfile.employmentType || '',
@@ -544,7 +545,7 @@ const ProfilePage = () => {
           <div>
             <h3 className="mb-1">{currentUserProfile?.firstName} {currentUserProfile?.lastName}</h3>
             <p className="text-muted mb-1">{currentUserProfile?.email}</p>
-            <p className="mb-0"><span className="badge bg-info me-1">{currentUserProfile?.designation || 'N/A'}</span></p>
+            <p className="mb-0"><span className="badge bg-info me-1">{resolveDesignation(currentUserProfile?.designation, 'N/A')}</span></p>
             <p className="mb-0"><span className="badge bg-secondary">{currentUserProfile?.employeeId || 'N/A'}</span></p>
           </div>
         </div>
@@ -614,7 +615,7 @@ const ProfilePage = () => {
           </div>
           <div className="col-md-6 mb-3">
             <label className="text-muted small">Designation</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.designation || 'N/A'}</p>
+            <p className="mb-0 fw-medium">{resolveDesignation(currentUserProfile?.designation, 'N/A')}</p>
           </div>
           <div className="col-md-6 mb-3">
             <label className="text-muted small">Date of Joining</label>
@@ -631,13 +632,12 @@ const ProfilePage = () => {
           <div className="col-md-6 mb-3">
             <label className="text-muted small">Status</label>
             <p className="mb-0 fw-medium">
-              <span className={`badge ${
-                currentUserProfile?.status === 'Active' ? 'bg-success' :
-                currentUserProfile?.status === 'Probation' ? 'bg-warning' :
-                currentUserProfile?.status === 'On Leave' ? 'bg-info' :
-                currentUserProfile?.status === 'Resigned' ? 'bg-secondary' :
-                currentUserProfile?.status === 'Terminated' ? 'bg-danger' : 'bg-secondary'
-              }`}>
+              <span className={`badge ${currentUserProfile?.status === 'Active' ? 'bg-success' :
+                  currentUserProfile?.status === 'Probation' ? 'bg-warning' :
+                    currentUserProfile?.status === 'On Leave' ? 'bg-info' :
+                      currentUserProfile?.status === 'Resigned' ? 'bg-secondary' :
+                        currentUserProfile?.status === 'Terminated' ? 'bg-danger' : 'bg-secondary'
+                }`}>
                 {currentUserProfile?.status || 'N/A'}
               </span>
             </p>
@@ -647,9 +647,9 @@ const ProfilePage = () => {
               <label className="text-muted small">Reporting Manager</label>
               <p className="mb-0 fw-medium">
                 {currentUserProfile.reportingManager.fullName ||
-                 `${currentUserProfile.reportingManager.firstName} ${currentUserProfile.reportingManager.lastName}`}
+                  `${currentUserProfile.reportingManager.firstName} ${currentUserProfile.reportingManager.lastName}`}
                 {currentUserProfile.reportingManager.employeeId &&
-                 ` (${currentUserProfile.reportingManager.employeeId})`}
+                  ` (${currentUserProfile.reportingManager.employeeId})`}
               </p>
             </div>
           )}
@@ -1462,9 +1462,8 @@ const ProfilePage = () => {
                           required
                         />
                         <span
-                          className={`ti toggle-passwords ${
-                            passwordVisibility.currentPassword ? "ti-eye" : "ti-eye-off"
-                          }`}
+                          className={`ti toggle-passwords ${passwordVisibility.currentPassword ? "ti-eye" : "ti-eye-off"
+                            }`}
                           onClick={() => togglePasswordVisibility('currentPassword')}
                         ></span>
                       </div>
@@ -1483,9 +1482,8 @@ const ProfilePage = () => {
                           required
                         />
                         <span
-                          className={`ti toggle-passwords ${
-                            passwordVisibility.newPassword ? "ti-eye" : "ti-eye-off"
-                          }`}
+                          className={`ti toggle-passwords ${passwordVisibility.newPassword ? "ti-eye" : "ti-eye-off"
+                            }`}
                           onClick={() => togglePasswordVisibility('newPassword')}
                         ></span>
                       </div>
@@ -1504,9 +1502,8 @@ const ProfilePage = () => {
                           required
                         />
                         <span
-                          className={`ti toggle-passwords ${
-                            passwordVisibility.confirmPassword ? "ti-eye" : "ti-eye-off"
-                          }`}
+                          className={`ti toggle-passwords ${passwordVisibility.confirmPassword ? "ti-eye" : "ti-eye-off"
+                            }`}
                           onClick={() => togglePasswordVisibility('confirmPassword')}
                         ></span>
                       </div>

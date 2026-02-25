@@ -51,8 +51,10 @@ export interface Employee {
   designationId?: string;
   designation?: string; // Populated
   jobTitle?: string; // Alias for designation or separate job title
-  reportingTo?: string;
-  reportingToName?: string; // Populated
+  reportingTo?: string; // ObjectId of reporting manager
+  reportingToName?: string; // Populated name of reporting manager
+  reportingToEmployeeId?: string; // Employee ID of reporting manager (for lookups)
+  reportingManagerName?: string; // Populated name (alternative field name)
   manager?: string;
   status: 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave';
   employmentStatus?: 'Active' | 'Probation' | 'Resigned' | 'Terminated' | 'On Leave';

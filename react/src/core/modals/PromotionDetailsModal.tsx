@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import React from "react";
-import type { Department, Designation, Promotion } from "../../hooks/usePromotionsREST";
+import type { Department, Promotion } from "../../hooks/usePromotionsREST";
+import { resolveDesignation as resolveDesignationValue } from "../../utils/designationUtils";
 
 interface PromotionDetailsModalProps {
   promotion: Promotion | null;

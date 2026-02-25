@@ -188,21 +188,48 @@ const ManagerLeaveDashboard = () => {
     return new Map<string, string>(entries);
   }, [employees]);
 
+  // Employee data map for avatar, role, etc.
+  const employeeDataMap = useMemo(() => {
+    const map = new Map<string, { avatar?: string; avatarUrl?: string; profileImage?: string; role?: string; designation?: string }>();
+    employees.forEach(emp => {
+      map.set(emp.employeeId, {
+        avatar: emp.avatar,
+        avatarUrl: emp.avatarUrl || emp.profileImage,
+        profileImage: emp.profileImage,
+        role: emp.role,
+        designation: emp.designation,
+      });
+    });
+    return map;
+  }, [employees]);
+
   // Transform leaves for table display
   const data = useMemo(() => {
     return teamLeaves.map((leave) => {
       const employeeName = employeeNameById.get(leave.employeeId) || leave.employeeName || "Unknown";
+      const employeeData = employeeDataMap.get(leave.employeeId);
       const managerStatusValue = leave.managerStatus || 'pending';
       const statusValue = leave.finalStatus || leave.status || 'pending';
       const startDate = new Date(leave.startDate);
       const endDate = new Date(leave.endDate);
 
+      // Get avatar URL (priority: avatarUrl > profileImage > avatar > default)
+      const avatarUrl = employeeData?.avatarUrl || employeeData?.profileImage || employeeData?.avatar;
+      // Get role or designation (priority: role > designation > "Employee")
+      // designation may be a populated MongoDB object with a .designation string field
+      const rawDesignation = employeeData?.designation;
+      const designationStr = typeof rawDesignation === 'object' && rawDesignation !== null
+        ? (rawDesignation as any).designation || (rawDesignation as any).name || ''
+        : rawDesignation;
+      const roleOrDesignation = employeeData?.role || designationStr || "Employee";
+
       return {
         key: leave._id,
         _id: leave._id,
-        Image: "user-32.jpg",
+        Image: avatarUrl || "user-32.jpg", // Use employee avatar or fallback to default
         Employee: employeeName,
-        Role: "Employee",
+        Role: roleOrDesignation,
+        EmpId: leave.employeeId || "-",
         ReportingManager: leave.reportingManagerName || "-",
         LeaveType: leave.leaveType,
         LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
@@ -214,7 +241,7 @@ const ManagerLeaveDashboard = () => {
         rawLeave: leave,
       };
     });
-  }, [teamLeaves, employeeNameById]);
+  }, [teamLeaves, employeeNameById, employeeDataMap]);
 
   // Helper function to format dates
   function formatDate(dateString: string): string {
@@ -284,11 +311,29 @@ const ManagerLeaveDashboard = () => {
       render: (employee: string, record: any) => (
         <div className="d-flex align-items-center">
           <span className="avatar avatar-md me-2">
-            <ImageWithBasePath src="assets/img/users/user-32.jpg" className="rounded-circle" alt="img" />
+            {record.Image && record.Image !== "user-32.jpg" ? (
+              <img
+                src={record.Image}
+                className="rounded-circle"
+                alt="img"
+                onError={(e) => { (e.target as HTMLImageElement).src = 'assets/img/users/user-32.jpg'; }}
+              />
+            ) : (
+              <ImageWithBasePath src="assets/img/users/user-32.jpg" className="rounded-circle" alt="img" />
+            )}
           </span>
-          <span>{employee}</span>
+          <div>
+            <span className="d-block">{employee}</span>
+            <span className="fs-12 text-muted">{record.Role}</span>
+          </div>
         </div>
       ),
+    },
+    {
+      title: "Emp ID",
+      dataIndex: "EmpId",
+      width: 100,
+      sorter: (a: any, b: any) => (a.EmpId || '').localeCompare(b.EmpId || ''),
     },
     {
       title: "Leave Type",

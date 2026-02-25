@@ -110,16 +110,41 @@ export const createTimeEntry = async (companyId, timeEntryData) => {
 
 /**
  * Get time entries by user
+ * @param {string} companyId - Company ID
+ * @param {string} userIdOrEmployeeId - Clerk userId or employeeId (EMP-XXXX format)
+ * @param {object} filters - Query filters
  */
-export const getTimeEntriesByUser = async (companyId, userId, filters = {}) => {
+export const getTimeEntriesByUser = async (companyId, userIdOrEmployeeId, filters = {}) => {
   try {
     const collections = getTenantCollections(companyId);
-    console.log('[TimeTrackingService] getTimeEntriesByUser', { companyId, userId, filters });
+    console.log('[TimeTrackingService] getTimeEntriesByUser', { companyId, userIdOrEmployeeId, filters });
 
-    const query = {
-      userId,
+    // Determine if this is a userId (Clerk) or employeeId (EMP-XXXX)
+    const isEmployeeId = userIdOrEmployeeId?.startsWith('EMP-');
+
+    let query = {
       isDeleted: { $ne: true }
     };
+
+    // Handle both userId (Clerk) and employeeId (EMP-XXXX) cases
+    if (isEmployeeId) {
+      // This is an employeeId - look up the user first
+      const employee = await collections.employees.findOne({
+        employeeId: userIdOrEmployeeId,
+        isDeleted: { $ne: true }
+      });
+
+      if (!employee) {
+        console.warn('[TimeTrackingService] Employee not found:', userIdOrEmployeeId);
+        return { done: true, data: [] };
+      }
+
+      // Use the employee's Clerk userId for the lookup
+      query.userId = employee.userId;
+    } else {
+      // This is a userId (Clerk) - use directly
+      query.userId = userIdOrEmployeeId;
+    }
 
     // Apply status filter
     if (filters.status && filters.status !== 'all') {
@@ -154,13 +179,18 @@ export const getTimeEntriesByUser = async (companyId, userId, filters = {}) => {
       .sort(sort)
       .toArray();
 
+    // Get the actual Clerk userId to use for employee lookup
+    // (query.userId contains the resolved Clerk userId after our logic above)
+    const actualUserId = query.userId;
+
     // Populate userDetails for the user
-    const employee = await collections.employees.findOne({ userId });
+    const employee = await collections.employees.findOne({ userId: actualUserId });
     const userDetails = employee ? {
       firstName: employee.firstName,
       lastName: employee.lastName,
       employeeId: employee.employeeId,
-      userId: employee.userId
+      userId: employee.userId,
+      avatar: employee.avatar || employee.image || null
     } : null;
 
     // Populate projectDetails for all entries
@@ -180,11 +210,31 @@ export const getTimeEntriesByUser = async (companyId, userId, filters = {}) => {
       }])
     );
 
-    // Enrich time entries with userDetails and projectDetails
+    // Populate taskDetails for all entries
+    const taskIds = [...new Set(timeEntries
+      .filter(entry => entry.taskId)
+      .map(entry => entry.taskId.toString())
+    )];
+
+    const tasks = await collections.tasks?.find({
+      _id: { $in: taskIds.map(id => new ObjectId(id)) }
+    }).toArray() || [];
+
+    const taskMap = new Map(
+      tasks.map(task => [task._id.toString(), {
+        taskId: task.taskId,
+        title: task.title,
+        status: task.status,
+        priority: task.priority
+      }])
+    );
+
+    // Enrich time entries with userDetails, projectDetails, and taskDetails
     const enrichedEntries = timeEntries.map(entry => ({
       ...entry,
       userDetails,
-      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined
+      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined,
+      taskDetails: entry.taskId ? taskMap.get(entry.taskId.toString()) : undefined
     }));
 
     return { done: true, data: enrichedEntries };
@@ -408,11 +458,31 @@ export const getTimeEntries = async (companyId, filters = {}) => {
       }])
     );
 
-    // Enrich time entries with userDetails and projectDetails
+    // Populate taskDetails for all entries
+    const taskIds = [...new Set(timeEntries
+      .filter(entry => entry.taskId)
+      .map(entry => entry.taskId.toString())
+    )];
+
+    const tasks = await collections.tasks?.find({
+      _id: { $in: taskIds.map(id => new ObjectId(id)) }
+    }).toArray() || [];
+
+    const taskMap = new Map(
+      tasks.map(task => [task._id.toString(), {
+        taskId: task.taskId,
+        title: task.title,
+        status: task.status,
+        priority: task.priority
+      }])
+    );
+
+    // Enrich time entries with userDetails, projectDetails, and taskDetails
     const enrichedEntries = timeEntries.map(entry => ({
       ...entry,
       userDetails: employeeMap.get(entry.userId),
-      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined
+      projectDetails: entry.projectId ? projectMap.get(entry.projectId.toString()) : undefined,
+      taskDetails: entry.taskId ? taskMap.get(entry.taskId.toString()) : undefined
     }));
 
     return { done: true, data: enrichedEntries };
@@ -474,14 +544,16 @@ export const getTimeEntryById = async (companyId, timeEntryId) => {
 
     // Populate task details
     if (timeEntry.taskId) {
-      const task = await collections.tasks.findOne({
+      const task = await collections.tasks?.findOne({
         _id: timeEntry.taskId,
         isDeleted: { $ne: true }
       });
       if (task) {
         timeEntry.taskDetails = {
+          taskId: task.taskId,
           title: task.title,
-          status: task.status
+          status: task.status,
+          priority: task.priority
         };
       }
     }
