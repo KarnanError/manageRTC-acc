@@ -377,10 +377,15 @@ const Promotion = () => {
     if (hookEmployees && hookEmployees.length > 0) {
       console.log("[Promotion] Syncing hook employees to local state:", hookEmployees.length);
 
-      // Exclude employees in resignation/termination/on-notice states from promotion eligibility
+      // Exclude employees in resignation/on-notice/terminated/inactive/on-leave states from promotion eligibility
       const eligible = hookEmployees.filter((emp) => {
         const status = (emp.status || '').toLowerCase();
-        return status === 'active' || status === 'probation';
+        const employmentStatus = (emp as any).employmentStatus ? String((emp as any).employmentStatus).toLowerCase() : '';
+
+        const disallowed = new Set(['on notice', 'resigned', 'terminated', 'inactive', 'on leave']);
+        if (disallowed.has(status) || disallowed.has(employmentStatus)) return false;
+
+        return status === 'active' || employmentStatus === 'probation' || employmentStatus === 'active';
       });
 
       const transformedEmployees = eligible.map(emp => ({
