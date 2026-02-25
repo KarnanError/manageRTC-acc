@@ -350,12 +350,6 @@ const LeaveDetailsModal: React.FC<LeaveDetailsModalProps> = ({
                       <StatusBadge status={leave.finalStatus || leave.status} />
                     </div>
                   </div>
-                  <div className="col-sm-6">
-                    <p className="text-muted text-uppercase fs-12 mb-1">Manager Status</p>
-                    <div className="d-inline-flex align-items-center gap-2">
-                      <StatusBadge status={leave.managerStatus || 'pending'} />
-                    </div>
-                  </div>
                   <div className="col-12">
                     <p className="text-muted text-uppercase fs-12 mb-1">Reason</p>
                     <div className="fw-semibold text-dark bg-white rounded p-2 border">

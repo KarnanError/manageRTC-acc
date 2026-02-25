@@ -349,11 +349,13 @@ export const sanitizeQuery = () => {
               trim: true
             });
           }
+          // Keep other types (numbers, arrays) as-is
         }
       }
       next();
     } catch (error) {
-      logger.error('Error sanitizing query params', { error: error.message });
+      console.error('[SanitizeQuery] Error:', error.message, error.stack);
+      logger.error('Error sanitizing query params', { error: error.message, stack: error.stack });
       return res.status(400).json({
         success: false,
         error: {

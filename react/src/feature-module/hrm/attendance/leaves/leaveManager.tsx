@@ -1,4 +1,4 @@
-import { DatePicker, message, Spin } from "antd";
+import { DatePicker, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
@@ -13,9 +13,92 @@ import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } 
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
 
-const LoadingSpinner = () => (
-  <div style={{ textAlign: 'center', padding: '50px' }}>
-    <Spin size="large" />
+// Skeleton Loaders
+const StatCardSkeleton = () => (
+  <div className="card border border-light shadow-sm">
+    <div className="card-body">
+      <style>{`
+        @keyframes skeleton-loading {
+          0% { background-color: #e0e0e0; }
+          50% { background-color: #f0f0f0; }
+          100% { background-color: #e0e0e0; }
+        }
+        .skeleton-text {
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+          border-radius: 4px;
+        }
+        .skeleton-stat-label {
+          width: 120px;
+          height: 14px;
+          margin-bottom: 8px;
+        }
+        .skeleton-stat-value {
+          width: 60px;
+          height: 32px;
+        }
+        .skeleton-icon {
+          width: 48px;
+          height: 48px;
+          border-radius: 8px;
+        }
+      `}</style>
+      <div className="d-flex align-items-center justify-content-between">
+        <div>
+          <div className="skeleton-text skeleton-stat-label"></div>
+          <div className="skeleton-text skeleton-stat-value"></div>
+        </div>
+        <div className="skeleton-text skeleton-icon"></div>
+      </div>
+    </div>
+  </div>
+);
+
+const TeamMemberCardSkeleton = () => (
+  <div className="col-xl-4 col-md-6 mb-3">
+    <div className="d-flex align-items-center p-3 border rounded">
+      <style>{`
+        .skeleton-avatar {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+        }
+        .skeleton-team-name {
+          width: 140px;
+          height: 16px;
+          margin-bottom: 8px;
+        }
+        .skeleton-team-info {
+          width: 180px;
+          height: 14px;
+        }
+        .skeleton-badge {
+          width: 70px;
+          height: 24px;
+          border-radius: 4px;
+        }
+      `}</style>
+      <div className="skeleton-text skeleton-avatar me-3"></div>
+      <div className="flex-grow-1">
+        <div className="skeleton-text skeleton-team-name"></div>
+        <div className="skeleton-text skeleton-team-info"></div>
+      </div>
+      <div className="skeleton-text skeleton-badge"></div>
+    </div>
+  </div>
+);
+
+const TableSkeleton = () => (
+  <div className="p-4">
+    <style>{`
+      .skeleton-table-row {
+        height: 60px;
+        margin-bottom: 8px;
+        border-radius: 4px;
+      }
+    `}</style>
+    {Array.from({ length: 5 }).map((_, i) => (
+      <div key={i} className="skeleton-text skeleton-table-row"></div>
+    ))}
   </div>
 );
 
@@ -401,10 +484,6 @@ const ManagerLeaveDashboard = () => {
     },
   ];
 
-  if (loading && leaves.length === 0) {
-    return <LoadingSpinner />;
-  }
-
   return (
     <>
       <div className="page-wrapper">
@@ -436,66 +515,78 @@ const ManagerLeaveDashboard = () => {
 
           {/* Stats Cards */}
           <div className="row">
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-primary-img">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div>
-                      <p className="mb-1">Team Size</p>
-                      <h4 className="mb-0">{stats.teamSize}</h4>
-                    </div>
-                    <div className="avatar avatar-md bg-primary-transparent rounded">
-                      <i className="ti ti-users fs-24 text-primary" />
+            {(loading || employees.length === 0) ? (
+              <>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="col-xl-3 col-md-6">
+                    <StatCardSkeleton />
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
+                <div className="col-xl-3 col-md-6">
+                  <div className="card bg-primary-img">
+                    <div className="card-body">
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div>
+                          <p className="mb-1">Team Size</p>
+                          <h4 className="mb-0">{stats.teamSize}</h4>
+                        </div>
+                        <div className="avatar avatar-md bg-primary-transparent rounded">
+                          <i className="ti ti-users fs-24 text-primary" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-warning-img">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div>
-                      <p className="mb-1">On Leave Today</p>
-                      <h4 className="mb-0">{stats.onLeaveToday}</h4>
-                    </div>
-                    <div className="avatar avatar-md bg-warning-transparent rounded">
-                      <i className="ti ti-calendar-event fs-24 text-warning" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-info-img">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div>
-                      <p className="mb-1">Pending Approvals</p>
-                      <h4 className="mb-0">{stats.pendingApprovals}</h4>
-                    </div>
-                    <div className="avatar avatar-md bg-info-transparent rounded">
-                      <i className="ti ti-clock-hour fs-24 text-info" />
+                <div className="col-xl-3 col-md-6">
+                  <div className="card bg-warning-img">
+                    <div className="card-body">
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div>
+                          <p className="mb-1">On Leave Today</p>
+                          <h4 className="mb-0">{stats.onLeaveToday}</h4>
+                        </div>
+                        <div className="avatar avatar-md bg-warning-transparent rounded">
+                          <i className="ti ti-calendar-event fs-24 text-warning" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-md-6">
-              <div className="card bg-success-img">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div>
-                      <p className="mb-1">Approved This Month</p>
-                      <h4 className="mb-0">{stats.approvedThisMonth}</h4>
-                    </div>
-                    <div className="avatar avatar-md bg-success-transparent rounded">
-                      <i className="ti ti-check-circle fs-24 text-success" />
+                <div className="col-xl-3 col-md-6">
+                  <div className="card bg-info-img">
+                    <div className="card-body">
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div>
+                          <p className="mb-1">Pending Approvals</p>
+                          <h4 className="mb-0">{stats.pendingApprovals}</h4>
+                        </div>
+                        <div className="avatar avatar-md bg-info-transparent rounded">
+                          <i className="ti ti-clock-hour-4 fs-24 text-info" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
+                <div className="col-xl-3 col-md-6">
+                  <div className="card bg-success-img">
+                    <div className="card-body">
+                      <div className="d-flex align-items-center justify-content-between">
+                        <div>
+                          <p className="mb-1">Approved This Month</p>
+                          <h4 className="mb-0">{stats.approvedThisMonth}</h4>
+                        </div>
+                        <div className="avatar avatar-md bg-success-transparent rounded">
+                          <i className="ti ti-circle-check fs-24 text-success" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Team Members on Leave Today */}
@@ -503,11 +594,17 @@ const ManagerLeaveDashboard = () => {
             <div className="card-header d-flex align-items-center justify-content-between">
               <h5 className="mb-0">Team Members on Leave Today</h5>
               <span className="badge bg-primary-transparent">
-                {stats.onLeaveToday} member{stats.onLeaveToday !== 1 ? 's' : ''}
+                {(loading || employees.length === 0) ? 0 : stats.onLeaveToday} member{stats.onLeaveToday !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="card-body">
-              {stats.onLeaveToday > 0 ? (
+              {(loading || employees.length === 0) ? (
+                <div className="row">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <TeamMemberCardSkeleton key={i} />
+                  ))}
+                </div>
+              ) : stats.onLeaveToday > 0 ? (
                 <div className="row">
                   {teamLeaves
                     .filter(leave => {
