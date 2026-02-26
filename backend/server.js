@@ -64,6 +64,7 @@ import terminationRoutes from './routes/api/terminations.js';
 import timetrackingRoutes from './routes/api/timetracking.js';
 import trainingRoutes from './routes/api/training.js';
 import userProfileRoutes from './routes/api/user-profile.js';
+import changeRequestRoutes from './routes/api/changeRequest.js';
 import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
 import auditRoutes from './routes/api/audit.js';
@@ -242,6 +243,7 @@ const initializeServer = async () => {
     app.use('/api/hr-dashboard', hrDashboardRoutes);
     app.use('/api/admin-dashboard', adminDashboardRoutes);
     app.use('/api/user-profile', userProfileRoutes);
+    app.use('/api/change-requests', changeRequestRoutes);
     app.use('/api/timetracking', timetrackingRoutes);
     app.use('/api/overtime', overtimeRoutes);
     app.use('/api/timesheets', timesheetRoutes);

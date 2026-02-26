@@ -36,7 +36,7 @@ export const EducationSection: React.FC<EducationSectionProps> = ({
 
   // Format year for display
   const formatYear = (year?: number | string): string => {
-    if (!year) return 'N/A';
+    if (!year) return '--';
     return String(year);
   };
 
@@ -51,9 +51,9 @@ export const EducationSection: React.FC<EducationSectionProps> = ({
             <div className="col-md-12 mb-3" key={index}>
               <div className="card bg-light">
                 <div className="card-body">
-                  <p className="mb-1 fw-medium">{edu.degree || 'N/A'} {edu.field && `in ${edu.field}`}</p>
+                  <p className="mb-1 fw-medium">{edu.degree || '--'} {edu.field && `in ${edu.field}`}</p>
                   <p className="mb-0 text-muted small">
-                    {edu.institution || 'N/A'} {edu.year && `(${formatYear(edu.year)})`}
+                    {edu.institution || '--'} {edu.year && `(${formatYear(edu.year)})`}
                   </p>
                 </div>
               </div>

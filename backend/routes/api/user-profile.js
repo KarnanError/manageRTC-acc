@@ -10,6 +10,12 @@ import {
   changePassword,
   getAdminProfile,
   updateAdminProfile,
+  // Phase 2: Extended Profile Endpoints
+  getWorkInfo,
+  getSalaryInfo,
+  getStatutoryInfo,
+  getMyAssets,
+  getCareerHistory,
 } from '../../controllers/rest/userProfile.controller.js';
 import {
   authenticate,
@@ -75,5 +81,44 @@ router.put(
   authenticate,
   updateAdminProfile
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2: Extended Profile Endpoints (Read-Only Sections)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @route   GET /api/user-profile/work-info
+ * @desc    Get work info (shift, batch, timezone, employment type)
+ * @access  Private (All authenticated users)
+ */
+router.get('/work-info', authenticate, getWorkInfo);
+
+/**
+ * @route   GET /api/user-profile/salary
+ * @desc    Get salary info (basic, HRA, allowances, total CTC, currency)
+ * @access  Private (All authenticated users)
+ */
+router.get('/salary', authenticate, getSalaryInfo);
+
+/**
+ * @route   GET /api/user-profile/statutory
+ * @desc    Get statutory info (PF, ESI contributions from latest payslip)
+ * @access  Private (All authenticated users)
+ */
+router.get('/statutory', authenticate, getStatutoryInfo);
+
+/**
+ * @route   GET /api/user-profile/assets
+ * @desc    Get assigned assets for current employee
+ * @access  Private (All authenticated users)
+ */
+router.get('/assets', authenticate, getMyAssets);
+
+/**
+ * @route   GET /api/user-profile/career
+ * @desc    Get career history (promotions, policies, resignation, termination)
+ * @access  Private (All authenticated users)
+ */
+router.get('/career', authenticate, getCareerHistory);
 
 export default router;

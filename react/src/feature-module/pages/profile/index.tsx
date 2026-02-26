@@ -5,14 +5,10 @@ import 'react-toastify/dist/ReactToastify.css';
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
 import CommonSelect from '../../../core/common/commonSelect';
 import Footer from '../../../core/common/footer';
+import { useProfileExtendedREST } from '../../../hooks/useProfileExtendedREST';
 import { Profile, useProfileRest } from '../../../hooks/useProfileRest';
 import { resolveDesignation } from '../../../utils/designationUtils';
 import { all_routes } from '../../router/all_routes';
-import { BankInfoSection } from './components/BankInfoSection';
-import { EducationSection } from './components/EducationSection';
-import { ExperienceSection } from './components/ExperienceSection';
-import { FamilySection } from './components/FamilySection';
-import { PersonalInfoSection } from './components/PersonalInfoSection';
 
 type PasswordField = 'oldPassword' | 'newPassword' | 'confirmPassword' | 'currentPassword';
 
@@ -21,6 +17,875 @@ interface PasswordData {
   newPassword: string;
   confirmPassword: string;
 }
+
+// ============================================
+// INLINE SECTION COMPONENTS (NO SEPARATE FILES NEEDED)
+// ============================================
+
+// EditableSection Wrapper Component
+interface EditableSectionProps {
+  title: string;
+  icon: string;
+  isEditing: boolean;
+  onEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+  isSaving?: boolean;
+  children: React.ReactNode;
+  customActions?: React.ReactNode;
+}
+
+const EditableSection: React.FC<EditableSectionProps> = ({
+  title,
+  icon,
+  isEditing,
+  onEdit,
+  onSave,
+  onCancel,
+  isSaving = false,
+  children,
+  customActions
+}) => {
+  return (
+    <div className="card mb-3">
+      <div className="card-header d-flex align-items-center justify-content-between">
+        <h5 className="mb-0">
+          <i className={`ti ${icon} me-2`} />
+          {title}
+        </h5>
+        <div className="d-flex gap-2">
+          {customActions}
+          {!isEditing && (
+            <Link
+              to="#"
+              className="btn btn-light btn-sm"
+              onClick={(e) => {
+                e.preventDefault();
+                onEdit();
+              }}
+            >
+              <i className="ti ti-edit me-1" />
+              Edit
+            </Link>
+          )}
+          {isEditing && (
+            <>
+              <button
+                type="button"
+                className="btn btn-light btn-sm"
+                onClick={onCancel}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={onSave}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-1" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="ti ti-check me-1" />
+                    Save
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="card-body">{children}</div>
+    </div>
+  );
+};
+
+// Basic Info Section Component
+const BasicInfoSection: React.FC<{ profile: Profile | null; profilePhoto: string | null; imageUpload: boolean; fileInputRef: React.RefObject<HTMLInputElement>; onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void; onRemovePhoto: () => void; }> = ({
+  profile,
+  profilePhoto,
+  imageUpload,
+  fileInputRef,
+  onImageUpload,
+  onRemovePhoto
+}) => {
+  if (!profile) return null;
+
+  return (
+    <div className="card mb-3">
+      <div className="card-body">
+        <div className="d-flex align-items-center">
+          <div className="avatar avatar-xxl me-3 position-relative" style={{ width: '120px', height: '120px', flexShrink: 0 }}>
+            {profilePhoto || profile.profilePhoto ? (
+              <img
+                src={profilePhoto || profile.profilePhoto}
+                alt={`${profile.firstName} ${profile.lastName}`}
+                className="rounded-circle"
+                style={{ width: '120px', height: '120px', objectFit: 'cover' }}
+              />
+            ) : (
+              <div className="avatar-placeholder bg-primary text-white d-flex align-items-center justify-content-center rounded-circle" style={{ width: '120px', height: '120px', fontSize: '48px' }}>
+                {profile.firstName?.charAt(0)}{profile.lastName?.charAt(0)}
+              </div>
+            )}
+            <div className="avatar-edit-icon position-absolute bottom-0 end-0">
+              <label htmlFor="profilePhotoInput" className="btn btn-primary btn-sm rounded-circle" style={{ cursor: 'pointer', width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-camera"></i>
+              </label>
+              <input
+                type="file"
+                id="profilePhotoInput"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={onImageUpload}
+                style={{ display: 'none' }}
+              />
+            </div>
+            {imageUpload && (
+              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-50 rounded-circle">
+                <div className="spinner-border text-white" role="status">
+                  <span className="visually-hidden">Uploading...</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex-grow-1">
+            <h3 className="mb-1">{profile.firstName} {profile.lastName}</h3>
+            <div className="d-flex align-items-center gap-3 flex-wrap mb-2">
+              <span className="text-muted">
+                <i className="ti ti-id me-1" />
+                {profile.employeeId || '--'}
+              </span>
+              <span className="text-muted">
+                <i className="ti ti-briefcase me-1" />
+                {resolveDesignation(profile.designation, '--')}
+              </span>
+              <span className="text-muted">
+                <i className="ti ti-building me-1" />
+                {profile.department || '--'}
+              </span>
+            </div>
+            <div className="d-flex align-items-center gap-3 flex-wrap mb-2">
+              <span className="text-muted">
+                <i className="ti ti-mail me-1" />
+                {profile.email}
+              </span>
+              {profile.phone && (
+                <span className="text-muted">
+                  <i className="ti ti-phone me-1" />
+                  {profile.phone}
+                </span>
+              )}
+            </div>
+            {profile.joiningDate && (
+              <div className="mb-2">
+                <span className="text-muted">
+                  <i className="ti ti-calendar me-1" />
+                  Joined: {new Date(profile.joiningDate).toLocaleDateString('en-GB')}
+                </span>
+              </div>
+            )}
+            {profile.status && (
+              <span className={`badge ${profile.status === 'Active' ? 'bg-success' : 'bg-secondary'}`}>
+                {profile.status}
+              </span>
+            )}
+            {(profilePhoto || profile.profilePhoto) && (
+              <button
+                type="button"
+                className="btn btn-sm btn-light text-danger ms-2"
+                onClick={onRemovePhoto}
+              >
+                <i className="ti ti-trash me-1" />
+                Remove Photo
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Personal Info Section
+const PersonalInfoSection: React.FC<{ formData: any; isEditing: boolean; onChange: (field: string, value: any) => void; onSelect: (name: string, value: string) => void; genderOptions: any[]; countryOptions: any[]; }> = ({
+  formData,
+  isEditing,
+  onChange,
+  onSelect,
+  genderOptions,
+  countryOptions
+}) => {
+  const InfoRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="row mb-3">
+      <div className="col-md-4">
+        <p className="text-muted mb-0">{label}</p>
+      </div>
+      <div className="col-md-8">
+        <p className="fw-medium mb-0">{value || '—'}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {!isEditing ? (
+        <>
+          <InfoRow
+            label="Date of Birth"
+            value={formData.dateOfBirth ? new Date(formData.dateOfBirth).toLocaleDateString('en-GB') : undefined}
+          />
+          <InfoRow label="Gender" value={formData.gender} />
+          <InfoRow label="Marital Status" value={formData.personal?.maritalStatus} />
+          <InfoRow label="Nationality" value={formData.personal?.nationality} />
+          <InfoRow label="Religion" value={formData.personal?.religion} />
+          <InfoRow label="Passport No." value={formData.personal?.passport?.number} />
+          <InfoRow
+            label="Passport Expiry"
+            value={formData.personal?.passport?.expiryDate ? new Date(formData.personal.passport.expiryDate).toLocaleDateString('en-GB') : undefined}
+          />
+          <InfoRow label="Number of Children" value={formData.personal?.noOfChildren?.toString()} />
+        </>
+      ) : (
+        <div className="row">
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Date of Birth</label>
+            <input
+              type="date"
+              className="form-control"
+              name="dateOfBirth"
+              value={formData.dateOfBirth || ''}
+              onChange={(e) => onChange('dateOfBirth', e.target.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Gender</label>
+            <CommonSelect
+              className="select"
+              options={genderOptions}
+              value={formData.gender || 'Select'}
+              onChange={(option: any) => onSelect('gender', option.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Marital Status</label>
+            <select
+              className="form-control"
+              value={formData.personal?.maritalStatus || ''}
+              onChange={(e) => onChange('personal.maritalStatus', e.target.value)}
+            >
+              <option value="">Select</option>
+              <option value="Single">Single</option>
+              <option value="Married">Married</option>
+              <option value="Divorced">Divorced</option>
+              <option value="Widowed">Widowed</option>
+            </select>
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Nationality</label>
+            <input
+              type="text"
+              className="form-control"
+              value={formData.personal?.nationality || ''}
+              onChange={(e) => onChange('personal.nationality', e.target.value)}
+              placeholder="Enter nationality"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Religion</label>
+            <input
+              type="text"
+              className="form-control"
+              value={formData.personal?.religion || ''}
+              onChange={(e) => onChange('personal.religion', e.target.value)}
+              placeholder="Enter religion"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Passport No.</label>
+            <input
+              type="text"
+              className="form-control"
+              value={formData.personal?.passport?.number || ''}
+              onChange={(e) => onChange('personal.passport.number', e.target.value)}
+              placeholder="Enter passport number"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Passport Expiry</label>
+            <input
+              type="date"
+              className="form-control"
+              value={formData.personal?.passport?.expiryDate ? new Date(formData.personal.passport.expiryDate).toISOString().split('T')[0] : ''}
+              onChange={(e) => onChange('personal.passport.expiryDate', e.target.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Passport Country</label>
+            <CommonSelect
+              className="select"
+              options={countryOptions}
+              value={formData.personal?.passport?.country || 'Select'}
+              onChange={(option: any) => onSelect('personal.passport.country', option.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Number of Children</label>
+            <input
+              type="number"
+              className="form-control"
+              value={formData.personal?.noOfChildren || 0}
+              onChange={(e) => onChange('personal.noOfChildren', parseInt(e.target.value) || 0)}
+              min="0"
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Address Info Section
+const AddressInfoSection: React.FC<{ formData: any; isEditing: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void; onSelect: (name: string, value: string) => void; countryOptions: any[]; stateOptions: any[]; cityOptions: any[]; }> = ({
+  formData,
+  isEditing,
+  onChange,
+  onSelect,
+  countryOptions,
+  stateOptions,
+  cityOptions
+}) => {
+  const InfoRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="row mb-3">
+      <div className="col-md-4">
+        <p className="text-muted mb-0">{label}</p>
+      </div>
+      <div className="col-md-8">
+        <p className="fw-medium mb-0">{value || '—'}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {!isEditing ? (
+        <>
+          <InfoRow label="Street" value={formData.address?.street} />
+          <InfoRow label="City" value={formData.address?.city} />
+          <InfoRow label="State" value={formData.address?.state} />
+          <InfoRow label="Country" value={formData.address?.country} />
+          <InfoRow label="Postal Code" value={formData.address?.postalCode} />
+        </>
+      ) : (
+        <div className="row">
+          <div className="col-md-12 mb-3">
+            <label className="form-label">Street Address</label>
+            <textarea
+              className="form-control"
+              name="address.street"
+              value={formData.address?.street || ''}
+              onChange={onChange}
+              rows={2}
+              placeholder="Enter street address"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">City</label>
+            <CommonSelect
+              className="select"
+              options={cityOptions}
+              value={formData.address?.city || 'Select'}
+              onChange={(option: any) => onSelect('address.city', option.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">State</label>
+            <CommonSelect
+              className="select"
+              options={stateOptions}
+              value={formData.address?.state || 'Select'}
+              onChange={(option: any) => onSelect('address.state', option.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Country</label>
+            <CommonSelect
+              className="select"
+              options={countryOptions}
+              value={formData.address?.country || 'Select'}
+              onChange={(option: any) => onSelect('address.country', option.value)}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Postal Code</label>
+            <input
+              type="text"
+              className="form-control"
+              name="address.postalCode"
+              value={formData.address?.postalCode || ''}
+              onChange={onChange}
+              placeholder="Enter postal code"
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Bank Info Section
+const BankInfoSection: React.FC<{ formData: any; isEditing: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; }> = ({
+  formData,
+  isEditing,
+  onChange
+}) => {
+  const InfoRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="row mb-3">
+      <div className="col-md-4">
+        <p className="text-muted mb-0">{label}</p>
+      </div>
+      <div className="col-md-8">
+        <p className="fw-medium mb-0">{value || '—'}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {!isEditing ? (
+        <>
+          <InfoRow label="Bank Name" value={formData.bankDetails?.bankName} />
+          <InfoRow label="Account Number" value={formData.bankDetails?.accountNumber ? `****${formData.bankDetails.accountNumber.slice(-4)}` : undefined} />
+          <InfoRow label="IFSC Code" value={formData.bankDetails?.ifscCode} />
+          <InfoRow label="Branch" value={formData.bankDetails?.branch} />
+          <InfoRow label="Account Type" value={formData.bankDetails?.accountType} />
+        </>
+      ) : (
+        <div className="row">
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Bank Name</label>
+            <input
+              type="text"
+              className="form-control"
+              name="bankDetails.bankName"
+              value={formData.bankDetails?.bankName || ''}
+              onChange={onChange}
+              placeholder="Enter bank name"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Account Number</label>
+            <input
+              type="text"
+              className="form-control"
+              name="bankDetails.accountNumber"
+              value={formData.bankDetails?.accountNumber || ''}
+              onChange={onChange}
+              placeholder="Enter account number"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">IFSC Code</label>
+            <input
+              type="text"
+              className="form-control"
+              name="bankDetails.ifscCode"
+              value={formData.bankDetails?.ifscCode || ''}
+              onChange={onChange}
+              placeholder="Enter IFSC code"
+              maxLength={11}
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Branch</label>
+            <input
+              type="text"
+              className="form-control"
+              name="bankDetails.branch"
+              value={formData.bankDetails?.branch || ''}
+              onChange={onChange}
+              placeholder="Enter branch name"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Account Type</label>
+            <select
+              className="form-control"
+              name="bankDetails.accountType"
+              value={formData.bankDetails?.accountType || 'Savings'}
+              onChange={onChange}
+            >
+              <option value="Savings">Savings</option>
+              <option value="Current">Current</option>
+              <option value="Salary">Salary</option>
+            </select>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Emergency Contact Section
+const EmergencyContactSection: React.FC<{ formData: any; isEditing: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; }> = ({
+  formData,
+  isEditing,
+  onChange
+}) => {
+  const InfoRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="row mb-3">
+      <div className="col-md-4">
+        <p className="text-muted mb-0">{label}</p>
+      </div>
+      <div className="col-md-8">
+        <p className="fw-medium mb-0">{value || '—'}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {!isEditing ? (
+        <>
+          <InfoRow label="Contact Name" value={formData.emergencyContact?.name} />
+          <InfoRow label="Relationship" value={formData.emergencyContact?.relationship} />
+          <InfoRow label="Phone Number" value={formData.emergencyContact?.phone} />
+        </>
+      ) : (
+        <div className="row">
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Contact Name</label>
+            <input
+              type="text"
+              className="form-control"
+              name="emergencyContact.name"
+              value={formData.emergencyContact?.name || ''}
+              onChange={onChange}
+              placeholder="Enter contact name"
+            />
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Relationship</label>
+            <select
+              className="form-control"
+              name="emergencyContact.relationship"
+              value={formData.emergencyContact?.relationship || ''}
+              onChange={onChange as any}
+            >
+              <option value="">Select</option>
+              <option value="Spouse">Spouse</option>
+              <option value="Parent">Parent</option>
+              <option value="Sibling">Sibling</option>
+              <option value="Child">Child</option>
+              <option value="Friend">Friend</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div className="col-md-6 mb-3">
+            <label className="form-label">Phone Number</label>
+            <input
+              type="tel"
+              className="form-control"
+              name="emergencyContact.phone"
+              value={formData.emergencyContact?.phone || ''}
+              onChange={onChange}
+              placeholder="Enter phone number"
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Skills & Social Links Section
+const SkillsSocialSection: React.FC<{ formData: any; isEditing: boolean; onSkillsChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; }> = ({
+  formData,
+  isEditing,
+  onSkillsChange,
+  onChange
+}) => {
+  return (
+    <>
+      <div className="mb-4">
+        <h6 className="text-primary mb-3">Skills</h6>
+        {!isEditing ? (
+          <div className="d-flex flex-wrap gap-2">
+            {formData.skills && formData.skills.length > 0 ? (
+              formData.skills.map((skill: string, index: number) => (
+                <span key={index} className="badge bg-light text-dark border py-2 px-3">
+                  {skill}
+                </span>
+              ))
+            ) : (
+              <p className="text-muted mb-0">No skills added</p>
+            )}
+          </div>
+        ) : (
+          <div className="mb-3">
+            <label className="form-label">Skills (comma-separated)</label>
+            <textarea
+              className="form-control"
+              rows={2}
+              value={formData.skills?.join(', ') || ''}
+              onChange={onSkillsChange}
+              placeholder="e.g., JavaScript, React, Node.js"
+            />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h6 className="text-primary mb-3">Social Links</h6>
+        {!isEditing ? (
+          <div className="d-flex flex-wrap gap-2">
+            {formData.socialLinks?.linkedin && (
+              <Link to={formData.socialLinks.linkedin} target="_blank" className="btn btn-light">
+                <i className="ti ti-brand-linkedin me-1" />LinkedIn
+              </Link>
+            )}
+            {formData.socialLinks?.twitter && (
+              <Link to={formData.socialLinks.twitter} target="_blank" className="btn btn-light">
+                <i className="ti ti-brand-twitter me-1" />Twitter
+              </Link>
+            )}
+            {formData.socialLinks?.facebook && (
+              <Link to={formData.socialLinks.facebook} target="_blank" className="btn btn-light">
+                <i className="ti ti-brand-facebook me-1" />Facebook
+              </Link>
+            )}
+            {formData.socialLinks?.instagram && (
+              <Link to={formData.socialLinks.instagram} target="_blank" className="btn btn-light">
+                <i className="ti ti-brand-instagram me-1" />Instagram
+              </Link>
+            )}
+            {!formData.socialLinks?.linkedin && !formData.socialLinks?.twitter && !formData.socialLinks?.facebook && !formData.socialLinks?.instagram && (
+              <p className="text-muted mb-0">No social links added</p>
+            )}
+          </div>
+        ) : (
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <label className="form-label">LinkedIn</label>
+              <input
+                type="url"
+                className="form-control"
+                name="socialLinks.linkedin"
+                value={formData.socialLinks?.linkedin || ''}
+                onChange={onChange}
+                placeholder="https://linkedin.com/in/username"
+              />
+            </div>
+            <div className="col-md-6 mb-3">
+              <label className="form-label">Twitter</label>
+              <input
+                type="url"
+                className="form-control"
+                name="socialLinks.twitter"
+                value={formData.socialLinks?.twitter || ''}
+                onChange={onChange}
+                placeholder="https://twitter.com/username"
+              />
+            </div>
+            <div className="col-md-6 mb-3">
+              <label className="form-label">Facebook</label>
+              <input
+                type="url"
+                className="form-control"
+                name="socialLinks.facebook"
+                value={formData.socialLinks?.facebook || ''}
+                onChange={onChange}
+                placeholder="https://facebook.com/username"
+              />
+            </div>
+            <div className="col-md-6 mb-3">
+              <label className="form-label">Instagram</label>
+              <input
+                type="url"
+                className="form-control"
+                name="socialLinks.instagram"
+                value={formData.socialLinks?.instagram || ''}
+                onChange={onChange}
+                placeholder="https://instagram.com/username"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+};
+
+// Work Info Section
+const WorkInfoSection: React.FC<{ workInfo: any; }> = ({ workInfo }) => {
+  const InfoRow = ({ label, value }: { label: string; value?: string }) => (
+    <div className="row mb-3">
+      <div className="col-md-4">
+        <p className="text-muted mb-0">{label}</p>
+      </div>
+      <div className="col-md-8">
+        <p className="fw-medium mb-0">{value || '—'}</p>
+      </div>
+    </div>
+  );
+
+  if (!workInfo) {
+    return <p className="text-muted">No work information available</p>;
+  }
+
+  return (
+    <>
+      <InfoRow label="Employee Type" value={workInfo.employeeType} />
+      <InfoRow label="Work Mode" value={workInfo.workMode} />
+      <InfoRow label="Work Location" value={workInfo.workLocation} />
+      <InfoRow label="Reporting Manager" value={workInfo.reportingManager} />
+      <InfoRow label="Shift Timing" value={workInfo.shiftTiming} />
+      <InfoRow label="Weekly Off" value={workInfo.weeklyOff?.join(', ')} />
+    </>
+  );
+};
+
+// Career History Section
+const CareerHistorySection: React.FC<{ careerHistory: any; }> = ({ careerHistory }) => {
+  if (!careerHistory) {
+    return <p className="text-muted">No career history available</p>;
+  }
+
+  // Transform career history into a flat array of timeline events
+  const timelineEvents: any[] = [];
+
+  // Add promotions
+  if (careerHistory.promotions && careerHistory.promotions.length > 0) {
+    careerHistory.promotions.forEach((promo: any) => {
+      timelineEvents.push({
+        type: `Promotion: ${promo.newDesignation || promo.promotionType}`,
+        date: promo.effectiveDate,
+        description: promo.previousDesignation
+          ? `Promoted from ${promo.previousDesignation} to ${promo.newDesignation}`
+          : promo.notes,
+        icon: 'ti-arrow-up-circle',
+        color: 'bg-success'
+      });
+    });
+  }
+
+  // Add resignation
+  if (careerHistory.resignation) {
+    timelineEvents.push({
+      type: 'Resignation',
+      date: careerHistory.resignation.resignationDate,
+      description: careerHistory.resignation.reason || `Last working day: ${new Date(careerHistory.resignation.lastWorkingDay).toLocaleDateString('en-GB')}`,
+      icon: 'ti-logout',
+      color: 'bg-warning'
+    });
+  }
+
+  // Add termination
+  if (careerHistory.termination) {
+    timelineEvents.push({
+      type: 'Termination',
+      date: careerHistory.termination.terminationDate,
+      description: careerHistory.termination.reason || careerHistory.termination.type || 'Employment terminated',
+      icon: 'ti-x-circle',
+      color: 'bg-danger'
+    });
+  }
+
+  // Add policies
+  if (careerHistory.policies && careerHistory.policies.length > 0) {
+    careerHistory.policies.forEach((policy: any) => {
+      timelineEvents.push({
+        type: `Policy: ${policy.name}`,
+        date: policy.effectiveDate,
+        description: policy.description || policy.category,
+        icon: 'ti-file-text',
+        color: 'bg-info'
+      });
+    });
+  }
+
+  // Sort by date (most recent first)
+  timelineEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  if (timelineEvents.length === 0) {
+    return <p className="text-muted">No career history available</p>;
+  }
+
+  return (
+    <div className="timeline">
+      {timelineEvents.map((event, index) => (
+        <div key={index} className="timeline-item mb-4 pb-4 border-bottom">
+          <div className="d-flex">
+            <div className={`timeline-marker ${event.color} me-3`} style={{ width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className={`ti ${event.icon} text-white`} />
+            </div>
+            <div className="flex-grow-1">
+              <div className="d-flex justify-content-between align-items-start mb-1">
+                <h6 className="mb-0">{event.type}</h6>
+                <span className="text-muted fs-13">
+                  <i className="ti ti-calendar me-1" />
+                  {new Date(event.date).toLocaleDateString('en-GB')}
+                </span>
+              </div>
+              {event.description && <p className="text-muted mb-0 fs-13">{event.description}</p>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// Assets & Policies Section
+const AssetsPoliciesSection: React.FC<{ assets: any[]; }> = ({ assets }) => {
+  if (!assets || assets.length === 0) {
+    return <p className="text-muted">No assets assigned</p>;
+  }
+
+  return (
+    <div className="table-responsive">
+      <table className="table table-hover">
+        <thead>
+          <tr>
+            <th>Asset Name</th>
+            <th>Type</th>
+            <th>Serial Number</th>
+            <th>Assigned Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {assets.map((asset, index) => (
+            <tr key={index}>
+              <td className="fw-medium">{asset.name}</td>
+              <td>{asset.type}</td>
+              <td>
+                {asset.serialNumber ? (
+                  <code className="bg-light px-2 py-1 rounded">{asset.serialNumber}</code>
+                ) : '—'}
+              </td>
+              <td>{new Date(asset.assignedDate).toLocaleDateString('en-GB')}</td>
+              <td>
+                <span className={`badge ${asset.status === 'Assigned' ? 'bg-success' : 'bg-secondary'}`}>
+                  {asset.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ============================================
+// MAIN PROFILE PAGE COMPONENT
+// ============================================
 
 const ProfilePage = () => {
   const route = all_routes;
@@ -32,11 +897,30 @@ const ProfilePage = () => {
     loading
   } = useProfileRest();
 
-  // View/Edit mode state
-  const [isEditing, setIsEditing] = useState(false);
+  // Phase 4: Extended profile hook for new tabs
+  const {
+    workInfo,
+    salaryInfo,
+    statutoryInfo,
+    myAssets,
+    careerHistory,
+  } = useProfileExtendedREST();
+
+  // View/Edit mode states - separate for each section
+  const [editingSections, setEditingSections] = useState({
+    basic: false,
+    personal: false,
+    address: false,
+    bank: false,
+    emergency: false,
+    skills: false,
+  });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  // State for form data
+  // Phase 4: Tab navigation state
+  const [activeTab, setActiveTab] = useState<'personal' | 'work' | 'bank' | 'assets' | 'history'>('personal');
+
+  // State for form data - main profile data from server
   const [formData, setFormData] = useState<Partial<Profile>>({});
   const [passwordData, setPasswordData] = useState<PasswordData>({
     currentPassword: '',
@@ -104,17 +988,6 @@ const ProfilePage = () => {
     { value: "Other", label: "Other" },
   ];
 
-  const departmentOptions = [
-    { value: "Select", label: "Select" },
-    { value: "IT", label: "IT" },
-    { value: "HR", label: "HR" },
-    { value: "Finance", label: "Finance" },
-    { value: "Marketing", label: "Marketing" },
-    { value: "Sales", label: "Sales" },
-    { value: "Operations", label: "Operations" },
-    { value: "Support", label: "Support" },
-  ];
-
   // Cloudinary image upload function
   const uploadImage = async (file: File) => {
     setProfilePhoto(null);
@@ -155,6 +1028,9 @@ const ProfilePage = () => {
         setProfilePhoto(uploadedUrl);
         setFormData(prev => ({ ...prev, profilePhoto: uploadedUrl }));
         setImageUpload(false);
+        // Auto-save profile photo
+        await updateCurrentUserProfile({ profilePhoto: uploadedUrl });
+        toast.success('Profile photo updated successfully!');
       } catch (error) {
         setImageUpload(false);
         toast.error("Failed to upload image. Please try again.", {
@@ -181,12 +1057,15 @@ const ProfilePage = () => {
   };
 
   // Remove uploaded photo
-  const removePhoto = () => {
+  const removePhoto = async () => {
     setProfilePhoto(null);
     setFormData(prev => ({ ...prev, profilePhoto: '' }));
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    // Auto-save removal
+    await updateCurrentUserProfile({ profilePhoto: '' });
+    toast.success('Profile photo removed successfully!');
   };
 
   // Load current user profile on component mount
@@ -233,10 +1112,6 @@ const ProfilePage = () => {
           facebook: currentUserProfile.socialLinks?.facebook || '',
           instagram: currentUserProfile.socialLinks?.instagram || ''
         },
-        education: currentUserProfile.education || [],
-        experience: currentUserProfile.experience || [],
-        family: currentUserProfile.family || [],
-        documents: currentUserProfile.documents || [],
         personal: {
           passport: {
             number: currentUserProfile.personal?.passport?.number || '',
@@ -375,17 +1250,14 @@ const ProfilePage = () => {
     }));
   };
 
-  // Enable edit mode
-  const handleEdit = () => {
-    setIsEditing(true);
-    setIsChangingPassword(false);
+  // Per-section edit handlers
+  const handleEditSection = (section: keyof typeof editingSections) => {
+    setEditingSections(prev => ({ ...prev, [section]: true }));
   };
 
-  // Cancel edit mode
-  const handleCancel = () => {
-    setIsEditing(false);
-    setIsChangingPassword(false);
-    // Reset form data to current profile
+  const handleCancelSection = (section: keyof typeof editingSections) => {
+    setEditingSections(prev => ({ ...prev, [section]: false }));
+    // Reset form data to current profile when canceling
     if (currentUserProfile) {
       setFormData({
         firstName: currentUserProfile.firstName || '',
@@ -423,10 +1295,6 @@ const ProfilePage = () => {
           facebook: currentUserProfile.socialLinks?.facebook || '',
           instagram: currentUserProfile.socialLinks?.instagram || ''
         },
-        education: currentUserProfile.education || [],
-        experience: currentUserProfile.experience || [],
-        family: currentUserProfile.family || [],
-        documents: currentUserProfile.documents || [],
         personal: {
           passport: {
             number: currentUserProfile.personal?.passport?.number || '',
@@ -446,24 +1314,20 @@ const ProfilePage = () => {
           accountType: currentUserProfile.bankDetails?.accountType || 'Savings'
         }
       });
-      setProfilePhoto(currentUserProfile.profilePhoto || null);
     }
   };
 
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  // Handle save for a specific section
+  const handleSaveSection = async (section: keyof typeof editingSections) => {
     setSaving(true);
     try {
       const success = await updateCurrentUserProfile(formData);
       if (success) {
-        toast.success('Profile updated successfully!');
-        setIsEditing(false);
+        toast.success(`${section.charAt(0).toUpperCase() + section.slice(1)} updated successfully!`);
+        setEditingSections(prev => ({ ...prev, [section]: false }));
       }
     } catch (error) {
-      console.error('Error updating profile:', error);
-      toast.error('An error occurred while updating the profile');
+      console.error(`Error updating ${section}:`, error);
     } finally {
       setSaving(false);
     }
@@ -522,878 +1386,23 @@ const ProfilePage = () => {
     );
   }
 
-  // Render view mode
-  const renderViewMode = () => (
-    <div className="profile-view">
-      {/* Profile Header with Actions */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div className="d-flex align-items-center">
-          <div className="avatar avatar-xxl rounded-circle me-3" style={{ width: '120px', height: '120px', flexShrink: 0 }}>
-            {currentUserProfile?.profilePhoto ? (
-              <img
-                src={currentUserProfile.profilePhoto}
-                alt={`${currentUserProfile.firstName} ${currentUserProfile.lastName}`}
-                className="rounded-circle"
-                style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '50%', display: 'block', aspectRatio: '1/1' }}
-              />
-            ) : (
-              <div className="avatar-placeholder bg-primary text-white d-flex align-items-center justify-content-center rounded-circle" style={{ width: '120px', height: '120px', fontSize: '48px' }}>
-                {currentUserProfile?.firstName?.charAt(0)}{currentUserProfile?.lastName?.charAt(0)}
-              </div>
-            )}
-          </div>
-          <div>
-            <h3 className="mb-1">{currentUserProfile?.firstName} {currentUserProfile?.lastName}</h3>
-            <p className="text-muted mb-1">{currentUserProfile?.email}</p>
-            <p className="mb-0"><span className="badge bg-info me-1">{resolveDesignation(currentUserProfile?.designation, 'N/A')}</span></p>
-            <p className="mb-0"><span className="badge bg-secondary">{currentUserProfile?.employeeId || 'N/A'}</span></p>
-          </div>
-        </div>
-        <div>
-          <button type="button" className="btn btn-primary" onClick={handleEdit}>
-            <i className="ti ti-edit me-2"></i>Edit Profile
-          </button>
-        </div>
-      </div>
-
-      {/* Basic Information */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Basic Information</h6>
-        <div className="row">
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">First Name</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.firstName || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Last Name</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.lastName || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Email</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.email || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Phone</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.phone || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Date of Birth</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.dateOfBirth ? new Date(currentUserProfile.dateOfBirth).toLocaleDateString() : 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Gender</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.gender || 'N/A'}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Personal Information Section */}
-      <PersonalInfoSection
-        personalInfo={currentUserProfile?.personal || {}}
-        isEditing={false}
-        onChange={handleNestedFieldChange}
-      />
-
-      {/* Bank Information Section */}
-      <BankInfoSection
-        bankInfo={currentUserProfile?.bankDetails || {}}
-        isEditing={false}
-        onChange={handleNestedFieldChange}
-      />
-
-      {/* Professional Information */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Professional Information</h6>
-        <div className="row">
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Employee ID</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.employeeId || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Department</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.department || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Designation</label>
-            <p className="mb-0 fw-medium">{resolveDesignation(currentUserProfile?.designation, 'N/A')}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Date of Joining</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.joiningDate ? new Date(currentUserProfile.joiningDate).toLocaleDateString() : 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Role</label>
-            <p className="mb-0 fw-medium text-capitalize">{currentUserProfile?.role || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Employment Type</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.employmentType || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Status</label>
-            <p className="mb-0 fw-medium">
-              <span className={`badge ${currentUserProfile?.status === 'Active' ? 'bg-success' :
-                  currentUserProfile?.status === 'Probation' ? 'bg-warning' :
-                    currentUserProfile?.status === 'On Leave' ? 'bg-info' :
-                      currentUserProfile?.status === 'Resigned' ? 'bg-secondary' :
-                        currentUserProfile?.status === 'Terminated' ? 'bg-danger' : 'bg-secondary'
-                }`}>
-                {currentUserProfile?.status || 'N/A'}
-              </span>
-            </p>
-          </div>
-          {currentUserProfile?.reportingManager && (
-            <div className="col-md-6 mb-3">
-              <label className="text-muted small">Reporting Manager</label>
-              <p className="mb-0 fw-medium">
-                {currentUserProfile.reportingManager.fullName ||
-                  `${currentUserProfile.reportingManager.firstName} ${currentUserProfile.reportingManager.lastName}`}
-                {currentUserProfile.reportingManager.employeeId &&
-                  ` (${currentUserProfile.reportingManager.employeeId})`}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Address Information */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Address Information</h6>
-        <div className="row">
-          <div className="col-md-12 mb-3">
-            <label className="text-muted small">Address</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.address?.street || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">City</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.address?.city || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">State</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.address?.state || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Country</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.address?.country || 'N/A'}</p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Postal Code</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.address?.postalCode || 'N/A'}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Emergency Contact */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Emergency Contact</h6>
-        <div className="row">
-          <div className="col-md-4 mb-3">
-            <label className="text-muted small">Contact Name</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.emergencyContact?.name || 'N/A'}</p>
-          </div>
-          <div className="col-md-4 mb-3">
-            <label className="text-muted small">Contact Phone</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.emergencyContact?.phone || 'N/A'}</p>
-          </div>
-          <div className="col-md-4 mb-3">
-            <label className="text-muted small">Relationship</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.emergencyContact?.relationship || 'N/A'}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Social Links */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Social Links</h6>
-        <div className="row">
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">LinkedIn</label>
-            <p className="mb-0 fw-medium">
-              {currentUserProfile?.socialLinks?.linkedin ? (
-                <a href={currentUserProfile.socialLinks.linkedin} target="_blank" rel="noopener noreferrer">{currentUserProfile.socialLinks.linkedin}</a>
-              ) : 'N/A'}
-            </p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Twitter</label>
-            <p className="mb-0 fw-medium">
-              {currentUserProfile?.socialLinks?.twitter ? (
-                <a href={currentUserProfile.socialLinks.twitter} target="_blank" rel="noopener noreferrer">{currentUserProfile.socialLinks.twitter}</a>
-              ) : 'N/A'}
-            </p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Facebook</label>
-            <p className="mb-0 fw-medium">
-              {currentUserProfile?.socialLinks?.facebook ? (
-                <a href={currentUserProfile.socialLinks.facebook} target="_blank" rel="noopener noreferrer">{currentUserProfile.socialLinks.facebook}</a>
-              ) : 'N/A'}
-            </p>
-          </div>
-          <div className="col-md-6 mb-3">
-            <label className="text-muted small">Instagram</label>
-            <p className="mb-0 fw-medium">
-              {currentUserProfile?.socialLinks?.instagram ? (
-                <a href={currentUserProfile.socialLinks.instagram} target="_blank" rel="noopener noreferrer">{currentUserProfile.socialLinks.instagram}</a>
-              ) : 'N/A'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Skills and About */}
-      <div className="border-bottom mb-4 pb-4">
-        <h6 className="mb-3">Additional Information</h6>
-        <div className="row">
-          <div className="col-md-12 mb-3">
-            <label className="text-muted small">Skills</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.skills?.length ? currentUserProfile.skills.join(', ') : 'N/A'}</p>
-          </div>
-          <div className="col-md-12 mb-3">
-            <label className="text-muted small">About</label>
-            <p className="mb-0 fw-medium">{currentUserProfile?.about || currentUserProfile?.bio || 'N/A'}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Education Section */}
-      <EducationSection
-        education={currentUserProfile?.education || []}
-        isEditing={false}
-        onChange={(education) => setFormData({ ...formData, education })}
-      />
-
-      {/* Experience Section */}
-      <ExperienceSection
-        experience={currentUserProfile?.experience || []}
-        isEditing={false}
-        onChange={(experience) => setFormData({ ...formData, experience })}
-      />
-
-      {/* Family Section */}
-      <FamilySection
-        family={currentUserProfile?.family || []}
-        isEditing={false}
-        onChange={(family) => setFormData({ ...formData, family })}
-      />
-
-      {/* Documents */}
-      {currentUserProfile?.documents && currentUserProfile.documents.length > 0 && (
-        <div className="border-bottom mb-4 pb-4">
-          <h6 className="mb-3">Documents</h6>
-          <div className="row">
-            {currentUserProfile.documents.map((doc, index) => (
-              <div className="col-md-6 mb-3" key={index}>
-                <div className="card bg-light">
-                  <div className="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                      <p className="mb-1 fw-medium">{doc.fileName || 'N/A'}</p>
-                      <p className="mb-0 text-muted small">{doc.type || 'Document'} {doc.fileSize && `• ${(doc.fileSize / 1024).toFixed(1)} KB`}</p>
-                    </div>
-                    {doc.fileUrl && (
-                      <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-primary">
-                        <i className="ti ti-download me-1"></i>View
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Change Password Button */}
-      <div className="text-end">
-        <button
-          type="button"
-          className="btn btn-outline-primary"
-          onClick={() => setIsChangingPassword(true)}
-          data-bs-toggle="modal"
-          data-bs-target="#change_password_modal"
-        >
-          <i className="ti ti-lock me-2"></i>Change Password
-        </button>
-      </div>
-    </div>
-  );
-
-  // Render edit mode
-  const renderEditMode = () => (
-    <form onSubmit={handleSubmit}>
-      {/* Profile Photo Upload */}
-      <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-        <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames" style={{ width: '100px', height: '100px' }}>
-          {profilePhoto ? (
-            <img
-              src={profilePhoto}
-              alt="Profile Photo"
-              className="rounded-circle"
-              style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '50%', display: 'block', aspectRatio: '1/1' }}
-            />
-          ) : imageUpload ? (
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Uploading...</span>
-            </div>
-          ) : (
-            <i className="ti ti-photo text-gray-3 fs-16"></i>
-          )}
-        </div>
-        <div className="profile-upload">
-          <div className="mb-2">
-            <h6 className="mb-1">Profile Photo</h6>
-            <p className="fs-12">Recommended image size is 100px x 100px</p>
-          </div>
-          <div className="profile-uploader d-flex align-items-center">
-            <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-              {profilePhoto ? 'Change' : 'Upload'}
-              <input
-                type="file"
-                className="form-control image-sign"
-                accept=".png,.jpeg,.jpg,.ico"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-              />
-            </div>
-            {profilePhoto ? (
-              <button
-                type="button"
-                onClick={removePhoto}
-                className="btn btn-light btn-sm"
-              >
-                Remove
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-light btn-sm"
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                  }
-                }}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Basic Information */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Basic Information</h6>
-        <div className="row">
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">First Name *</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="firstName"
-                  value={formData.firstName || ''}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Last Name *</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="lastName"
-                  value={formData.lastName || ''}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Email *</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="email"
-                  className="form-control"
-                  name="email"
-                  value={formData.email || ''}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Phone</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="tel"
-                  className="form-control"
-                  name="phone"
-                  value={formData.phone || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Date of Birth</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="date"
-                  className="form-control"
-                  name="dateOfBirth"
-                  value={formData.dateOfBirth || ''}
-                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 15)).toISOString().split('T')[0]}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Gender</label>
-              </div>
-              <div className="col-md-8">
-                <CommonSelect
-                  className="select"
-                  options={genderOptions}
-                  defaultValue={genderOptions.find(option => option.value === formData.gender) || genderOptions[0]}
-                  onChange={(option: any) => handleSelectChange('gender', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Personal Information Section */}
-      <PersonalInfoSection
-        personalInfo={formData.personal || {}}
-        isEditing={true}
-        onChange={handleNestedFieldChange}
-      />
-
-      {/* Bank Information Section */}
-      <BankInfoSection
-        bankInfo={formData.bankDetails || {}}
-        isEditing={true}
-        onChange={handleNestedFieldChange}
-      />
-
-      {/* Professional Information */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Professional Information</h6>
-        <div className="row">
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Employee ID</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="employeeId"
-                  value={formData.employeeId || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Department</label>
-              </div>
-              <div className="col-md-8">
-                <CommonSelect
-                  className="select"
-                  options={departmentOptions}
-                  defaultValue={departmentOptions.find(option => option.value === formData.department) || departmentOptions[0]}
-                  onChange={(option: any) => handleSelectChange('department', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Designation</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="designation"
-                  value={formData.designation || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Joining Date</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="date"
-                  className="form-control"
-                  name="joiningDate"
-                  value={formData.joiningDate || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Address Information */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Address Information</h6>
-        <div className="row">
-          <div className="col-md-12">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-2">
-                <label className="form-label mb-md-0">Address</label>
-              </div>
-              <div className="col-md-10">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="address.street"
-                  value={formData.address?.street || ''}
-                  onChange={handleInputChange}
-                  placeholder="Street address"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Country</label>
-              </div>
-              <div className="col-md-8">
-                <CommonSelect
-                  className="select"
-                  options={countryChoose}
-                  defaultValue={countryChoose.find(option => option.value === formData.address?.country) || countryChoose[0]}
-                  onChange={(option: any) => handleSelectChange('address.country', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">State</label>
-              </div>
-              <div className="col-md-8">
-                <CommonSelect
-                  className="select"
-                  options={stateChoose}
-                  defaultValue={stateChoose.find(option => option.value === formData.address?.state) || stateChoose[0]}
-                  onChange={(option: any) => handleSelectChange('address.state', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">City</label>
-              </div>
-              <div className="col-md-8">
-                <CommonSelect
-                  className="select"
-                  options={cityChoose}
-                  defaultValue={cityChoose.find(option => option.value === formData.address?.city) || cityChoose[0]}
-                  onChange={(option: any) => handleSelectChange('address.city', option.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Postal Code</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="address.postalCode"
-                  value={formData.address?.postalCode || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Emergency Contact */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Emergency Contact</h6>
-        <div className="row">
-          <div className="col-md-4">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Name</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="emergencyContact.name"
-                  value={formData.emergencyContact?.name || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-4">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Phone</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="tel"
-                  className="form-control"
-                  name="emergencyContact.phone"
-                  value={formData.emergencyContact?.phone || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-4">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Relationship</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  name="emergencyContact.relationship"
-                  value={formData.emergencyContact?.relationship || ''}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Father, Mother, Spouse"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Social Links */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Social Links</h6>
-        <div className="row">
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">LinkedIn</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="url"
-                  className="form-control"
-                  name="socialLinks.linkedin"
-                  value={formData.socialLinks?.linkedin || ''}
-                  onChange={handleInputChange}
-                  placeholder="https://linkedin.com/in/username"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Twitter</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="url"
-                  className="form-control"
-                  name="socialLinks.twitter"
-                  value={formData.socialLinks?.twitter || ''}
-                  onChange={handleInputChange}
-                  placeholder="https://twitter.com/username"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Facebook</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="url"
-                  className="form-control"
-                  name="socialLinks.facebook"
-                  value={formData.socialLinks?.facebook || ''}
-                  onChange={handleInputChange}
-                  placeholder="https://facebook.com/username"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="col-md-6">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Instagram</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="url"
-                  className="form-control"
-                  name="socialLinks.instagram"
-                  value={formData.socialLinks?.instagram || ''}
-                  onChange={handleInputChange}
-                  placeholder="https://instagram.com/username"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Skills and Bio */}
-      <div className="border-bottom mb-3">
-        <h6 className="mb-3">Additional Information</h6>
-        <div className="row">
-          <div className="col-md-12">
-            <div className="row align-items-start mb-3">
-              <div className="col-md-2">
-                <label className="form-label mb-md-0">Skills</label>
-              </div>
-              <div className="col-md-10">
-                <textarea
-                  className="form-control"
-                  rows={3}
-                  name="skills"
-                  value={formData.skills?.join(', ') || ''}
-                  onChange={handleSkillsChange}
-                  placeholder="Enter skills separated by commas (e.g., JavaScript, React, Node.js)"
-                />
-                <small className="form-text text-muted">
-                  Separate multiple skills with commas
-                </small>
-              </div>
-            </div>
-          </div>
-          <div className="col-md-12">
-            <div className="row align-items-start mb-3">
-              <div className="col-md-2">
-                <label className="form-label mb-md-0">Bio</label>
-              </div>
-              <div className="col-md-10">
-                <textarea
-                  className="form-control"
-                  rows={4}
-                  name="bio"
-                  value={formData.bio || ''}
-                  onChange={handleInputChange}
-                  placeholder="Write a brief description about yourself..."
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Education Section - Editable */}
-      <EducationSection
-        education={formData.education || []}
-        isEditing={true}
-        onChange={(education) => setFormData({ ...formData, education })}
-      />
-
-      {/* Experience Section - Editable */}
-      <ExperienceSection
-        experience={formData.experience || []}
-        isEditing={true}
-        onChange={(experience) => setFormData({ ...formData, experience })}
-      />
-
-      {/* Family Section - Editable */}
-      <FamilySection
-        family={formData.family || []}
-        isEditing={true}
-        onChange={(family) => setFormData({ ...formData, family })}
-      />
-
-      {/* Form Actions */}
-      <div className="d-flex align-items-center justify-content-end gap-2 mb-4">
-        <button
-          type="button"
-          className="btn btn-light me-2"
-          onClick={handleCancel}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={saving}
-        >
-          {saving ? (
-            <>
-              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-              Saving...
-            </>
-          ) : (
-            'Save Profile'
-          )}
-        </button>
-      </div>
-    </form>
-  );
-
   return (
     <>
       <div className="page-wrapper">
         <div className="content">
+          <ToastContainer />
+
           {/* Breadcrumb */}
           <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
             <div className="my-auto mb-2">
-              <h2 className="mb-1">Profile</h2>
+              <h2 className="mb-1">My Profile</h2>
               <nav>
                 <ol className="breadcrumb mb-0">
                   <li className="breadcrumb-item">
                     <Link to={route.adminDashboard}>
-                      <i className="ti ti-smart-home"></i>
+                      <i className="ti ti-smart-home" />
                     </Link>
                   </li>
-                  <li className="breadcrumb-item">Pages</li>
                   <li className="breadcrumb-item active" aria-current="page">
                     Profile
                   </li>
@@ -1405,149 +1414,315 @@ const ProfilePage = () => {
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-body">
-              <div className="border-bottom mb-3 pb-3 d-flex justify-content-between align-items-center">
-                <h4 className="mb-0">Profile</h4>
-                {isEditing && (
-                  <span className="badge bg-warning text-dark">Edit Mode</span>
-                )}
-              </div>
+          {/* Basic Info Header */}
+          <BasicInfoSection
+            profile={currentUserProfile}
+            profilePhoto={profilePhoto}
+            imageUpload={imageUpload}
+            fileInputRef={fileInputRef}
+            onImageUpload={handleImageUpload}
+            onRemovePhoto={removePhoto}
+          />
 
-              {/* View or Edit Mode */}
-              {isEditing ? renderEditMode() : renderViewMode()}
-            </div>
-          </div>
-        </div>
-
-        <Footer />
-      </div>
-
-      {/* Change Password Modal */}
-      <div className="modal fade" id="change_password_modal">
-        <div className="modal-dialog modal-dialog-centered">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h4 className="modal-title">Change Password</h4>
+          {/* Tab Navigation */}
+          <ul className="nav nav-tabs nav-tabs-bottom-solid mb-4">
+            <li className="nav-item">
               <button
-                type="button"
-                className="btn-close custom-btn-close"
-                data-bs-dismiss="modal"
-                aria-label="Close"
-                onClick={() => {
-                  setIsChangingPassword(false);
-                  setPasswordData({
-                    currentPassword: '',
-                    newPassword: '',
-                    confirmPassword: ''
-                  });
-                }}
+                className={`nav-link ${activeTab === 'personal' ? 'active' : ''}`}
+                onClick={() => setActiveTab('personal')}
               >
-                <i className="ti ti-x" />
+                <i className="ti ti-user me-1"></i>Personal
               </button>
-            </div>
-            <form onSubmit={handlePasswordSubmit}>
-              <div className="modal-body pb-0">
-                <div className="row">
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Current Password <span className="text-danger">*</span></label>
-                      <div className="pass-group">
-                        <input
-                          type={passwordVisibility.currentPassword ? "text" : "password"}
-                          className="pass-input form-control"
-                          name="currentPassword"
-                          value={passwordData.currentPassword}
-                          onChange={handlePasswordChange}
-                          required
-                        />
-                        <span
-                          className={`ti toggle-passwords ${passwordVisibility.currentPassword ? "ti-eye" : "ti-eye-off"
-                            }`}
-                          onClick={() => togglePasswordVisibility('currentPassword')}
-                        ></span>
-                      </div>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === 'work' ? 'active' : ''}`}
+                onClick={() => setActiveTab('work')}
+              >
+                <i className="ti ti-briefcase me-1"></i>Work Info
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === 'bank' ? 'active' : ''}`}
+                onClick={() => setActiveTab('bank')}
+              >
+                <i className="ti ti-building-bank me-1"></i>Bank Details
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === 'assets' ? 'active' : ''}`}
+                onClick={() => setActiveTab('assets')}
+              >
+                <i className="ti ti-package me-1"></i>My Assets
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === 'history' ? 'active' : ''}`}
+                onClick={() => setActiveTab('history')}
+              >
+                <i className="ti ti-timeline me-1"></i>Career History
+              </button>
+            </li>
+          </ul>
+
+          {/* Tab Content */}
+          <div className="tab-content">
+            {activeTab === 'personal' && (
+              <div className="row">
+                <div className="col-lg-6">
+                  <EditableSection
+                    title="Personal Information"
+                    icon="ti-id-badge"
+                    isEditing={editingSections.personal}
+                    onEdit={() => handleEditSection('personal')}
+                    onSave={() => handleSaveSection('personal')}
+                    onCancel={() => handleCancelSection('personal')}
+                    isSaving={saving}
+                  >
+                    <PersonalInfoSection
+                      formData={formData}
+                      isEditing={editingSections.personal}
+                      onChange={handleNestedFieldChange}
+                      onSelect={handleSelectChange}
+                      genderOptions={genderOptions}
+                      countryOptions={countryChoose}
+                    />
+                  </EditableSection>
+                </div>
+
+                <div className="col-lg-6">
+                  <EditableSection
+                    title="Address Information"
+                    icon="ti-map-pin"
+                    isEditing={editingSections.address}
+                    onEdit={() => handleEditSection('address')}
+                    onSave={() => handleSaveSection('address')}
+                    onCancel={() => handleCancelSection('address')}
+                    isSaving={saving}
+                  >
+                    <AddressInfoSection
+                      formData={formData}
+                      isEditing={editingSections.address}
+                      onChange={handleInputChange}
+                      onSelect={handleSelectChange}
+                      countryOptions={countryChoose}
+                      stateOptions={stateChoose}
+                      cityOptions={cityChoose}
+                    />
+                  </EditableSection>
+                </div>
+
+                <div className="col-lg-6">
+                  <EditableSection
+                    title="Emergency Contact"
+                    icon="ti-phone-call"
+                    isEditing={editingSections.emergency}
+                    onEdit={() => handleEditSection('emergency')}
+                    onSave={() => handleSaveSection('emergency')}
+                    onCancel={() => handleCancelSection('emergency')}
+                    isSaving={saving}
+                  >
+                    <EmergencyContactSection
+                      formData={formData}
+                      isEditing={editingSections.emergency}
+                      onChange={handleInputChange}
+                    />
+                  </EditableSection>
+                </div>
+
+                <div className="col-lg-6">
+                  <EditableSection
+                    title="Skills & Social Links"
+                    icon="ti-link"
+                    isEditing={editingSections.skills}
+                    onEdit={() => handleEditSection('skills')}
+                    onSave={() => handleSaveSection('skills')}
+                    onCancel={() => handleCancelSection('skills')}
+                    isSaving={saving}
+                  >
+                    <SkillsSocialSection
+                      formData={formData}
+                      isEditing={editingSections.skills}
+                      onSkillsChange={handleSkillsChange}
+                      onChange={handleInputChange}
+                    />
+                  </EditableSection>
+                </div>
+
+                <div className="col-lg-12">
+                  <div className="card mb-3">
+                    <div className="card-header d-flex align-items-center justify-content-between">
+                      <h5 className="mb-0">
+                        <i className="ti ti-lock me-2" />
+                        Change Password
+                      </h5>
+                      {!isChangingPassword && (
+                        <button
+                          type="button"
+                          className="btn btn-light btn-sm"
+                          onClick={() => setIsChangingPassword(true)}
+                        >
+                          <i className="ti ti-key me-1" />
+                          Change Password
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">New Password <span className="text-danger">*</span></label>
-                      <div className="pass-group">
-                        <input
-                          type={passwordVisibility.newPassword ? "text" : "password"}
-                          className="pass-input form-control"
-                          name="newPassword"
-                          value={passwordData.newPassword}
-                          onChange={handlePasswordChange}
-                          required
-                        />
-                        <span
-                          className={`ti toggle-passwords ${passwordVisibility.newPassword ? "ti-eye" : "ti-eye-off"
-                            }`}
-                          onClick={() => togglePasswordVisibility('newPassword')}
-                        ></span>
+                    {isChangingPassword && (
+                      <div className="card-body">
+                        <form onSubmit={handlePasswordSubmit}>
+                          <div className="row">
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label">Current Password</label>
+                              <div className="input-group">
+                                <input
+                                  type={passwordVisibility.currentPassword ? 'text' : 'password'}
+                                  className="form-control"
+                                  name="currentPassword"
+                                  value={passwordData.currentPassword}
+                                  onChange={handlePasswordChange}
+                                  required
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary"
+                                  onClick={() => togglePasswordVisibility('currentPassword')}
+                                >
+                                  <i className={`ti ${passwordVisibility.currentPassword ? 'ti-eye-off' : 'ti-eye'}`} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label">New Password</label>
+                              <div className="input-group">
+                                <input
+                                  type={passwordVisibility.newPassword ? 'text' : 'password'}
+                                  className="form-control"
+                                  name="newPassword"
+                                  value={passwordData.newPassword}
+                                  onChange={handlePasswordChange}
+                                  required
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary"
+                                  onClick={() => togglePasswordVisibility('newPassword')}
+                                >
+                                  <i className={`ti ${passwordVisibility.newPassword ? 'ti-eye-off' : 'ti-eye'}`} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label">Confirm Password</label>
+                              <div className="input-group">
+                                <input
+                                  type={passwordVisibility.confirmPassword ? 'text' : 'password'}
+                                  className="form-control"
+                                  name="confirmPassword"
+                                  value={passwordData.confirmPassword}
+                                  onChange={handlePasswordChange}
+                                  required
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary"
+                                  onClick={() => togglePasswordVisibility('confirmPassword')}
+                                >
+                                  <i className={`ti ${passwordVisibility.confirmPassword ? 'ti-eye-off' : 'ti-eye'}`} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="d-flex gap-2">
+                            <button type="submit" className="btn btn-primary" disabled={saving}>
+                              {saving ? 'Changing...' : 'Change Password'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-light"
+                              onClick={() => {
+                                setIsChangingPassword(false);
+                                setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
                       </div>
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3">
-                      <label className="form-label">Confirm Password <span className="text-danger">*</span></label>
-                      <div className="pass-group">
-                        <input
-                          type={passwordVisibility.confirmPassword ? "text" : "password"}
-                          className="pass-input form-control"
-                          name="confirmPassword"
-                          value={passwordData.confirmPassword}
-                          onChange={handlePasswordChange}
-                          required
-                        />
-                        <span
-                          className={`ti toggle-passwords ${passwordVisibility.confirmPassword ? "ti-eye" : "ti-eye-off"
-                            }`}
-                          onClick={() => togglePasswordVisibility('confirmPassword')}
-                        ></span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-light me-2"
-                  data-bs-dismiss="modal"
-                  onClick={() => {
-                    setIsChangingPassword(false);
-                    setPasswordData({
-                      currentPassword: '',
-                      newPassword: '',
-                      confirmPassword: ''
-                    });
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Changing...
-                    </>
-                  ) : (
-                    'Change Password'
-                  )}
-                </button>
+            )}
+
+            {activeTab === 'work' && (
+              <div className="card">
+                <div className="card-header">
+                  <h5 className="mb-0">
+                    <i className="ti ti-briefcase me-2" />
+                    Work Information
+                  </h5>
+                </div>
+                <div className="card-body">
+                  <WorkInfoSection workInfo={workInfo} />
+                </div>
               </div>
-            </form>
+            )}
+
+            {activeTab === 'bank' && (
+              <div className="card">
+                <EditableSection
+                  title="Bank Account Information"
+                  icon="ti-building-bank"
+                  isEditing={editingSections.bank}
+                  onEdit={() => handleEditSection('bank')}
+                  onSave={() => handleSaveSection('bank')}
+                  onCancel={() => handleCancelSection('bank')}
+                  isSaving={saving}
+                >
+                  <BankInfoSection
+                    formData={formData}
+                    isEditing={editingSections.bank}
+                    onChange={handleInputChange}
+                  />
+                </EditableSection>
+              </div>
+            )}
+
+            {activeTab === 'assets' && (
+              <div className="card">
+                <div className="card-header">
+                  <h5 className="mb-0">
+                    <i className="ti ti-device-laptop me-2" />
+                    Assigned Assets
+                  </h5>
+                </div>
+                <div className="card-body">
+                  <AssetsPoliciesSection assets={myAssets || []} />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'history' && (
+              <div className="card">
+                <div className="card-header">
+                  <h5 className="mb-0">
+                    <i className="ti ti-timeline me-2" />
+                    Career History
+                  </h5>
+                </div>
+                <div className="card-body">
+                  <CareerHistorySection careerHistory={careerHistory} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
+        <Footer />
       </div>
-
-      <ToastContainer />
     </>
   );
 };

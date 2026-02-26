@@ -1047,10 +1047,363 @@ export const updateAdminProfile = asyncHandler(async (req, res) => {
   );
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2: Extended Profile Endpoints for Read-Only Sections
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get work info for current employee (shift, batch, timezone)
+ * @route   GET /api/user-profile/work-info
+ * @access  Private (All authenticated users)
+ */
+export const getWorkInfo = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, employeeId: 1, shiftId: 1, batchId: 1, employmentType: 1, timezone: 1 } }
+  );
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Fetch shift details if assigned
+  let shiftDetails = null;
+  if (employee.shiftId) {
+    const shift = await collections.shifts.findOne({ _id: employee.shiftId });
+    if (shift) {
+      shiftDetails = {
+        _id: shift._id.toString(),
+        name: shift.name,
+        code: shift.code,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        duration: shift.duration,
+        color: shift.color,
+        type: shift.type,
+        isNightShift: shift.isNightShift,
+      };
+    }
+  }
+
+  // Fetch batch details if assigned
+  let batchDetails = null;
+  if (employee.batchId) {
+    const batch = await collections.batches.findOne({ _id: employee.batchId });
+    if (batch) {
+      // Fetch batch's shift for timing
+      let batchShift = null;
+      if (batch.shiftId) {
+        const shift = await collections.shifts.findOne({ _id: batch.shiftId });
+        if (shift) {
+          batchShift = {
+            _id: shift._id.toString(),
+            name: shift.name,
+            code: shift.code,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            color: shift.color,
+          };
+        }
+      }
+      batchDetails = {
+        _id: batch._id.toString(),
+        name: batch.name,
+        code: batch.code,
+        shift: batchShift,
+      };
+    }
+  }
+
+  const workInfo = {
+    employmentType: employee.employmentType || null,
+    timezone: employee.timezone || 'UTC',
+    shift: shiftDetails,
+    batch: batchDetails,
+  };
+
+  return sendSuccess(res, workInfo, 'Work info retrieved successfully');
+});
+
+/**
+ * @desc    Get salary info for current employee
+ * @route   GET /api/user-profile/salary
+ * @access  Private (All authenticated users)
+ */
+export const getSalaryInfo = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee with salary fields
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, employeeId: 1, salary: 1 } }
+  );
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  if (!employee.salary) {
+    return sendSuccess(res, {
+      basic: 0,
+      hra: 0,
+      allowances: 0,
+      totalCTC: 0,
+      currency: 'USD',
+    }, 'Salary info retrieved successfully');
+  }
+
+  const salaryInfo = {
+    basic: employee.salary.basic || 0,
+    hra: employee.salary.hra || 0,
+    allowances: employee.salary.allowances || 0,
+    totalCTC: (employee.salary.basic || 0) + (employee.salary.hra || 0) + (employee.salary.allowances || 0),
+    currency: employee.salary.currency || 'USD',
+  };
+
+  return sendSuccess(res, salaryInfo, 'Salary info retrieved successfully');
+});
+
+/**
+ * @desc    Get statutory info for current employee (PF, ESI from latest payslip)
+ * @route   GET /api/user-profile/statutory
+ * @access  Private (All authenticated users)
+ */
+export const getStatutoryInfo = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, employeeId: 1 } }
+  );
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Fetch latest payroll record for this employee
+  const latestPayroll = await collections.payrolls.findOne(
+    { employeeId: employee._id },
+    { sort: { payPeriodStart: -1 } }
+  );
+
+  const statutoryInfo = {
+    pfContribution: latestPayroll?.deductions?.providentFund || 0,
+    esiContribution: latestPayroll?.deductions?.esi || 0,
+    lastPayPeriod: latestPayroll ? {
+      start: latestPayroll.payPeriodStart,
+      end: latestPayroll.payPeriodEnd,
+    } : null,
+  };
+
+  return sendSuccess(res, statutoryInfo, 'Statutory info retrieved successfully');
+});
+
+/**
+ * @desc    Get assigned assets for current employee
+ * @route   GET /api/user-profile/assets
+ * @access  Private (All authenticated users)
+ */
+export const getMyAssets = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const { status } = req.query;
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, employeeId: 1 } }
+  );
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Build filter for assetUsers
+  const filter = {
+    employeeId: employee._id.toString(),
+    isDeleted: { $ne: true },
+  };
+
+  if (status) {
+    filter.status = status;
+  } else {
+    // Default to assigned assets only
+    filter.status = 'assigned';
+  }
+
+  // Fetch assetUser records
+  const assetUsers = await collections.assetusers.find(filter).sort({ assignedDate: -1 }).toArray();
+
+  // Fetch asset details for each
+  const assetIds = assetUsers.map(au => new ObjectId(au.assetId));
+  const assets = assetIds.length > 0
+    ? await collections.assets.find({ _id: { $in: assetIds } }).toArray()
+    : [];
+
+  const assetMap = new Map(assets.map(a => [a._id.toString(), a]));
+
+  // Build response with asset details
+  const result = assetUsers.map(au => {
+    const asset = assetMap.get(au.assetId);
+    return {
+      _id: au._id?.toString(),
+      assetId: au.assetId,
+      assetName: asset?.name || 'Unknown',
+      category: asset?.category || null,
+      serialNumber: asset?.serialNumber || null,
+      status: au.status,
+      assignedDate: au.assignedDate,
+      returnDate: au.returnDate || null,
+      notes: au.notes || null,
+      image: asset?.image || null,
+    };
+  });
+
+  return sendSuccess(res, result, 'Assets retrieved successfully');
+});
+
+/**
+ * @desc    Get career history for current employee (promotions, policies, resignation, termination)
+ * @route   GET /api/user-profile/career
+ * @access  Private (All authenticated users)
+ */
+export const getCareerHistory = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Find employee
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, employeeId: 1, departmentId: 1, designationId: 1 } }
+  );
+
+  if (!employee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Fetch promotions
+  const promotions = await collections.promotions
+    .find({ employeeId: employee._id.toString(), isDeleted: { $ne: true } })
+    .sort({ effectiveDate: -1 })
+    .toArray();
+
+  // Fetch resignation record
+  const resignation = await collections.resignation.findOne({
+    employeeId: employee._id.toString(),
+    isDeleted: { $ne: true },
+  });
+
+  // Fetch termination record
+  const termination = await collections.termination.findOne({
+    employeeId: employee._id.toString(),
+    isDeleted: { $ne: true },
+  });
+
+  // Fetch applicable policies
+  // Policy applies if: applyToAll=true OR (assignTo.departmentId matches AND assignTo.designationIds includes employee's designation)
+  const policyFilter = {
+    isDeleted: { $ne: true },
+    $or: [
+      { applyToAll: true },
+      {
+        $and: [
+          { 'assignTo.departmentId': employee.departmentId },
+          { 'assignTo.designationIds': employee.designationId },
+        ],
+      },
+    ],
+  };
+
+  const policies = await collections.policies.find(policyFilter).sort({ effectiveDate: -1 }).toArray();
+
+  const careerHistory = {
+    promotions: promotions.map(p => ({
+      _id: p._id.toString(),
+      effectiveDate: p.effectiveDate,
+      promotionType: p.promotionType,
+      previousDesignation: p.promotionFrom?.designation || null,
+      newDesignation: p.promotionTo?.designation || null,
+      previousDepartment: p.promotionFrom?.department || null,
+      newDepartment: p.promotionTo?.department || null,
+      salaryChange: p.salaryChange ? {
+        previousSalary: p.salaryChange.previousSalary,
+        newSalary: p.salaryChange.newSalary,
+        increment: p.salaryChange.increment,
+      } : null,
+      status: p.status,
+      notes: p.notes || null,
+    })),
+    resignation: resignation ? {
+      _id: resignation._id.toString(),
+      noticeDate: resignation.noticeDate,
+      resignationDate: resignation.resignationDate,
+      lastWorkingDay: resignation.lastWorkingDay,
+      reason: resignation.reason || null,
+      status: resignation.status,
+    } : null,
+    termination: termination ? {
+      _id: termination._id.toString(),
+      terminationDate: termination.terminationDate,
+      reason: termination.reason || null,
+      type: termination.type || null,
+      noticePeriodServed: termination.noticePeriodServed || false,
+    } : null,
+    policies: policies.map(p => ({
+      _id: p._id.toString(),
+      name: p.name,
+      description: p.description || null,
+      effectiveDate: p.effectiveDate,
+      category: p.category || null,
+      status: p.status,
+    })),
+  };
+
+  return sendSuccess(res, careerHistory, 'Career history retrieved successfully');
+});
+
 export default {
   getCurrentUserProfile,
   updateCurrentUserProfile,
   changePassword,
   getAdminProfile,
   updateAdminProfile,
+  // Phase 2: Extended Profile Endpoints
+  getWorkInfo,
+  getSalaryInfo,
+  getStatutoryInfo,
+  getMyAssets,
+  getCareerHistory,
 };

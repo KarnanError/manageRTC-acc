@@ -1,12 +1,15 @@
 /**
  * Bank Information Section Component
  * Displays and edits bank information: Bank Name, Account Number, IFSC Code, Branch, Account Type
+ * Phase 5: Now includes "Request Change" button for bank details that go through HR approval
  * Includes account number masking for security in view mode
  */
 
-import React from 'react';
+import React, { useState } from 'react';
+import { Button } from 'antd';
 import CommonSelect from '../../../../core/common/commonSelect';
 import { PermissionField } from '../../../../core/components/PermissionField';
+import { ChangeRequestModal } from '../../../../core/modals/ChangeRequestModal';
 
 export interface BankInfo {
   bankName?: string;
@@ -17,9 +20,12 @@ export interface BankInfo {
 }
 
 interface BankInfoSectionProps {
-  bankInfo: BankInfo;
+  bankInfo?: BankInfo;
   isEditing: boolean;
   onChange: (field: string, value: any) => void;
+  // Phase 5: Add props for change request integration
+  enableChangeRequest?: boolean;
+  onRequestSuccess?: () => void;
 }
 
 // Account Type Options
@@ -34,7 +40,7 @@ const accountTypeOptions = [
  * Example: "1234567890" -> "******7890"
  */
 const maskAccountNumber = (accountNumber?: string): string => {
-  if (!accountNumber || accountNumber.length < 4) return 'N/A';
+  if (!accountNumber || accountNumber.length < 4) return '--';
   const lastFour = accountNumber.slice(-4);
   const maskedLength = Math.max(accountNumber.length - 4, 6);
   return '*'.repeat(maskedLength) + lastFour;
@@ -63,22 +69,68 @@ const isValidAccountNumber = (accountNumber?: string): boolean => {
 export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
   bankInfo,
   isEditing,
-  onChange
+  onChange,
+  enableChangeRequest = true,
+  onRequestSuccess,
 }) => {
-  // Validation state (at component level, not inside renderEditMode)
-  const [ifscError, setIfscError] = React.useState('');
-  const [accountError, setAccountError] = React.useState('');
+  // Phase 5: Change request modal state
+  const [changeModalVisible, setChangeModalVisible] = useState(false);
+  const [selectedField, setSelectedField] = useState<{
+    fieldChanged: string;
+    fieldLabel: string;
+    oldValue: any;
+  } | null>(null);
+
+  // Validation state
+  const [ifscError, setIfscError] = useState('');
+  const [accountError, setAccountError] = useState('');
+
+  const openChangeRequestModal = (fieldChanged: string, fieldLabel: string, oldValue: any) => {
+    setSelectedField({ fieldChanged, fieldLabel, oldValue });
+    setChangeModalVisible(true);
+  };
+
+  const closeChangeModal = () => {
+    setChangeModalVisible(false);
+    setSelectedField(null);
+  };
+
+  const handleChangeRequestSuccess = () => {
+    closeChangeModal();
+    onRequestSuccess?.();
+  };
 
   const renderViewMode = () => (
     <div className="border-bottom mb-4 pb-4">
-      <h6 className="mb-3">Bank Information</h6>
+      <div className="d-flex justify-content-between align-items-start mb-3">
+        <h6 className="mb-0">Bank Information</h6>
+        {enableChangeRequest && (
+          <Button
+            type="primary"
+            size="small"
+            icon={<i className="ti ti-file-description me-1"></i>}
+            onClick={() => openChangeRequestModal(
+              'bankDetails',
+              'Bank Details',
+              bankInfo
+            )}
+          >
+            Request Change
+          </Button>
+        )}
+      </div>
       <div className="row">
         {/* Bank Name */}
         <PermissionField field="bankDetails.bankName" editMode={false}>
           <div className="col-md-6 mb-3">
-            <label className="text-muted small">Bank Name</label>
+            <label className="text-muted small">
+              Bank Name
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
             <p className="mb-0 fw-medium">
-              {bankInfo?.bankName || 'N/A'}
+              {bankInfo?.bankName || '--'}
             </p>
           </div>
         </PermissionField>
@@ -86,7 +138,12 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
         {/* Account Number (Masked) */}
         <PermissionField field="bankDetails.accountNumber" editMode={false}>
           <div className="col-md-6 mb-3">
-            <label className="text-muted small">Account Number</label>
+            <label className="text-muted small">
+              Account Number
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
             <p className="mb-0 fw-medium font-monospace">
               {maskAccountNumber(bankInfo?.accountNumber)}
             </p>
@@ -96,9 +153,14 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
         {/* IFSC Code */}
         <PermissionField field="bankDetails.ifscCode" editMode={false}>
           <div className="col-md-6 mb-3">
-            <label className="text-muted small">IFSC Code</label>
+            <label className="text-muted small">
+              IFSC Code
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
             <p className="mb-0 fw-medium font-monospace text-uppercase">
-              {bankInfo?.ifscCode ? bankInfo.ifscCode.toUpperCase() : 'N/A'}
+              {bankInfo?.ifscCode ? bankInfo.ifscCode.toUpperCase() : '--'}
               {bankInfo?.ifscCode && !isValidIFSC(bankInfo.ifscCode) && (
                 <span className="badge bg-warning text-dark ms-2">Invalid Format</span>
               )}
@@ -109,9 +171,14 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
         {/* Branch */}
         <PermissionField field="bankDetails.branch" editMode={false}>
           <div className="col-md-6 mb-3">
-            <label className="text-muted small">Branch</label>
+            <label className="text-muted small">
+              Branch
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
             <p className="mb-0 fw-medium">
-              {bankInfo?.branch || 'N/A'}
+              {bankInfo?.branch || '--'}
             </p>
           </div>
         </PermissionField>
@@ -119,13 +186,26 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
         {/* Account Type */}
         <PermissionField field="bankDetails.accountType" editMode={false}>
           <div className="col-md-6 mb-3">
-            <label className="text-muted small">Account Type</label>
+            <label className="text-muted small">
+              Account Type
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
             <p className="mb-0 fw-medium">
-              {bankInfo?.accountType || 'N/A'}
+              {bankInfo?.accountType || '--'}
             </p>
           </div>
         </PermissionField>
       </div>
+
+      {/* Phase 5: Change Request Info */}
+      {enableChangeRequest && (
+        <div className="alert alert-warning mb-0" role="alert">
+          <i className="ti ti-lock me-2"></i>
+          <strong>Bank details are locked for security.</strong> Use the <strong>Request Change</strong> button above to update your bank information. Changes require HR approval.
+        </div>
+      )}
     </div>
   );
 
@@ -295,7 +375,24 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
     );
   };
 
-  return isEditing ? renderEditMode() : renderViewMode();
+  return (
+    <>
+      {isEditing ? renderEditMode() : renderViewMode()}
+
+      {/* Phase 5: Change Request Modal */}
+      {selectedField && (
+        <ChangeRequestModal
+          visible={changeModalVisible}
+          onClose={closeChangeModal}
+          fieldType="bankDetails"
+          fieldChanged={selectedField.fieldChanged}
+          fieldLabel={selectedField.fieldLabel}
+          oldValue={selectedField.oldValue}
+          onSuccess={handleChangeRequestSuccess}
+        />
+      )}
+    </>
+  );
 };
 
 export default BankInfoSection;

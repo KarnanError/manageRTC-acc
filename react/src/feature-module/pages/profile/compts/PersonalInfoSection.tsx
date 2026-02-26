@@ -280,11 +280,11 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
 }) => {
   // Format date for display
   const formatDate = (dateString: string | null | undefined) => {
-    if (!dateString) return 'N/A';
+    if (!dateString) return '--';
     try {
       return new Date(dateString).toLocaleDateString();
     } catch {
-      return 'N/A';
+      return '--';
     }
   };
 
@@ -307,7 +307,7 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4 mb-3">
             <label className="text-muted small">Passport Number</label>
             <p className="mb-0 fw-medium">
-              {personalInfo?.passport?.number || 'N/A'}
+              {personalInfo?.passport?.number || '--'}
             </p>
           </div>
         </PermissionField>
@@ -327,7 +327,7 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4 mb-3">
             <label className="text-muted small">Nationality</label>
             <p className="mb-0 fw-medium">
-              {personalInfo?.nationality || 'N/A'}
+              {personalInfo?.nationality || '--'}
             </p>
           </div>
         </PermissionField>
@@ -337,7 +337,7 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4 mb-3">
             <label className="text-muted small">Religion</label>
             <p className="mb-0 fw-medium">
-              {personalInfo?.religion || 'N/A'}
+              {personalInfo?.religion || '--'}
             </p>
           </div>
         </PermissionField>
@@ -347,7 +347,7 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4 mb-3">
             <label className="text-muted small">Marital Status</label>
             <p className="mb-0 fw-medium">
-              {personalInfo?.maritalStatus || 'N/A'}
+              {personalInfo?.maritalStatus || '--'}
             </p>
           </div>
         </PermissionField>
@@ -357,7 +357,7 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4 mb-3">
             <label className="text-muted small">No. of Children</label>
             <p className="mb-0 fw-medium">
-              {personalInfo?.noOfChildren ?? 'N/A'}
+              {personalInfo?.noOfChildren ?? '--'}
             </p>
           </div>
         </PermissionField>

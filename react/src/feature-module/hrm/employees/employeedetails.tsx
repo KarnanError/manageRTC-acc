@@ -29,6 +29,8 @@ import { useResignationsREST, type Resignation } from '../../../hooks/useResigna
 import { useShiftsREST } from '../../../hooks/useShiftsREST';
 import { useTerminationsREST, type Termination } from '../../../hooks/useTerminationsREST';
 import { resolveDesignation } from '../../../utils/designationUtils';
+// Phase 7: Import change request hook and component
+import { PendingChangeRequests } from './components/PendingChangeRequests';
 
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -393,6 +395,8 @@ const EmployeeDetails = () => {
   const [experienceFormLoading, setExperienceFormLoading] = useState(false);
   const [personalFormLoading, setPersonalFormLoading] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
+  // Phase 7: Refresh trigger for pending change requests
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const DATE_FORMAT = 'DD-MM-YYYY';
   const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
@@ -2744,6 +2748,44 @@ const EmployeeDetails = () => {
                         </div>
                       </div>
                       {/* end bank details */}
+                      {/* Phase 7: Pending Change Requests */}
+                      <div className="accordion-item">
+                        <div className="accordion-header" id="headingPendingRequests">
+                          <div className="accordion-button">
+                            <div className="d-flex align-items-center flex-fill">
+                              <h5>
+                                <i className="ti ti-file-description me-2 text-warning"></i>
+                                Pending Change Requests
+                              </h5>
+                            </div>
+                            <Link
+                              to="#"
+                              className="d-flex align-items-center collapsed collapse-arrow"
+                              data-bs-toggle="collapse"
+                              data-bs-target="#primaryBorderPendingRequests"
+                              aria-expanded="false"
+                              aria-controls="primaryBorderPendingRequests"
+                            >
+                              <i className="ti ti-chevron-right" />
+                            </Link>
+                          </div>
+                        </div>
+                        <div
+                          id="primaryBorderPendingRequests"
+                          className="accordion-collapse collapse"
+                          data-bs-parent="#accordionExample"
+                        >
+                          <div className="accordion-body">
+                            <PendingChangeRequests
+                              employeeId={employee?.employeeId}
+                              employeeObjectId={employee?._id}
+                              refreshTrigger={refreshTrigger}
+                              onRefresh={() => setRefreshTrigger(prev => prev + 1)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      {/* end pending change requests */}
                       {/* Family details show */}
                       <div className="accordion-item">
                         <div className="accordion-header" id="headingThree">

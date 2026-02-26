@@ -40,7 +40,7 @@ export const ExperienceSection: React.FC<ExperienceSectionProps> = ({
     try {
       return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
     } catch {
-      return 'N/A';
+      return '--';
     }
   };
 
@@ -57,7 +57,7 @@ export const ExperienceSection: React.FC<ExperienceSectionProps> = ({
                 <div className="card-body d-flex justify-content-between align-items-start">
                   <div>
                     <p className="mb-1 fw-medium">
-                      {exp.position || 'N/A'} {exp.company && `at ${exp.company}`}
+                      {exp.position || '--'} {exp.company && `at ${exp.company}`}
                     </p>
                     <p className="mb-0 text-muted small">
                       {formatDate(exp.startDate)} - {' '}
