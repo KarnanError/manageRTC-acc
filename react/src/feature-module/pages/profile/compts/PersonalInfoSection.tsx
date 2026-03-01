@@ -1,9 +1,10 @@
 /**
  * Personal Information Section Component
  * Displays and edits personal information: Passport, Nationality, Religion, Marital Status, etc.
+ * Includes validation for passport expiry date and field requirements
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import CommonSelect from '../../../../core/common/commonSelect';
 import { PermissionField } from '../../../../core/components/PermissionField';
 
@@ -14,7 +15,6 @@ export interface PersonalInfo {
     country?: string;
   };
   nationality?: string;
-  religion?: string;
   maritalStatus?: string;
   noOfChildren?: number;
 }
@@ -24,6 +24,20 @@ interface PersonalInfoSectionProps {
   isEditing: boolean;
   onChange: (field: string, value: any) => void;
 }
+
+// Validation error state interface
+interface PersonalInfoErrors {
+  passportExpiry?: string;
+  noOfChildren?: string;
+}
+
+// RequiredLabel component for marking required fields
+const RequiredLabel: React.FC<{ children: React.ReactNode; required?: boolean }> = ({ children, required }) => (
+  <>
+    {children}
+    {required && <span className="text-danger ms-1">*</span>}
+  </>
+);
 
 // Options
 const maritalStatusOptions = [
@@ -278,6 +292,59 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
   isEditing,
   onChange
 }) => {
+  // Validation state
+  const [errors, setErrors] = useState<PersonalInfoErrors>({});
+
+  // Validation functions
+  /**
+   * Validates passport expiry date - must be in the future if provided
+   */
+  const validatePassportExpiry = (dateString: string | null | undefined): string => {
+    if (!dateString) return ''; // Optional field
+
+    try {
+      const expiryDate = new Date(dateString);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
+
+      if (expiryDate <= today) {
+        return 'Passport must be valid (expiry date should be in the future)';
+      }
+      return '';
+    } catch {
+      return 'Invalid date format';
+    }
+  };
+
+  /**
+   * Validates number of children - must be between 0 and 50
+   */
+  const validateNoOfChildren = (value: number): string => {
+    if (value < 0) {
+      return 'Number of children cannot be negative';
+    }
+    if (value > 50) {
+      return 'Number of children cannot exceed 50';
+    }
+    return '';
+  };
+
+  // Field change handlers with validation
+  const handlePassportExpiryChange = (value: string) => {
+    onChange('personal.passport.expiryDate', value);
+    const error = validatePassportExpiry(value);
+    setErrors(prev => ({ ...prev, passportExpiry: error }));
+  };
+
+  const handleNoOfChildrenChange = (value: number) => {
+    onChange('personal.noOfChildren', value);
+    const error = validateNoOfChildren(value);
+    setErrors(prev => ({ ...prev, noOfChildren: error }));
+  };
+
+  // Check if form has any errors
+  const hasErrors = Object.values(errors).some(error => error !== undefined && error !== '');
+
   // Format date for display
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return '--';
@@ -328,16 +395,6 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
             <label className="text-muted small">Nationality</label>
             <p className="mb-0 fw-medium">
               {personalInfo?.nationality || '--'}
-            </p>
-          </div>
-        </PermissionField>
-
-        {/* Religion */}
-        <PermissionField field="personal.religion" editMode={false}>
-          <div className="col-md-4 mb-3">
-            <label className="text-muted small">Religion</label>
-            <p className="mb-0 fw-medium">
-              {personalInfo?.religion || '--'}
             </p>
           </div>
         </PermissionField>
@@ -394,15 +451,25 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4">
             <div className="row align-items-center mb-3">
               <div className="col-md-4">
-                <label className="form-label mb-md-0">Passport Exp Date</label>
+                <label className="form-label mb-md-0">
+                  <RequiredLabel required={false}>Passport Exp Date</RequiredLabel>
+                </label>
               </div>
               <div className="col-md-8">
                 <input
                   type="date"
-                  className="form-control"
+                  className={`form-control ${errors.passportExpiry ? 'is-invalid' : ''}`}
                   value={formatInputDate(personalInfo?.passport?.expiryDate)}
-                  onChange={(e) => onChange('personal.passport.expiryDate', e.target.value)}
+                  onChange={(e) => handlePassportExpiryChange(e.target.value)}
                 />
+                {errors.passportExpiry && (
+                  <div className="invalid-feedback d-block">
+                    {errors.passportExpiry}
+                  </div>
+                )}
+                <small className="text-muted">
+                  Must be a valid future date
+                </small>
               </div>
             </div>
           </div>
@@ -446,26 +513,6 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           </div>
         </PermissionField>
 
-        {/* Religion */}
-        <PermissionField field="personal.religion" editMode={true}>
-          <div className="col-md-4">
-            <div className="row align-items-center mb-3">
-              <div className="col-md-4">
-                <label className="form-label mb-md-0">Religion</label>
-              </div>
-              <div className="col-md-8">
-                <input
-                  type="text"
-                  className="form-control"
-                  value={personalInfo?.religion || ''}
-                  onChange={(e) => onChange('personal.religion', e.target.value)}
-                  placeholder="Enter religion"
-                />
-              </div>
-            </div>
-          </div>
-        </PermissionField>
-
         {/* Marital Status */}
         <PermissionField field="personal.maritalStatus" editMode={true}>
           <div className="col-md-4">
@@ -490,17 +537,27 @@ export const PersonalInfoSection: React.FC<PersonalInfoSectionProps> = ({
           <div className="col-md-4">
             <div className="row align-items-center mb-3">
               <div className="col-md-4">
-                <label className="form-label mb-md-0">No. of Children</label>
+                <label className="form-label mb-md-0">
+                  <RequiredLabel required={false}>No. of Children</RequiredLabel>
+                </label>
               </div>
               <div className="col-md-8">
                 <input
                   type="number"
-                  className="form-control"
+                  className={`form-control ${errors.noOfChildren ? 'is-invalid' : ''}`}
                   value={personalInfo?.noOfChildren ?? 0}
-                  onChange={(e) => onChange('personal.noOfChildren', parseInt(e.target.value) || 0)}
+                  onChange={(e) => handleNoOfChildrenChange(parseInt(e.target.value) || 0)}
                   min="0"
                   max="50"
                 />
+                {errors.noOfChildren && (
+                  <div className="invalid-feedback d-block">
+                    {errors.noOfChildren}
+                  </div>
+                )}
+                <small className="text-muted">
+                  Enter a number between 0 and 50
+                </small>
               </div>
             </div>
           </div>

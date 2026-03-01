@@ -1,6 +1,6 @@
 /**
  * Bank Information Section Component
- * Displays and edits bank information: Bank Name, Account Number, IFSC Code, Branch, Account Type
+ * Displays and edits bank information: Account Holder Name, Bank Name, Account Number, IFSC Code, Branch, Account Type
  * Phase 5: Now includes "Request Change" button for bank details that go through HR approval
  * Includes account number masking for security in view mode
  */
@@ -12,6 +12,7 @@ import { PermissionField } from '../../../../core/components/PermissionField';
 import { ChangeRequestModal } from '../../../../core/modals/ChangeRequestModal';
 
 export interface BankInfo {
+  accountHolderName?: string;
   bankName?: string;
   accountNumber?: string;
   ifscCode?: string;
@@ -120,6 +121,21 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
         )}
       </div>
       <div className="row">
+        {/* Account Holder Name */}
+        <PermissionField field="bankDetails.accountHolderName" editMode={false}>
+          <div className="col-md-6 mb-3">
+            <label className="text-muted small">
+              Account Holder Name
+              {enableChangeRequest && (
+                <i className="ti ti-lock ms-1 text-muted" title="Locked - Use Request Change to update"></i>
+              )}
+            </label>
+            <p className="mb-0 fw-medium">
+              {bankInfo?.accountHolderName || '--'}
+            </p>
+          </div>
+        </PermissionField>
+
         {/* Bank Name */}
         <PermissionField field="bankDetails.bankName" editMode={false}>
           <div className="col-md-6 mb-3">
@@ -246,6 +262,26 @@ export const BankInfoSection: React.FC<BankInfoSectionProps> = ({
       <div className="border-bottom mb-3">
         <h6 className="mb-3">Bank Information</h6>
         <div className="row">
+          {/* Account Holder Name */}
+          <PermissionField field="bankDetails.accountHolderName" editMode={true}>
+            <div className="col-md-6">
+              <div className="row align-items-center mb-3">
+                <div className="col-md-4">
+                  <label className="form-label mb-md-0">Account Holder Name</label>
+                </div>
+                <div className="col-md-8">
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={bankInfo?.accountHolderName || ''}
+                    onChange={(e) => onChange('bankDetails.accountHolderName', e.target.value)}
+                    placeholder="Enter account holder name"
+                  />
+                </div>
+              </div>
+            </div>
+          </PermissionField>
+
           {/* Bank Name */}
           <PermissionField field="bankDetails.bankName" editMode={true}>
             <div className="col-md-6">

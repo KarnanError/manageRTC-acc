@@ -2,6 +2,7 @@
  * Authentication Middleware for REST APIs
  * Verifies Clerk JWT tokens and extracts user metadata
  * Uses the same token verification approach as Socket.IO
+ * Includes employee status validation to prevent inactive users from accessing the system
  */
 
 import dotenv from 'dotenv';
@@ -9,6 +10,8 @@ dotenv.config();
 
 import { clerkClient, verifyToken } from '@clerk/express';
 import { createClerkClient } from '@clerk/clerk-sdk-node';
+import { client, getTenantCollections } from '../config/db.js';
+import employeeStatusService, { isUserLockedInClerk } from '../services/employee/employeeStatus.service.js';
 
 // ⚠️ SECURITY WARNING: Development mode is hardcoded to true!
 // This is a DEVELOPMENT workaround that MUST be removed before production deployment.
@@ -119,6 +122,22 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
+    // SECURITY CHECK: If user is locked in Clerk, deny access immediately
+    // This applies to ALL users regardless of role (employee, HR, Admin, etc.)
+    // Even HR/Admin users are blocked when their account is locked/inactive
+    const isLocked = !!(user?.lockedAt);
+    if (isLocked) {
+      console.log(`   🔒 USER LOCKED IN CLERK: ${verifiedToken.sub} - lockedAt: ${user.lockedAt}`);
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_LOCKED',
+          message: 'Your account has been deactivated. Please contact HR or system administrator.',
+          requestId: req.id || 'no-id',
+        },
+      });
+    }
+
     // Extract role and companyId from user metadata (same as Socket.IO)
     // Normalize role to lowercase for consistent case-insensitive comparisons
     let role = (user.publicMetadata?.role || 'public')?.toLowerCase();
@@ -191,6 +210,101 @@ export const authenticate = async (req, res, next) => {
       error: {
         code: 'UNAUTHORIZED',
         message: error.message || 'Authentication required',
+        requestId: req.id || 'no-id',
+      },
+    });
+  }
+};
+
+/**
+ * requireEmployeeActive - Validates employee status to prevent inactive users from accessing the system
+ * Checks if employee is active, not deleted, and not in a blocked status (Resigned, Terminated, Inactive)
+ * Superadmin, Admin, and HR bypass this check (they need to manage other employees)
+ * Should be used after authenticate middleware
+ */
+export const requireEmployeeActive = async (req, res, next) => {
+  // Admin, HR, and Superadmin bypass employee status check (case-insensitive)
+  // They need to access the system to manage other employees
+  const role = req.user?.role?.toLowerCase();
+  if (role === 'superadmin' || role === 'admin' || role === 'hr') {
+    return next();
+  }
+
+  // No user object - should not happen if authenticate is used first
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+        requestId: req.id || 'no-id',
+      },
+    });
+  }
+
+  // No companyId - employee users must have a company
+  if (!req.user.companyId) {
+    console.log(`   ❌ No companyId for ${req.user.role} user`);
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Must belong to a company',
+        requestId: req.id || 'no-id',
+      },
+    });
+  }
+
+  try {
+    // Get employee from company database
+    const collections = getTenantCollections(req.user.companyId);
+    const employee = await collections.employees.findOne({
+      clerkUserId: req.user.userId
+    });
+
+    // Validate employee access
+    const validation = employeeStatusService.validateEmployeeAccess(employee);
+
+    if (!validation.canAccess) {
+      console.log(`   🔒 EMPLOYEE BLOCKED: ${req.user.userId} - ${validation.reason}`);
+
+      // Special handling for different error codes
+      if (validation.code === 'EMPLOYEE_NOT_FOUND') {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: validation.code,
+            message: 'Employee profile not found. Please contact HR or system administrator.',
+            requestId: req.id || 'no-id',
+          },
+        });
+      }
+
+      // For inactive/resigned/terminated employees
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: validation.code,
+          message: validation.reason,
+          requestId: req.id || 'no-id',
+          details: validation.status ? {
+            status: validation.status,
+            note: 'Your account has been deactivated. Please contact HR or system administrator.'
+          } : undefined
+        },
+      });
+    }
+
+    // Employee is active, attach employee data to request
+    req.employee = employee;
+    next();
+  } catch (error) {
+    console.error(`   ❌ Employee status check error: ${error.message} - ${req.id}`);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'EMPLOYEE_STATUS_CHECK_FAILED',
+        message: 'Failed to verify employee status',
         requestId: req.id || 'no-id',
       },
     });
@@ -332,6 +446,7 @@ export default {
   authenticateUser,
   requireRole,
   requireCompany,
+  requireEmployeeActive,
   optionalAuth,
   attachRequestId,
 };

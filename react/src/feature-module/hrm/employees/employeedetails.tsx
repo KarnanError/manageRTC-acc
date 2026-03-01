@@ -1,4 +1,4 @@
-import { DatePicker } from 'antd';
+import { Badge, DatePicker } from 'antd';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
@@ -11,11 +11,13 @@ import EditEmployeeModal from '../../../core/modals/EditEmployeeModal';
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
+import { ChangeRequestsModal } from '../../../core/modals/ChangeRequestsModal';
 import { useSocket } from '../../../SocketContext';
 import { all_routes } from '../../router/all_routes';
 // REST API Hooks for HRM operations
 import { useAssetUsersREST } from '../../../hooks/useAssetUsersREST';
 import { useBatchesREST } from '../../../hooks/useBatchesREST';
+import { useChangeRequestREST } from '../../../hooks/useChangeRequestREST';
 import { useDepartmentsREST } from '../../../hooks/useDepartmentsREST';
 import { useDesignationsREST } from '../../../hooks/useDesignationsREST';
 import { useEmployeesREST } from '../../../hooks/useEmployeesREST';
@@ -28,9 +30,8 @@ import { usePromotionsREST, type Promotion } from '../../../hooks/usePromotionsR
 import { useResignationsREST, type Resignation } from '../../../hooks/useResignationsREST';
 import { useShiftsREST } from '../../../hooks/useShiftsREST';
 import { useTerminationsREST, type Termination } from '../../../hooks/useTerminationsREST';
+import { useEmailChange } from '../../../hooks/useEmailChange';
 import { resolveDesignation } from '../../../utils/designationUtils';
-// Phase 7: Import change request hook and component
-import { PendingChangeRequests } from './components/PendingChangeRequests';
 
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -201,7 +202,8 @@ interface AccountInfo {
 interface EmergencyContact {
   name: string;
   relationship: string;
-  phone: string[];
+  phone: string[];  // kept as array for display compat (phone[0]=primary, phone[1]=secondary)
+  phone2?: string;  // canonical flat format field
 }
 
 interface BankInfo {
@@ -210,6 +212,7 @@ interface BankInfo {
   bankName: string;
   branch: string;
   ifscCode: string;
+  accountType?: 'Savings' | 'Current'; // Optional, defaults to 'Savings'
 }
 
 interface FamilyInfo {
@@ -299,8 +302,10 @@ export interface Employee {
   address?: Address;
   passport?: Passport;
   account?: AccountInfo;
-  emergencyContacts?: EmergencyContact | EmergencyContact[];
+  emergencyContacts?: EmergencyContact | EmergencyContact[]; // legacy array format
+  emergencyContact?: EmergencyContact; // canonical flat format
   bank?: BankInfo;
+  bankDetails?: BankInfo;
   family?: FamilyInfo | FamilyInfo[];
   education?: EducationEntry | EducationEntry[];
   experience?: ExperienceEntry | ExperienceEntry[];
@@ -346,6 +351,7 @@ const EmployeeDetails = () => {
     accountNumber: '',
     ifscCode: '',
     branch: '',
+    accountType: 'Savings' as 'Savings' | 'Current',
   });
   const [familyFormData, setFamilyFormData] = useState({
     familyMemberName: '',
@@ -395,8 +401,9 @@ const EmployeeDetails = () => {
   const [experienceFormLoading, setExperienceFormLoading] = useState(false);
   const [personalFormLoading, setPersonalFormLoading] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
-  // Phase 7: Refresh trigger for pending change requests
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Change Requests Modal state
+  const [changeRequestsModalVisible, setChangeRequestsModalVisible] = useState(false);
 
   const DATE_FORMAT = 'DD-MM-YYYY';
   const DATE_REGEX = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-(\d{4})$/;
@@ -644,12 +651,13 @@ const EmployeeDetails = () => {
   const resetBankForm = () => {
     setBankFormData({
       accountHolderName:
-        employee.bank?.accountHolderName ||
+        employee.bankDetails?.accountHolderName ||
         `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim(),
-      bankName: employee.bank?.bankName || '',
-      accountNumber: employee.bank?.accountNumber || '',
-      ifscCode: employee.bank?.ifscCode || '',
-      branch: employee.bank?.branch || '',
+      bankName: employee.bankDetails?.bankName || '',
+      accountNumber: employee.bankDetails?.accountNumber || '',
+      ifscCode: employee.bankDetails?.ifscCode || '',
+      branch: employee.bankDetails?.branch || '',
+      accountType: employee.bankDetails?.accountType || 'Savings',
     });
   };
 
@@ -1018,22 +1026,16 @@ const EmployeeDetails = () => {
       return;
     }
 
-    // 2. Prepare payload
-    const phones = [emergencyFormData.phone1];
-    if (emergencyFormData.phone2) {
-      phones.push(emergencyFormData.phone2);
-    }
-
-    const emergencyContacts = [
-      {
-        name: emergencyFormData.name,
-        relationship: emergencyFormData.relationship,
-        phone: phones,
-      },
-    ];
+    // 2. Prepare payload — canonical flat format (single source of truth)
+    const emergencyContactPayload = {
+      name: emergencyFormData.name,
+      relationship: emergencyFormData.relationship,
+      phone: emergencyFormData.phone1,
+      phone2: emergencyFormData.phone2 || '',
+    };
 
     try {
-      const success = await employeesREST.updateEmergencyContacts(employee._id, emergencyContacts);
+      const success = await employeesREST.updateEmergencyContacts(employee._id, emergencyContactPayload);
       if (success) {
         toast.success('Emergency contact updated successfully!', {
           position: 'top-right',
@@ -1071,8 +1073,9 @@ const EmployeeDetails = () => {
     setEmergencyFormData({
       name: contact?.name || '',
       relationship: contact?.relationship || '',
+      // phone is returned as array for compat; phone2 at root for flat format
       phone1: contact?.phone?.[0] || '',
-      phone2: contact?.phone?.[1] || '',
+      phone2: (contact as any)?.phone2 || contact?.phone?.[1] || '',
     });
   };
 
@@ -1361,29 +1364,27 @@ const EmployeeDetails = () => {
   const [employeeAssets, setEmployeeAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(false);
   const getEmergencyContact = React.useCallback((): EmergencyContact | null => {
-    const contact = Array.isArray(employee?.emergencyContacts)
+    // Canonical source: emergencyContact (singular flat object)
+    const canonical = employee?.emergencyContact;
+    // Legacy fallback: emergencyContacts (plural array, old format)
+    const legacy = Array.isArray(employee?.emergencyContacts)
       ? employee?.emergencyContacts?.[0]
-      : employee?.emergencyContacts;
-    const fallback = (employee as any)?.emergencyContact;
-    if (contact) {
-      return {
-        name: contact.name || '',
-        relationship: contact.relationship || '',
-        phone: Array.isArray(contact.phone) ? contact.phone : contact.phone ? [contact.phone] : [],
-      };
-    }
-    if (fallback) {
-      return {
-        name: fallback.name || '',
-        relationship: fallback.relationship || '',
-        phone: Array.isArray(fallback.phone)
-          ? fallback.phone
-          : fallback.phone
-            ? [fallback.phone]
-            : [],
-      };
-    }
-    return null;
+      : null;
+    const src = canonical || legacy;
+    if (!src) return null;
+    // phone may be stored as array (legacy) or string (canonical)
+    const phoneArr = Array.isArray(src.phone) ? src.phone : src.phone ? [src.phone] : [];
+    const phone2Val = src.phone2 || phoneArr[1] || '';
+    // Build display array: [primary, secondary] so phone[0] and phone[1] work in UI
+    const displayPhoneArr = phoneArr.length > 0
+      ? (phone2Val ? [phoneArr[0], phone2Val] : [phoneArr[0]])
+      : (phone2Val ? ['', phone2Val] : []);
+    return {
+      name: src.name || '',
+      relationship: src.relationship || '',
+      phone: displayPhoneArr,
+      phone2: phone2Val,
+    } as any;
   }, [employee]);
 
   // REST API Hooks for HRM operations
@@ -1394,6 +1395,7 @@ const EmployeeDetails = () => {
   const { fetchDesignations, designations } = useDesignationsREST();
   const { batches, fetchBatches } = useBatchesREST();
   const { shifts: allShifts } = useShiftsREST();
+  const { fetchAllRequests, allRequests } = useChangeRequestREST();
   const navigate = useNavigate();
 
   // REST API Hooks for policies, promotions, resignations, and terminations
@@ -1414,6 +1416,156 @@ const EmployeeDetails = () => {
   const [viewingPolicy, setViewingPolicy] = useState<Policy | null>(null);
   const [department, setDepartment] = useState<Option[]>([]);
   const [designation, setDesignation] = useState<Option[]>([]);
+
+  // Credential management state
+  const [sendingCredentials, setSendingCredentials] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [changePasswordData, setChangePasswordData] = useState({ newPassword: '', confirmPassword: '' });
+  const [changePasswordVisibility, setChangePasswordVisibility] = useState({ newPassword: false, confirmPassword: false });
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const handleSendCredentials = async () => {
+    if (!employee?._id) return;
+    if (!window.confirm(`This will generate a new password and send login credentials to ${employee.email}. Continue?`)) return;
+    setSendingCredentials(true);
+    await employeesREST.sendCredentials(employee._id);
+    setSendingCredentials(false);
+  };
+
+  const handleChangeEmployeePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!employee?._id) return;
+    if (changePasswordData.newPassword !== changePasswordData.confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (changePasswordData.newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setChangingPassword(true);
+    const ok = await employeesREST.changeEmployeePassword(employee._id, changePasswordData);
+    setChangingPassword(false);
+    if (ok) {
+      setShowChangePasswordModal(false);
+      setChangePasswordData({ newPassword: '', confirmPassword: '' });
+    }
+  };
+
+  // Email change modal state
+  const emailChange = useEmailChange();
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailChangeData, setEmailChangeData] = useState({
+    currentEmail: '',
+    newEmail: '',
+    otp: ''
+  });
+  // Track whether OTP was sent to new email
+  const [otpSent, setOtpSent] = useState(false);
+  // Email verification state
+  const [emailVerification, setEmailVerification] = useState<{
+    verified: boolean;
+    message: string;
+    checking: boolean;
+    available: boolean | null;
+  }>({
+    verified: false,
+    message: '',
+    checking: false,
+    available: null
+  });
+
+  // Verify email availability (called on button click)
+  const handleVerifyEmail = async () => {
+    const email = emailChangeData.newEmail.trim();
+
+    // Basic format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      setEmailVerification({
+        verified: false,
+        message: 'Please enter a valid email address',
+        checking: false,
+        available: false
+      });
+      return;
+    }
+
+    // Check if same as current email
+    if (email.toLowerCase() === emailChangeData.currentEmail.toLowerCase()) {
+      setEmailVerification({
+        verified: false,
+        message: 'New email cannot be the same as current email',
+        checking: false,
+        available: false
+      });
+      return;
+    }
+
+    // Show checking state
+    setEmailVerification(prev => ({ ...prev, checking: true, message: '' }));
+
+    // Check availability
+    const result = await emailChange.checkEmailAvailability(email, employee?._id);
+    if (result) {
+      if (result.available && result.valid) {
+        setEmailVerification({
+          verified: true,
+          message: result.message,
+          checking: false,
+          available: true
+        });
+      } else {
+        setEmailVerification({
+          verified: false,
+          message: result.message,
+          checking: false,
+          available: false
+        });
+      }
+    } else {
+      setEmailVerification({
+        verified: false,
+        message: 'Failed to verify email. Please try again.',
+        checking: false,
+        available: null
+      });
+    }
+  };
+
+  // Reset verification state when email changes
+  const handleEmailInputChange = (email: string) => {
+    setEmailChangeData({ ...emailChangeData, newEmail: email });
+    // Reset verification state when user modifies email
+    if (emailVerification.verified || emailVerification.message) {
+      setEmailVerification({
+        verified: false,
+        message: '',
+        checking: false,
+        available: null
+      });
+    }
+  };
+
+  // Change Request handlers
+  const getPendingChangeRequestCount = () => {
+    if (!employee?.employeeId || !allRequests) return 0;
+    return allRequests.filter(
+      req => req.employeeId === employee.employeeId && req.status === 'pending'
+    ).length;
+  };
+
+  const pendingCount = getPendingChangeRequestCount();
+
+  const openChangeRequestsModal = () => {
+    setChangeRequestsModalVisible(true);
+    // Fetch latest pending requests when opening modal
+    fetchAllRequests({ status: 'pending' });
+  };
+
+  const closeChangeRequestsModal = () => {
+    setChangeRequestsModalVisible(false);
+  };
 
   const designationLookup = React.useMemo(() => {
     const lookup: Record<string, string> = {};
@@ -1445,12 +1597,13 @@ const EmployeeDetails = () => {
       // Initialize bank form data
       setBankFormData({
         accountHolderName:
-          employee.bank?.accountHolderName ||
+          employee.bankDetails?.accountHolderName ||
           `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim(),
-        bankName: employee.bank?.bankName || '',
-        accountNumber: employee.bank?.accountNumber || '',
-        ifscCode: employee.bank?.ifscCode || '',
-        branch: employee.bank?.branch || '',
+        bankName: employee.bankDetails?.bankName || '',
+        accountNumber: employee.bankDetails?.accountNumber || '',
+        ifscCode: employee.bankDetails?.ifscCode || '',
+        branch: employee.bankDetails?.branch || '',
+        accountType: employee.bankDetails?.accountType || 'Savings',
       });
 
       // Initialize personal form data
@@ -1485,7 +1638,7 @@ const EmployeeDetails = () => {
         name: emergencyContact?.name || '',
         relationship: emergencyContact?.relationship || '',
         phone1: emergencyContact?.phone?.[0] || '',
-        phone2: emergencyContact?.phone?.[1] || '',
+        phone2: (emergencyContact as any)?.phone2 || emergencyContact?.phone?.[1] || '',
       });
 
       const normalizedExperience = normalizeExperienceEntries(employee.experience);
@@ -1794,6 +1947,11 @@ const EmployeeDetails = () => {
       setDesignation([{ value: '', label: 'Select' }, ...mappedDesignations]);
     }
   }, [designations]);
+
+  // Fetch pending change requests for badge count
+  useEffect(() => {
+    fetchAllRequests({ status: 'pending' });
+  }, []);
 
   // Filter policies that apply to the current employee
   const getApplicablePolicies = (): Policy[] => {
@@ -2179,6 +2337,24 @@ const EmployeeDetails = () => {
                   Bank & Statutory
                 </Link>
               </div>
+              <div className="mb-2 ms-2">
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm rounded-11 border-0 position-relative"
+                  onClick={openChangeRequestsModal}
+                  title="View Pending Change Requests"
+                >
+                  <i className="ti ti-file-description text-info fs-5" />
+                  {pendingCount > 0 && (
+                    <Badge
+                      count={pendingCount}
+                      size="small"
+                      className="position-absolute top-0 start-100 translate-middle"
+                      style={{ fontSize: '10px', height: '16px', minWidth: '16px', lineHeight: '16px' }}
+                    />
+                  )}
+                </button>
+              </div>
               <div className="head-icons ms-2">
                 <CollapseHeader />
               </div>
@@ -2403,6 +2579,35 @@ const EmployeeDetails = () => {
                             </Link>
                           </div>
                         </div>
+                        <div className="col-6 mt-2">
+                          <button
+                            type="button"
+                            className="btn btn-outline-info w-100"
+                            onClick={handleSendCredentials}
+                            disabled={sendingCredentials}
+                            title="Generate a new password and send login credentials to employee"
+                          >
+                            {sendingCredentials ? (
+                              <><span className="spinner-border spinner-border-sm me-1" role="status" />Sending...</>
+                            ) : (
+                              <><i className="ti ti-mail-forward me-1" />Send Credentials</>
+                            )}
+                          </button>
+                        </div>
+                        <div className="col-6 mt-2">
+                          <button
+                            type="button"
+                            className="btn btn-outline-warning w-100"
+                            onClick={() => {
+                              setChangePasswordData({ newPassword: '', confirmPassword: '' });
+                              setShowChangePasswordModal(true);
+                            }}
+                            title="Set a new password for this employee"
+                          >
+                            <i className="ti ti-lock-cog me-1" />
+                            Change Password
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2434,10 +2639,24 @@ const EmployeeDetails = () => {
                         <i className="ti ti-mail-check me-2" />
                         Email
                       </span>
-                      <Link to="#" className="text-info d-inline-flex align-items-center">
-                        {employee?.email || '-'}
-                        <i className="ti ti-copy text-dark ms-2" />
-                      </Link>
+                      <div className="d-inline-flex align-items-center gap-2">
+                        <Link to="#" className="text-info d-inline-flex align-items-center">
+                          {employee?.email || '-'}
+                        </Link>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-light text-primary p-1"
+                          onClick={() => {
+                            setEmailChangeData({ currentEmail: employee?.email || '', newEmail: '', otp: '' });
+                            setOtpSent(false);
+                            setEmailVerification({ verified: false, message: '', checking: false, available: null });
+                            setShowEmailModal(true);
+                          }}
+                          title="Change Email"
+                        >
+                          <i className="ti ti-edit" />
+                        </button>
+                      </div>
                     </div>
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <span className="d-inline-flex align-items-center">
@@ -2492,7 +2711,7 @@ const EmployeeDetails = () => {
                         <i className="ti ti-gender-male me-2" />
                         Nationality
                       </span>
-                      <p className="text-dark text-end">{employee?.passport?.country || '-'}</p>
+                      <p className="text-dark text-end">{employee?.nationality || employee?.personal?.nationality || '-'}</p>
                     </div>
 
                     {/* Marital Information Subsection */}
@@ -2691,8 +2910,8 @@ const EmployeeDetails = () => {
                               </span>
                               <p className="text-dark">
                                 {showBankDetails
-                                  ? (employee?.bank?.accountHolderName || '-')
-                                  : maskBankValue(employee?.bank?.accountHolderName)
+                                  ? (employee?.bankDetails?.accountHolderName || '-')
+                                  : maskBankValue(employee?.bankDetails?.accountHolderName)
                                 }
                               </p>
                             </div>
@@ -2703,8 +2922,8 @@ const EmployeeDetails = () => {
                               </span>
                               <p className="text-dark">
                                 {showBankDetails
-                                  ? (employee?.bank?.bankName || '-')
-                                  : maskBankValue(employee?.bank?.bankName)
+                                  ? (employee?.bankDetails?.bankName || '-')
+                                  : maskBankValue(employee?.bankDetails?.bankName)
                                 }
                               </p>
                             </div>
@@ -2715,8 +2934,8 @@ const EmployeeDetails = () => {
                               </span>
                               <p className="text-dark">
                                 {showBankDetails
-                                  ? (employee?.bank?.accountNumber || '-')
-                                  : maskBankValue(employee?.bank?.accountNumber)
+                                  ? (employee?.bankDetails?.accountNumber || '-')
+                                  : maskBankValue(employee?.bankDetails?.accountNumber)
                                 }
                               </p>
                             </div>
@@ -2727,8 +2946,8 @@ const EmployeeDetails = () => {
                               </span>
                               <p className="text-dark">
                                 {showBankDetails
-                                  ? (employee?.bank?.ifscCode || '-')
-                                  : maskBankValue(employee?.bank?.ifscCode)
+                                  ? (employee?.bankDetails?.ifscCode || '-')
+                                  : maskBankValue(employee?.bankDetails?.ifscCode)
                                 }
                               </p>
                             </div>
@@ -2739,8 +2958,8 @@ const EmployeeDetails = () => {
                               </span>
                               <p className="text-dark">
                                 {showBankDetails
-                                  ? (employee?.bank?.branch || '-')
-                                  : maskBankValue(employee?.bank?.branch)
+                                  ? (employee?.bankDetails?.branch || '-')
+                                  : maskBankValue(employee?.bankDetails?.branch)
                                 }
                               </p>
                             </div>
@@ -2748,44 +2967,6 @@ const EmployeeDetails = () => {
                         </div>
                       </div>
                       {/* end bank details */}
-                      {/* Phase 7: Pending Change Requests */}
-                      <div className="accordion-item">
-                        <div className="accordion-header" id="headingPendingRequests">
-                          <div className="accordion-button">
-                            <div className="d-flex align-items-center flex-fill">
-                              <h5>
-                                <i className="ti ti-file-description me-2 text-warning"></i>
-                                Pending Change Requests
-                              </h5>
-                            </div>
-                            <Link
-                              to="#"
-                              className="d-flex align-items-center collapsed collapse-arrow"
-                              data-bs-toggle="collapse"
-                              data-bs-target="#primaryBorderPendingRequests"
-                              aria-expanded="false"
-                              aria-controls="primaryBorderPendingRequests"
-                            >
-                              <i className="ti ti-chevron-right" />
-                            </Link>
-                          </div>
-                        </div>
-                        <div
-                          id="primaryBorderPendingRequests"
-                          className="accordion-collapse collapse"
-                          data-bs-parent="#accordionExample"
-                        >
-                          <div className="accordion-body">
-                            <PendingChangeRequests
-                              employeeId={employee?.employeeId}
-                              employeeObjectId={employee?._id}
-                              refreshTrigger={refreshTrigger}
-                              onRefresh={() => setRefreshTrigger(prev => prev + 1)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      {/* end pending change requests */}
                       {/* Family details show */}
                       <div className="accordion-item">
                         <div className="accordion-header" id="headingThree">
@@ -3467,6 +3648,89 @@ const EmployeeDetails = () => {
       </div>
       <ToastContainer />
       {/* /Page Wrapper */}
+
+      {/* Change Employee Password Modal */}
+      {showChangePasswordModal && (
+        <>
+          <div className="modal-backdrop fade show" onClick={() => !changingPassword && setShowChangePasswordModal(false)} />
+          <div className="modal fade show" style={{ display: 'block' }} tabIndex={-1} role="dialog">
+            <div className="modal-dialog modal-dialog-centered" role="document">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    <i className="ti ti-lock-cog me-2" />
+                    Change Password — {employee?.firstName} {employee?.lastName}
+                  </h5>
+                  <button type="button" className="btn-close" onClick={() => setShowChangePasswordModal(false)} disabled={changingPassword} />
+                </div>
+                <form onSubmit={handleChangeEmployeePassword}>
+                  <div className="modal-body">
+                    <p className="text-muted small mb-3">
+                      <i className="ti ti-info-circle me-1" />
+                      Set a new password for this employee. No current password required. The employee will receive an email notification.
+                    </p>
+                    <div className="mb-3">
+                      <label className="form-label">New Password <span className="text-danger">*</span></label>
+                      <div className="input-group">
+                        <input
+                          type={changePasswordVisibility.newPassword ? 'text' : 'password'}
+                          className="form-control"
+                          placeholder="Min. 6 characters"
+                          value={changePasswordData.newPassword}
+                          onChange={e => setChangePasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                          required
+                          disabled={changingPassword}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary"
+                          onClick={() => setChangePasswordVisibility(p => ({ ...p, newPassword: !p.newPassword }))}
+                        >
+                          <i className={`ti ${changePasswordVisibility.newPassword ? 'ti-eye-off' : 'ti-eye'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label">Confirm Password <span className="text-danger">*</span></label>
+                      <div className="input-group">
+                        <input
+                          type={changePasswordVisibility.confirmPassword ? 'text' : 'password'}
+                          className="form-control"
+                          placeholder="Re-enter new password"
+                          value={changePasswordData.confirmPassword}
+                          onChange={e => setChangePasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                          required
+                          disabled={changingPassword}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary"
+                          onClick={() => setChangePasswordVisibility(p => ({ ...p, confirmPassword: !p.confirmPassword }))}
+                        >
+                          <i className={`ti ${changePasswordVisibility.confirmPassword ? 'ti-eye-off' : 'ti-eye'}`} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="modal-footer">
+                    <button type="button" className="btn btn-light" onClick={() => setShowChangePasswordModal(false)} disabled={changingPassword}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn btn-warning" disabled={changingPassword}>
+                      {changingPassword ? (
+                        <><span className="spinner-border spinner-border-sm me-1" role="status" />Updating...</>
+                      ) : (
+                        <><i className="ti ti-lock-check me-1" />Update Password</>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Edit Employee Modal */}
       <EditEmployeeModal
         employee={editingEmployee}
@@ -4686,6 +4950,210 @@ const EmployeeDetails = () => {
         modalId="view_employee_termination"
       />
       {/* /Termination Details Modal */}
+
+      {/* Email Change Modal */}
+      {showEmailModal && (
+        <div className="modal fade show d-block" tabIndex={-1} aria-labelledby="emailChangeModalLabel" aria-hidden="true" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title" id="emailChangeModalLabel">
+                  <i className="ti ti-mail me-2" />
+                  Change Email Address
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  aria-label="Close"
+                  onClick={() => {
+                    setShowEmailModal(false);
+                    setEmailChangeData({ currentEmail: '', newEmail: '', otp: '' });
+                    setOtpSent(false);
+                    setEmailVerification({ verified: false, message: '', checking: false, available: null });
+                  }}
+                ></button>
+              </div>
+              <div className="modal-body">
+                {/* Current Email Display */}
+                <div className="mb-3">
+                  <label className="form-label text-muted">Current Email</label>
+                  <div className="form-control bg-light">{emailChangeData.currentEmail}</div>
+                </div>
+
+                {/* New Email Input */}
+                <div className="mb-3">
+                  <label className="form-label">New Email Address</label>
+                  <input
+                    type="email"
+                    className={`form-control ${
+                      emailVerification.available === false ? 'is-invalid' :
+                      emailVerification.available === true ? 'is-valid' : ''
+                    }`}
+                    placeholder="Enter new email address"
+                    value={emailChangeData.newEmail}
+                    onChange={(e) => handleEmailInputChange(e.target.value)}
+                    disabled={otpSent}
+                  />
+                </div>
+
+                {/* Verification Status Message */}
+                {emailVerification.message && (
+                  <div className={`small mb-3 p-2 rounded ${
+                    emailVerification.available === true ? 'text-success bg-success-subtle' :
+                    emailVerification.available === false ? 'text-danger bg-danger-subtle' :
+                    'text-muted bg-light'
+                  }`}>
+                    {emailVerification.available === true && <i className="ti ti-check me-1"></i>}
+                    {emailVerification.available === false && <i className="ti ti-x me-1"></i>}
+                    {emailVerification.message}
+                  </div>
+                )}
+
+                {/* Verify Button (show when email entered but not verified) */}
+                {!otpSent && !emailVerification.verified && emailChangeData.newEmail && (
+                  <button
+                    className="btn btn-outline-primary w-100 mb-3"
+                    onClick={handleVerifyEmail}
+                    disabled={emailVerification.checking || !emailChangeData.newEmail}
+                  >
+                    {emailVerification.checking ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        Verifying...
+                      </>
+                    ) : (
+                      <>
+                        <i className="ti ti-check me-2"></i>
+                        Verify Email
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Send OTP Button (only show after email is verified) */}
+                {!otpSent && emailVerification.verified ? (
+                  <button
+                    className="btn btn-primary w-100"
+                    onClick={async () => {
+                      const result = await emailChange.sendNewEmailOTP(employee?._id || '', emailChangeData.newEmail);
+                      if (result.success) {
+                        setOtpSent(true);
+                        toast.success('OTP sent to new email address');
+                      }
+                    }}
+                    disabled={emailChange.loading}
+                  >
+                    {emailChange.loading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <i className="ti ti-mail me-2"></i>
+                        Send Verification Code
+                      </>
+                    )}
+                  </button>
+                ) : !otpSent && emailChangeData.newEmail && !emailVerification.verified ? (
+                  <div className="text-center text-muted small">
+                    <i className="ti ti-info-circle me-1"></i>
+                    Enter email and click "Verify Email" to continue
+                  </div>
+                ) : null}
+
+                {/* OTP Section (show after OTP is sent) */}
+                {otpSent && (
+                  <>
+                    {/* OTP Input */}
+                    <div className="mb-3">
+                      <label className="form-label">Enter Verification Code</label>
+                      <p className="text-muted small">We've sent a 6-digit code to <strong>{emailChangeData.newEmail}</strong></p>
+                      <input
+                        type="text"
+                        className="form-control mb-2"
+                        placeholder="Enter 6-digit code"
+                        value={emailChangeData.otp}
+                        onChange={(e) => setEmailChangeData({ ...emailChangeData, otp: e.target.value })}
+                        maxLength={6}
+                      />
+                    </div>
+
+                    {/* Verify & Update Button */}
+                    <button
+                      className="btn btn-success w-100"
+                      onClick={async () => {
+                        if (!emailChangeData.otp || emailChangeData.otp.length !== 6) {
+                          toast.error('Please enter valid 6-digit code');
+                          return;
+                        }
+                        const result = await emailChange.updateEmail(
+                          employee?._id || '',
+                          emailChangeData.newEmail,
+                          emailChangeData.otp
+                        );
+                        if (result.success) {
+                          setShowEmailModal(false);
+                          setEmailChangeData({ currentEmail: '', newEmail: '', otp: '' });
+                          setOtpSent(false);
+                          setEmailVerification({ verified: false, message: '', checking: false, available: null });
+                          toast.success('Email updated successfully! Please check your new email for login credentials.');
+                          // Refresh employee data
+                          if (employeeId) {
+                            employeesREST.getEmployeeById(employeeId).then(setEmployee);
+                          }
+                        }
+                      }}
+                      disabled={emailChange.loading || emailChangeData.otp.length !== 6}
+                    >
+                      {emailChange.loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2"></span>
+                          Verifying...
+                        </>
+                      ) : 'Verify & Update Email'}
+                    </button>
+
+                    {/* Resend OTP Link */}
+                    <div className="text-center mt-2">
+                      <button
+                        className="btn btn-link p-0 text-muted small"
+                        onClick={async () => {
+                          const result = await emailChange.sendNewEmailOTP(employee?._id || '', emailChangeData.newEmail);
+                          if (result.success) {
+                            toast.success('New OTP sent to your email');
+                          }
+                        }}
+                        disabled={emailChange.loading}
+                      >
+                        Didn't receive code? Resend
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Error Display */}
+                {emailChange.error && (
+                  <div className="alert alert-danger mt-3 mb-0">
+                    {emailChange.error}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* /Email Change Modal */}
+
+      {/* Change Requests Modal */}
+      <ChangeRequestsModal
+        visible={changeRequestsModalVisible}
+        onClose={closeChangeRequestsModal}
+        onRefresh={() => fetchAllRequests({ status: 'pending' })}
+        employeeId={employee?.employeeId}
+        employeeObjectId={employee?._id}
+        employeeName={employee ? `${employee.firstName} ${employee.lastName}` : undefined}
+      />
     </>
   );
 };

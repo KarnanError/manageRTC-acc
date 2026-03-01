@@ -4,15 +4,15 @@
  */
 
 import express from 'express';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requireEmployeeActive, requireRole } from '../../middleware/auth.js';
 import attendanceController from '../../controllers/rest/attendance.controller.js';
 import { clockInOutRateLimiter, statsRateLimiter, bulkRateLimiter, exportRateLimiter } from '../../middleware/rateLimiter.js';
 import { sanitizeBody, sanitizeQuery } from '../../utils/sanitize.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
+// All routes require authentication AND active employee status
+router.use(authenticate, requireEmployeeActive);
 
 /**
  * @route   GET /api/attendance

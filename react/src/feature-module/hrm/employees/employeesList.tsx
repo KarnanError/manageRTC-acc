@@ -15,9 +15,12 @@ import { all_routes } from "../../router/all_routes";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+import { useChangeRequestREST } from "../../../hooks/useChangeRequestREST";
 // Common Modals
 import AddEmployeeModal from "../../../core/modals/AddEmployeeModal";
 import EditEmployeeModal from "../../../core/modals/EditEmployeeModal";
+import { ChangeRequestsModal } from "../../../core/modals/ChangeRequestsModal";
+import { Badge } from "antd";
 
 interface Department {
   _id: string;
@@ -47,6 +50,11 @@ interface PassportInfo {
   number?: string;
   expiryDate?: string;
   country?: string;
+}
+
+interface PersonalInfo {
+  nationality?: string;
+  passport?: PassportInfo;
 }
 
 type PermissionModule =
@@ -84,7 +92,7 @@ interface Employee {
   gender?: string;
   dateOfBirth?: string;
   address?: Address;
-  passport?: PassportInfo;
+  personal?: PersonalInfo;
   companyName: string;
   departmentId: string;
   designationId: string;
@@ -215,6 +223,13 @@ const EmployeeList = () => {
   const { departments, fetchDepartments } = useDepartmentsREST();
   const { designations, fetchDesignations } = useDesignationsREST();
 
+  // Change Request Hook
+  const { allRequests, fetchAllRequests } = useChangeRequestREST();
+
+  // State for Change Requests Modal
+  const [changeRequestsModalVisible, setChangeRequestsModalVisible] = useState(false);
+  const [selectedEmployeeForRequests, setSelectedEmployeeForRequests] = useState<Employee | null>(null);
+
   const socket = useSocket() as Socket | null;
 
   // Initial data fetching with REST API
@@ -232,6 +247,9 @@ const EmployeeList = () => {
         // Departments will be synced via useEffect below
 
         // Designations will be loaded when a department is selected
+
+        // Fetch all pending change requests for badge counts
+        await fetchAllRequests({ status: 'pending' });
       } catch (err: any) {
         console.error("Error loading initial data:", err);
         setError(err.message || "Failed to load initial data");
@@ -242,7 +260,7 @@ const EmployeeList = () => {
 
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchEmployeesWithStats, fetchDepartments]);
+  }, [fetchEmployeesWithStats, fetchDepartments, fetchAllRequests]);
 
   // Sync departments from REST hook to local state
   useEffect(() => {
@@ -632,45 +650,68 @@ const EmployeeList = () => {
       title: "",
       dataIndex: "actions",
       key: "actions",
-      render: (_test: any, employee: Employee) => (
-        <div
-          className="action-icon d-inline-flex"
-          key={`actions-${employee._id}`}
-        >
-          <Link
-            to="#"
-            className="me-2"
-            onClick={(e) => {
-              e.preventDefault();
-              const preparedEmployee = prepareEmployeeForEdit(employee);
-              setEditingEmployee(preparedEmployee);
-              // Load department and designation
-              if (employee.departmentId) {
-                setSelectedDepartment(employee.departmentId);
-                fetchDesignations({ departmentId: employee.departmentId });
-              }
-              if (employee.designationId) {
-                setSelectedDesignation(employee.designationId);
-              }
-              // Modal will open automatically via EditEmployeeModal's useEffect
-            }}
+      render: (_test: any, employee: Employee) => {
+        const pendingCount = getPendingRequestCount(employee.employeeId);
+
+        return (
+          <div
+            className="action-icon d-inline-flex align-items-center"
+            key={`actions-${employee._id}`}
           >
-            <i className="ti ti-edit" />
-          </Link>
-          <button
-            type="button"
-            data-bs-toggle="modal"
-            data-bs-target="#delete_modal"
-            className="btn btn-icon btn-sm rounded-11 border-0"
-            onClick={() => {
-              setEmployeeToDelete(employee);
-              setDeleteError('');
-            }}
-          >
-            <i className="ti ti-trash" />
-          </button>
-        </div>
-      ),
+            <Link
+              to="#"
+              className="me-2"
+              onClick={(e) => {
+                e.preventDefault();
+                const preparedEmployee = prepareEmployeeForEdit(employee);
+                setEditingEmployee(preparedEmployee);
+                // Load department and designation
+                if (employee.departmentId) {
+                  setSelectedDepartment(employee.departmentId);
+                  fetchDesignations({ departmentId: employee.departmentId });
+                }
+                if (employee.designationId) {
+                  setSelectedDesignation(employee.designationId);
+                }
+                // Modal will open automatically via EditEmployeeModal's useEffect
+              }}
+            >
+              <i className="ti ti-edit" />
+            </Link>
+
+            {/* Change Requests Button */}
+            <button
+              type="button"
+              className="btn btn-icon btn-sm rounded-11 border-0 me-2 position-relative"
+              onClick={() => openChangeRequestsModal(employee)}
+              title="View Pending Change Requests"
+            >
+              <i className="ti ti-file-description text-info" />
+              {pendingCount > 0 && (
+                <Badge
+                  count={pendingCount}
+                  size="small"
+                  className="position-absolute top-0 start-100 translate-middle"
+                  style={{ fontSize: '10px', height: '16px', minWidth: '16px', lineHeight: '16px' }}
+                />
+              )}
+            </button>
+
+            <button
+              type="button"
+              data-bs-toggle="modal"
+              data-bs-target="#delete_modal"
+              className="btn btn-icon btn-sm rounded-11 border-0"
+              onClick={() => {
+                setEmployeeToDelete(employee);
+                setDeleteError('');
+              }}
+            >
+              <i className="ti ti-trash" />
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -801,10 +842,13 @@ const EmployeeList = () => {
         postalCode: "",
         country: "",
       },
-      passport: emp.passport || {
-        number: "",
-        expiryDate: "",
-        country: "",
+      personal: emp.personal || {
+        nationality: "",
+        passport: {
+          number: "",
+          expiryDate: "",
+          country: "",
+        },
       },
       firstName: emp.firstName || "",
       lastName: emp.lastName || "",
@@ -842,6 +886,29 @@ const EmployeeList = () => {
     // Reset body style
     document.body.style.overflow = "";
     document.body.style.paddingRight = "";
+  };
+
+  // Get count of pending change requests for an employee
+  const getPendingRequestCount = (employeeId: string): number => {
+    return allRequests.filter(
+      req => req.employeeId === employeeId && req.status === 'pending'
+    ).length;
+  };
+
+  // Open change requests modal for an employee
+  const openChangeRequestsModal = (employee: Employee) => {
+    setSelectedEmployeeForRequests(employee);
+    setChangeRequestsModalVisible(true);
+    // Fetch pending requests for this employee
+    fetchAllRequests({ status: 'pending', employeeId: employee.employeeId });
+  };
+
+  // Close change requests modal
+  const closeChangeRequestsModal = () => {
+    setChangeRequestsModalVisible(false);
+    setSelectedEmployeeForRequests(null);
+    // Refresh all pending requests to update badge counts
+    fetchAllRequests({ status: 'pending' });
   };
 
   // incase of error (done:false)
@@ -1334,6 +1401,27 @@ const EmployeeList = () => {
                                       <Link
                                         className="dropdown-item rounded-1"
                                         to="#"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          openChangeRequestsModal(emp);
+                                        }}
+                                      >
+                                        <i className="ti ti-file-description me-1 text-info" /> View Requests
+                                        {getPendingRequestCount(emp.employeeId) > 0 && (
+                                          <Badge
+                                            count={getPendingRequestCount(emp.employeeId)}
+                                            size="small"
+                                            className="ms-2"
+                                            style={{ fontSize: '10px' }}
+                                          />
+                                        )}
+                                      </Link>
+                                    </li>
+                                    <li>
+                                      <Link
+                                        className="dropdown-item rounded-1"
+                                        to="#"
                                         data-bs-toggle="modal"
                                         data-inert={true}
                                         data-bs-target="#delete_modal"
@@ -1491,6 +1579,19 @@ const EmployeeList = () => {
         </div>
       </div>
       {/*delete policy*/}
+
+      {/* Change Requests Modal */}
+      <ChangeRequestsModal
+        visible={changeRequestsModalVisible}
+        onClose={closeChangeRequestsModal}
+        onRefresh={() => fetchAllRequests({ status: 'pending' })}
+        employeeId={selectedEmployeeForRequests?.employeeId}
+        employeeObjectId={selectedEmployeeForRequests?._id}
+        employeeName={selectedEmployeeForRequests
+          ? `${selectedEmployeeForRequests.firstName} ${selectedEmployeeForRequests.lastName}`
+          : undefined
+        }
+      />
     </>
   );
 };

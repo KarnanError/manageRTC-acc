@@ -7,6 +7,7 @@
 
 import bcrypt from 'bcrypt';
 import { ObjectId } from 'mongodb';
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import { getsuperadminCollections, getTenantCollections } from '../../config/db.js';
 import {
   asyncHandler,
@@ -20,6 +21,8 @@ import {
 } from '../../utils/apiResponse.js';
 import { getSystemDefaultAvatarUrl, isValidAvatar } from '../../utils/avatarUtils.js';
 import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
+import { sendPasswordChangedEmail } from '../../utils/emailer.js';
+import otpService from '../../services/otp/otp.service.js';
 
 /**
  * Helper function to get valid avatar URL with proper validation
@@ -263,8 +266,8 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
         employeeId: employee.reportingTo.employeeId || '',
         email: employee.reportingTo.email || ''
       } : null,
-      // Check both about and notes, and bio
-      about: employee.about || employee.notes || employee.bio || '',
+      // Canonical: bio. Fallback to legacy notes/about for existing data.
+      about: employee.bio || employee.notes || employee.about || '',
       // Use canonical address field (with fallback to personal.address for backward compatibility)
       address: {
         street: employee.address?.street || employee.personal?.address?.street || '',
@@ -277,6 +280,7 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       emergencyContact: {
         name: employee.emergencyContact?.name || (Array.isArray(employee.emergencyContacts) && employee.emergencyContacts[0]?.name) || '',
         phone: employee.emergencyContact?.phone || (Array.isArray(employee.emergencyContacts) && employee.emergencyContacts[0]?.phone) || (Array.isArray(employee.emergencyContacts) && employee.emergencyContacts[0]?.phone?.[0]) || '',
+        phone2: employee.emergencyContact?.phone2 || (Array.isArray(employee.emergencyContacts) && employee.emergencyContacts[0]?.phone?.[1]) || '',
         relationship: employee.emergencyContact?.relationship || (Array.isArray(employee.emergencyContacts) && employee.emergencyContacts[0]?.relationship) || ''
       },
       // Check socialProfiles vs socialLinks
@@ -288,9 +292,15 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       },
       skills: employee.skills || [],
       bio: employee.bio || employee.about || employee.notes || '',
-      // Education, Experience, Family, Documents
+      // Education (stored as 'education', falls back to 'qualifications' for legacy data)
       education: employee.education || employee.qualifications || [],
-      experience: employee.experience || [],
+      // Normalize experience: employeedetails saves as 'previousCompany', profile page uses 'company'
+      experience: (employee.experience || []).map(e => ({
+        ...e,
+        company: e.company || e.previousCompany || '',
+        designation: e.designation || e.position || '',
+        current: e.current || e.currentlyWorking || false,
+      })),
       family: employee.family || [],
       documents: employee.documents || [],
       // Personal Information (Passport, Nationality, etc.)
@@ -319,12 +329,14 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       },
       // Bank Information
       bankDetails: employee.bankDetails ? {
+        accountHolderName: employee.bankDetails.accountHolderName || '',
         bankName: employee.bankDetails.bankName || '',
         accountNumber: employee.bankDetails.accountNumber || '',
         ifscCode: employee.bankDetails.ifscCode || '',
         branch: employee.bankDetails.branch || '',
         accountType: employee.bankDetails.accountType || 'Savings'
       } : {
+        accountHolderName: '',
         bankName: '',
         accountNumber: '',
         ifscCode: '',
@@ -459,9 +471,42 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
     if (updateData.dateOfBirth !== undefined) sanitizedUpdate.dateOfBirth = updateData.dateOfBirth;
     if (updateData.gender !== undefined) sanitizedUpdate.gender = updateData.gender;
     if (updateData.profilePhoto !== undefined) sanitizedUpdate.profileImage = updateData.profilePhoto;
-    if (updateData.about !== undefined) sanitizedUpdate.notes = updateData.about;
+    // Canonical field: bio. Do NOT duplicate into 'notes' or 'about'.
     if (updateData.bio !== undefined) sanitizedUpdate.bio = updateData.bio;
+    else if (updateData.about !== undefined) sanitizedUpdate.bio = updateData.about;
     if (updateData.skills !== undefined) sanitizedUpdate.skills = updateData.skills;
+
+    // Handle education - accept both 'education' and 'qualifications' keys, store in 'education'
+    if (updateData.education !== undefined) {
+      sanitizedUpdate.education = updateData.education;
+    }
+    if (updateData.qualifications !== undefined) {
+      // Also store under 'education' for consistency with employeedetails page
+      sanitizedUpdate.education = updateData.qualifications;
+    }
+
+    // Handle experience - normalize field names to canonical 'company'
+    if (updateData.experience !== undefined) {
+      sanitizedUpdate.experience = Array.isArray(updateData.experience)
+        ? updateData.experience.map(e => ({
+            ...e,
+            company: e.company || e.previousCompany || '',
+            designation: e.designation || e.position || '',
+            current: e.current || e.currentlyWorking || false,
+          }))
+        : updateData.experience;
+    }
+
+    // Handle family - normalize to match employeedetails format { Name, relationship, phone }
+    if (updateData.family !== undefined) {
+      sanitizedUpdate.family = Array.isArray(updateData.family)
+        ? updateData.family.map(member => ({
+            Name: member.Name || member.familyMemberName || member.name || '',
+            relationship: member.relationship || '',
+            phone: member.phone || ''
+          }))
+        : [];
+    }
 
     // Handle phone (use canonical phone field at root level)
     if (updateData.phone !== undefined) {
@@ -484,6 +529,7 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
       sanitizedUpdate.emergencyContact = {
         name: updateData.emergencyContact.name || '',
         phone: updateData.emergencyContact.phone || '',
+        phone2: updateData.emergencyContact.phone2 || '',
         relationship: updateData.emergencyContact.relationship || ''
       };
     }
@@ -536,6 +582,9 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
     if (updateData.bankDetails) {
       const bankDetailsUpdate = {};
 
+      if (updateData.bankDetails.accountHolderName !== undefined) {
+        bankDetailsUpdate['bankDetails.accountHolderName'] = updateData.bankDetails.accountHolderName;
+      }
       if (updateData.bankDetails.bankName !== undefined) {
         bankDetailsUpdate['bankDetails.bankName'] = updateData.bankDetails.bankName;
       }
@@ -543,7 +592,8 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
         bankDetailsUpdate['bankDetails.accountNumber'] = updateData.bankDetails.accountNumber;
       }
       if (updateData.bankDetails.ifscCode !== undefined) {
-        bankDetailsUpdate['bankDetails.ifscCode'] = updateData.bankDetails.ifscCode;
+        // Convert IFSC code to uppercase before saving
+        bankDetailsUpdate['bankDetails.ifscCode'] = updateData.bankDetails.ifscCode.toUpperCase();
       }
       if (updateData.bankDetails.branch !== undefined) {
         bankDetailsUpdate['bankDetails.branch'] = updateData.bankDetails.branch;
@@ -580,15 +630,15 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
         $addFields: {
           departmentObjId: {
             $cond: {
-              if: { $and: [{ $ne: ['$department', null] }, { $ne: ['$department', ''] }] },
-              then: { $toObjectId: '$department' },
+              if: { $and: [{ $ne: ['$departmentId', null] }, { $ne: ['$departmentId', ''] }] },
+              then: { $toObjectId: '$departmentId' },
               else: null
             }
           },
           designationObjId: {
             $cond: {
-              if: { $and: [{ $ne: ['$designation', null] }, { $ne: ['$designation', ''] }] },
-              then: { $toObjectId: '$designation' },
+              if: { $and: [{ $ne: ['$designationId', null] }, { $ne: ['$designationId', ''] }] },
+              then: { $toObjectId: '$designationId' },
               else: null
             }
           },
@@ -698,7 +748,7 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
         employeeId: updatedEmployee.reportingTo.employeeId || '',
         email: updatedEmployee.reportingTo.email || ''
       } : null,
-      about: updatedEmployee.about || updatedEmployee.notes || updatedEmployee.bio || '',
+      about: updatedEmployee.bio || updatedEmployee.notes || updatedEmployee.about || '',
       // Check both root address and personal.address
       address: {
         street: updatedEmployee.address?.street || updatedEmployee.personal?.address?.street || '',
@@ -711,6 +761,7 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
       emergencyContact: {
         name: updatedEmployee.emergencyContact?.name || (Array.isArray(updatedEmployee.emergencyContacts) && updatedEmployee.emergencyContacts[0]?.name) || '',
         phone: updatedEmployee.emergencyContact?.phone || (Array.isArray(updatedEmployee.emergencyContacts) && updatedEmployee.emergencyContacts[0]?.phone) || (Array.isArray(updatedEmployee.emergencyContacts) && updatedEmployee.emergencyContacts[0]?.phone?.[0]) || '',
+        phone2: updatedEmployee.emergencyContact?.phone2 || (Array.isArray(updatedEmployee.emergencyContacts) && updatedEmployee.emergencyContacts[0]?.phone?.[1]) || '',
         relationship: updatedEmployee.emergencyContact?.relationship || (Array.isArray(updatedEmployee.emergencyContacts) && updatedEmployee.emergencyContacts[0]?.relationship) || ''
       },
       // Check socialProfiles vs socialLinks
@@ -724,7 +775,12 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
       bio: updatedEmployee.bio || updatedEmployee.about || updatedEmployee.notes || '',
       // Education, Experience, Family, Documents
       education: updatedEmployee.education || updatedEmployee.qualifications || [],
-      experience: updatedEmployee.experience || [],
+      experience: (updatedEmployee.experience || []).map(e => ({
+        ...e,
+        company: e.company || e.previousCompany || '',
+        designation: e.designation || e.position || '',
+        current: e.current || e.currentlyWorking || false,
+      })),
       family: updatedEmployee.family || [],
       documents: updatedEmployee.documents || [],
       // Personal Information (Passport, Nationality, etc.)
@@ -799,12 +855,10 @@ export const changePassword = asyncHandler(async (req, res) => {
     throw buildValidationError('newPassword', 'New password must be at least 6 characters long');
   }
 
-  // For employee/admin roles, update the password in the database (case-insensitive)
   const userRole = user.role?.toLowerCase();
   if (user.companyId && (userRole === 'hr' || userRole === 'employee' || userRole === 'admin')) {
     const collections = getTenantCollections(user.companyId);
 
-    // Find employee/user by Clerk user ID
     const employee = await collections.employees.findOne({
       isDeleted: { $ne: true },
       $or: [
@@ -814,18 +868,33 @@ export const changePassword = asyncHandler(async (req, res) => {
     });
 
     if (employee) {
-      // Verify current password (if stored)
+      // Verify current password against DB (bcrypt hash or plaintext fallback)
       if (employee.account?.password) {
-        const isPasswordValid = await bcrypt.compare(currentPassword, employee.account.password);
+        let isPasswordValid = false;
+        try {
+          isPasswordValid = await bcrypt.compare(currentPassword, employee.account.password);
+        } catch {
+          // Stored as plaintext
+          isPasswordValid = currentPassword === employee.account.password;
+        }
         if (!isPasswordValid) {
           throw buildValidationError('currentPassword', 'Current password is incorrect');
         }
       }
 
-      // Hash new password
+      // Hash new password for DB storage
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Update password
+      // Update Clerk password (primary auth source)
+      try {
+        await clerkClient.users.updateUser(user.userId, { password: newPassword });
+        devLog('[changePassword] Clerk password updated for userId:', user.userId);
+      } catch (clerkErr) {
+        devError('[changePassword] Clerk password update failed:', clerkErr.message);
+        throw buildValidationError('password', 'Failed to update password. Please try again.');
+      }
+
+      // Update DB
       await collections.employees.updateOne(
         { _id: employee._id },
         {
@@ -837,14 +906,125 @@ export const changePassword = asyncHandler(async (req, res) => {
         }
       );
 
+      // Send notification email (non-fatal)
+      sendPasswordChangedEmail({
+        to: employee.email || user.email,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        companyName: 'ManageRTC',
+      }).catch(() => {});
+
       return sendSuccess(res, { message: 'Password changed successfully' }, 'Password changed successfully');
     }
   }
 
-  // For other roles or if no employee record found
-  // Note: In a Clerk-based system, password changes would be handled through Clerk API
-  // This is a placeholder for systems that store passwords locally
-  return sendSuccess(res, { message: 'Password change request processed' }, 'Password change request processed');
+  // Superadmin or no employee record — update Clerk only
+  try {
+    await clerkClient.users.updateUser(user.userId, { password: newPassword });
+  } catch (clerkErr) {
+    devError('[changePassword] Clerk password update failed:', clerkErr.message);
+    throw buildValidationError('password', 'Failed to update password. Please try again.');
+  }
+  return sendSuccess(res, { message: 'Password changed successfully' }, 'Password changed successfully');
+});
+
+/**
+ * @desc    Send OTP to registered email for password reset (Forgot Password)
+ * @route   POST /api/user-profile/forgot-password/send-otp
+ * @access  Private (All authenticated users)
+ */
+export const sendForgotPasswordOTP = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company context required');
+  }
+  if (!user.email) {
+    throw buildValidationError('email', 'No registered email found for this account');
+  }
+
+  devLog('[sendForgotPasswordOTP] Sending OTP to:', user.email);
+
+  const result = await otpService.sendOTP(user.companyId, user.email, 'forgot_password');
+
+  if (!result.success) {
+    throw buildValidationError('otp', result.error || 'Failed to send OTP. Please try again.');
+  }
+
+  return sendSuccess(res, { email: user.email }, 'OTP sent to your registered email. Valid for 10 minutes.');
+});
+
+/**
+ * @desc    Reset password using OTP (no current password required)
+ * @route   POST /api/user-profile/forgot-password/reset
+ * @access  Private (All authenticated users)
+ */
+export const resetForgotPassword = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+  const { otp, newPassword, confirmPassword } = req.body;
+
+  if (!otp || !newPassword || !confirmPassword) {
+    throw buildValidationError('fields', 'OTP, new password, and confirm password are required');
+  }
+
+  if (newPassword !== confirmPassword) {
+    throw buildValidationError('confirmPassword', 'New password and confirm password do not match');
+  }
+
+  if (newPassword.length < 6) {
+    throw buildValidationError('newPassword', 'Password must be at least 6 characters long');
+  }
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company context required');
+  }
+
+  // Verify OTP
+  const otpResult = await otpService.verifyOTP(user.companyId, user.email, otp, 'forgot_password');
+  if (!otpResult.valid) {
+    throw buildValidationError('otp', 'Invalid or expired OTP. Please request a new one.');
+  }
+
+  // Update Clerk password
+  try {
+    await clerkClient.users.updateUser(user.userId, { password: newPassword });
+    devLog('[resetForgotPassword] Clerk password updated for userId:', user.userId);
+  } catch (clerkErr) {
+    devError('[resetForgotPassword] Clerk password update failed:', clerkErr.message);
+    throw buildValidationError('password', 'Failed to reset password. Please try again.');
+  }
+
+  // Update DB if employee record exists
+  if (user.companyId) {
+    const collections = getTenantCollections(user.companyId);
+    const employee = await collections.employees.findOne({
+      isDeleted: { $ne: true },
+      $or: [{ clerkUserId: user.userId }, { 'account.userId': user.userId }]
+    });
+
+    if (employee) {
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await collections.employees.updateOne(
+        { _id: employee._id },
+        {
+          $set: {
+            'account.password': hashedPassword,
+            passwordChangedAt: new Date(),
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      sendPasswordChangedEmail({
+        to: employee.email || user.email,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        companyName: 'ManageRTC',
+      }).catch(() => {});
+    }
+  }
+
+  return sendSuccess(res, { message: 'Password reset successfully' }, 'Password reset successfully. You can now log in with your new password.');
 });
 
 /**

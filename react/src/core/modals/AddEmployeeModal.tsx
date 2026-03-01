@@ -30,6 +30,11 @@ interface Passport {
   country?: string;
 }
 
+interface PersonalInfo {
+  nationality?: string;
+  passport?: Passport;
+}
+
 interface FormData {
   employeeId: string;
   avatarUrl: string;
@@ -45,8 +50,7 @@ interface FormData {
   gender: string;
   dateOfBirth: string | null;
   address: Address;
-  nationality: string;
-  passport: Passport;
+  personal: PersonalInfo;
   companyName: string;
   designationId: string;
   departmentId: string;
@@ -56,12 +60,12 @@ interface FormData {
   employmentType: "Full-time" | "Part-time" | "Contract" | "Intern";
   about: string;
   status:
-    | "Active"
-    | "Inactive"
-    | "On Notice"
-    | "Resigned"
-    | "Terminated"
-    | "On Leave";
+  | "Active"
+  | "Inactive"
+  | "On Notice"
+  | "Resigned"
+  | "Terminated"
+  | "On Leave";
 }
 
 interface BatchOption {
@@ -116,11 +120,13 @@ const initialFormDataState = (): FormData => ({
     postalCode: "",
     country: "",
   },
-  nationality: "",
-  passport: {
-    number: "",
-    expiryDate: null,
-    country: "",
+  personal: {
+    nationality: "",
+    passport: {
+      number: "",
+      expiryDate: null,
+      country: "",
+    },
   },
   companyName: "",
   designationId: "",
@@ -557,10 +563,10 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     if (!formData.dateOfJoining) errors.dateOfJoining = "Date of joining is required";
     if (!formData.gender) errors.gender = "Gender is required";
     if (!formData.dateOfBirth) errors.birthday = "Date of birth is required";
-    if (!formData.nationality?.trim()) errors.nationality = "Nationality is required";
+    if (!formData.personal?.nationality?.trim()) errors.nationality = "Nationality is required";
 
     // Passport expiry date is required only if passport number is filled
-    if (formData.passport?.number?.trim() && !formData.passport?.expiryDate) {
+    if (formData.personal?.passport?.number?.trim() && !formData.personal?.passport?.expiryDate) {
       errors.passportExpiryDate = "Passport expiry date is required when passport number is provided";
     }
 
@@ -726,7 +732,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           <div className="modal-content">
             <div className="modal-header">
               <div className="d-flex align-items-center">
-                <h4 className="modal-title me-2">Add New Employee</h4>
+                <h4 className="modal-title me-2">Add New yee</h4>
                 <span>Employee ID : {formData.employeeId}</span>
               </div>
               <button
@@ -750,639 +756,648 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
             />
             <form onSubmit={(e) => e.preventDefault()}>
               <div className="modal-body pb-0">
-                    <div className="row">
-                      <div className="col-md-12">
-                        <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                          {formData.avatarUrl ? (
-                            <img
-                              src={formData.avatarUrl}
-                              alt="Profile"
-                              className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
-                            />
-                          ) : (
-                            <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
-                              <i className="ti ti-photo text-gray-2 fs-16" />
-                            </div>
-                          )}
-                          <div className="profile-upload">
-                            <div className="mb-2">
-                              <h6 className="mb-1">Upload Profile Image (Optional)</h6>
-                              <p className="fs-12">Image should be below 4 mb</p>
-                            </div>
-                            <div className="profile-uploader d-flex align-items-center">
-                              <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-                                {loading ? "Uploading..." : "Upload"}
-                                <input
-                                  type="file"
-                                  className="form-control image-sign"
-                                  accept=".png,.jpeg,.jpg,.ico"
-                                  ref={fileInputRef}
-                                  onChange={handleImageUpload}
-                                  disabled={loading}
-                                  style={{ cursor: loading ? "not-allowed" : "pointer", opacity: 0, position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                className="btn btn-light btn-sm"
-                                onClick={() => setFormData((prev) => ({ ...prev, avatarUrl: "assets/img/profiles/profile.png" }))}
-                                disabled={loading}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
+                <div className="row">
+                  <div className="col-md-12">
+                    <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
+                      {formData.avatarUrl ? (
+                        <img
+                          src={formData.avatarUrl}
+                          alt="Profile"
+                          className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
+                          <i className="ti ti-photo text-gray-2 fs-16" />
                         </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">First Name <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.firstName ? "is-invalid" : ""}`}
-                            name="firstName"
-                            value={formData.firstName}
-                            onChange={handleChange}
-                            onFocus={() => clearFieldError("firstName")}
-                            onBlur={(e) => handleFieldBlur("firstName", e.target.value)}
-                          />
-                          {fieldErrors.firstName && <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>}
+                      )}
+                      <div className="profile-upload">
+                        <div className="mb-2">
+                          <h6 className="mb-1">Upload Profile Image (Optional)</h6>
+                          <p className="fs-12">Image should be below 4 mb</p>
                         </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Last Name <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.lastName ? "is-invalid" : ""}`}
-                            name="lastName"
-                            value={formData.lastName}
-                            onChange={handleChange}
-                            onFocus={() => clearFieldError("lastName")}
-                            onBlur={(e) => handleFieldBlur("lastName", e.target.value)}
-                          />
-                          {fieldErrors.lastName && <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Employee ID <span className="text-danger"> *</span></label>
-                          <input type="text" className="form-control" value={formData.employeeId} readOnly />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Joining Date <span className="text-danger"> *</span></label>
-                          <div className="input-icon-end position-relative">
-                            <DatePicker
-                              className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? "is-invalid" : ""}`}
-                              format={{ format: "DD-MM-YYYY", type: "mask" }}
-                              getPopupContainer={getModalContainer}
-                              placeholder="DD-MM-YYYY"
-                              name="dateOfJoining"
-                              value={toDayjsDate(formData.dateOfJoining)}
-                              onFocus={() => clearFieldError("dateOfJoining")}
-                              onChange={(date, dateString) => {
-                                handleDateChange(date, dateString as string);
-                                handleFieldBlur("dateOfJoining", dateString as string);
-                              }}
-                            />
-                            <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                          </div>
-                          {fieldErrors.dateOfJoining && <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Role <span className="text-danger"> *</span></label>
-                          <CommonSelect
-                            className={`select ${fieldErrors.role ? "is-invalid" : ""}`}
-                            options={roleOptions}
-                            defaultValue={roleOptions.find((opt) => opt.value === formData.account.role)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setFormData((prev) => ({ ...prev, account: { ...prev.account, role: option.value } }));
-                                clearFieldError("role");
-                                handleFieldBlur("role", option.value);
-                              }
-                            }}
-                          />
-                          {fieldErrors.role && <div className="invalid-feedback d-block">{fieldErrors.role}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Email <span className="text-danger"> *</span></label>
-                          <div className="position-relative">
+                        <div className="profile-uploader d-flex align-items-center">
+                          <div className="drag-upload-btn btn btn-sm btn-primary me-2">
+                            {loading ? "Uploading..." : "Upload"}
                             <input
-                              type="email"
-                              className={`form-control ${fieldErrors.email || emailValidation.error ? "is-invalid" : ""} ${emailValidation.available ? "is-valid" : ""}`}
-                              name="email"
-                              value={formData.email}
-                              onChange={(e) => handleEmailInputChange(e.target.value)}
-                              onBlur={(e) => handleFieldBlur("email", e.target.value)}
-                            />
-                            {formData.email && formData.email.trim() && (
-                              <div className="position-absolute" style={{ right: '35px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
-                                {emailValidation.checking && <span className="spinner-border spinner-border-sm text-muted" />}
-                                {!emailValidation.checking && emailValidation.available && <i className="fas fa-check-circle text-success" />}
-                                {!emailValidation.checking && !emailValidation.available && emailValidation.error && <i className="fas fa-times-circle text-danger" />}
-                              </div>
-                            )}
-                          </div>
-                          {fieldErrors.email && <div className="invalid-feedback d-block">{fieldErrors.email}</div>}
-                          {!fieldErrors.email && formData.email && formData.email.trim() && (
-                            <div className={`form-text ${emailValidation.available ? 'text-success' : emailValidation.error ? 'text-danger' : 'text-muted'}`}>
-                              {emailValidation.checking && 'Checking email availability...'}
-                              {!emailValidation.checking && emailValidation.available && 'Email is available'}
-                              {!emailValidation.checking && !emailValidation.available && emailValidation.error}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
-                          <div className="row g-2">
-                            <div className="col-4">
-                              <CommonSelect
-                                options={phoneCodeOptions}
-                                value={phoneCodeOptions.find(opt => opt.value === formData.phoneCode)}
-                                onChange={(option: any) => {
-                                  if (option) {
-                                    setFormData((prev) => ({ ...prev, phoneCode: option.value }));
-                                    clearFieldError("phoneCode");
-                                    handleFieldBlur("phoneCode", option.value);
-                                  }
-                                }}
-                                className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
-                              />
-                            </div>
-                            <div className="col-8">
-                              <input
-                                type="text"
-                                className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
-                                name="phone"
-                                placeholder="Enter phone number"
-                                value={formData.phone}
-                                onChange={(e) => {
-                                  setFormData((prev) => ({ ...prev, phone: e.target.value }));
-                                  clearFieldError("phone");
-                                }}
-                                onBlur={(e) => handleFieldBlur("phone", e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
-                          {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Gender <span className="text-danger"> *</span></label>
-                          <CommonSelect
-                            className={`select ${fieldErrors.gender ? "is-invalid" : ""}`}
-                            options={genderOptions}
-                            defaultValue={genderOptions.find((opt) => opt.value === formData.gender)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setFormData((prev) => ({ ...prev, gender: option.value }));
-                                clearFieldError("gender");
-                                handleFieldBlur("gender", option.value);
-                              }
-                            }}
-                          />
-                          {fieldErrors.gender && <div className="invalid-feedback d-block">{fieldErrors.gender}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Birthday <span className="text-danger"> *</span></label>
-                          <div className="input-icon-end position-relative">
-                            <DatePicker
-                              className={`form-control datetimepicker ${fieldErrors.birthday ? "is-invalid" : ""}`}
-                              format={{ format: "DD-MM-YYYY", type: "mask" }}
-                              getPopupContainer={getModalContainer}
-                              placeholder="DD-MM-YYYY"
-                              name="birthday"
-                              value={formData.dateOfBirth ? toDayjsDate(formData.dateOfBirth) : null}
-                              maxDate={dayjs().subtract(15, 'year')}
-                              onFocus={() => clearFieldError("birthday")}
-                              onChange={(_date, dateString) => {
-                                const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
-                                setFormData((prev) => ({ ...prev, dateOfBirth: dateValue || "" }));
-                                handleFieldBlur("birthday", dateValue || "");
-                              }}
-                            />
-                            <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                          </div>
-                          {fieldErrors.birthday && <div className="invalid-feedback d-block">{fieldErrors.birthday}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-12">
-                        <div className="mb-3">
-                          <label className="form-label">Address</label>
-                          <div className="mb-3">
-                            <label className="form-label">Street</label>
-                            <input
-                              type="text"
-                              className="form-control"
-                              placeholder="Enter street address"
-                              name="street"
-                              value={formData.address?.street || ""}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  address: { ...prev.address, street: e.target.value },
-                                }))
-                              }
+                              type="file"
+                              className="form-control image-sign"
+                              accept=".png,.jpeg,.jpg,.ico"
+                              ref={fileInputRef}
+                              onChange={handleImageUpload}
+                              disabled={loading}
+                              style={{ cursor: loading ? "not-allowed" : "pointer", opacity: 0, position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
                             />
                           </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">City</label>
-                                <input
-                                  type="text"
-                                  className="form-control"
-                                  placeholder="Enter city"
-                                  name="city"
-                                  value={formData.address?.city || ""}
-                                  onChange={(e) =>
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      address: { ...prev.address, city: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Country</label>
-                                <div className="input-icon-end position-relative">
-                                  <select
-                                    className="form-select"
-                                    value={selectedCountryId || ""}
-                                    onChange={(e) => {
-                                      const countryId = e.target.value ? parseInt(e.target.value) : null;
-                                      setSelectedCountryId(countryId);
-                                      const selectedCountry = countries.find((c) => c.id === countryId);
-                                      setFormData((prev) => ({
-                                        ...prev,
-                                        address: { ...prev.address, country: selectedCountry?.name || "", state: "" },
-                                      }));
-                                      // Load states for selected country
-                                      if (countryId) {
-                                        GetState(countryId).then((result: any) => {
-                                          setStates(result);
-                                        });
-                                      } else {
-                                        setStates([]);
-                                      }
-                                    }}
-                                  >
-                                    <option value="">Select Country</option>
-                                    {countries.map((country) => (
-                                      <option key={country.id} value={country.id}>
-                                        {country.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <span className="input-icon-addon">
-                                    <i className="ti ti-chevron-down text-gray-7" />
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">State</label>
-                                <div className="input-icon-end position-relative">
-                                  <select
-                                    className="form-select"
-                                    value={formData.address?.state || ""}
-                                    disabled={!selectedCountryId}
-                                    onChange={(e) =>
-                                      setFormData((prev) => ({
-                                        ...prev,
-                                        address: { ...prev.address, state: e.target.value },
-                                      }))
-                                    }
-                                  >
-                                    <option value="">Select State</option>
-                                    {states.map((state) => (
-                                      <option key={state.id} value={state.name}>
-                                        {state.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <span className="input-icon-addon">
-                                    <i className="ti ti-chevron-down text-gray-7" />
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Postal Code</label>
-                                <input
-                                  type="text"
-                                  className="form-control"
-                                  placeholder="Enter postal code"
-                                  name="postalCode"
-                                  value={formData.address?.postalCode || ""}
-                                  onChange={(e) =>
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      address: { ...prev.address, postalCode: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Nationality <span className="text-danger"> *</span></label>
-                                <input
-                                  type="text"
-                                  className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
-                                  placeholder="Enter nationality"
-                                  name="nationality"
-                                  value={formData.nationality || ""}
-                                  onChange={(e) => {
-                                    setFormData((prev) => ({ ...prev, nationality: e.target.value }));
-                                    clearFieldError("nationality");
-                                  }}
-                                  onBlur={(e) => handleFieldBlur("nationality", e.target.value)}
-                                />
-                                {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Passport No</label>
-                                <input
-                                  type="text"
-                                  className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
-                                  placeholder="Enter passport number"
-                                  name="passportNo"
-                                  value={formData.passport?.number || ""}
-                                  onChange={(e) => {
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      passport: { ...prev.passport, number: e.target.value },
-                                    }));
-                                    clearFieldError("passportNo");
-                                  }}
-                                  onBlur={(e) => handleFieldBlur("passportNo", e.target.value)}
-                                />
-                                {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">
-                                  Passport Expiry Date
-                                  {formData.passport?.number && <span className="text-danger"> *</span>}
-                                </label>
-                                <div className="input-icon-end position-relative">
-                                  <DatePicker
-                                    className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
-                                    format={{ format: "DD-MM-YYYY", type: "mask" }}
-                                    getPopupContainer={getModalContainer}
-                                    placeholder="DD-MM-YYYY"
-                                    value={formData.passport?.expiryDate ? toDayjsDate(formData.passport.expiryDate) : null}
-                                    onChange={(_date, dateString) => {
-                                      const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
-                                      setFormData((prev) => ({
-                                        ...prev,
-                                        passport: { ...prev.passport, expiryDate: dateValue || null },
-                                      }));
-                                      clearFieldError("passportExpiryDate");
-                                    }}
-                                    disabled={!formData.passport?.number}
-                                  />
-                                  <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                                </div>
-                                {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Department <span className="text-danger"> *</span></label>
-                          {department.length === 0 ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/departments")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Department
-                              </button>
-                              <small className="text-muted d-block mt-2">No departments available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <CommonSelect
-                                className="select"
-                                options={department}
-                                defaultValue={department.find((opt) => opt.value === formData.departmentId)}
-                                onChange={(option: any) => {
-                                  if (option) {
-                                    setFormData((prev) => ({ ...prev, departmentId: option.value, designationId: "" }));
-                                    setSelectedDepartment(option.value);
-                                    setIsDesignationDisabled(false);
-                                    if (option.value) {
-                                      setLoadingDesignations(true);
-                                      setDesignation([]);
-                                      fetchDesignations({ departmentId: option.value });
-                                    }
-                                  }
-                                }}
-                              />
-                              {fieldErrors.departmentId && <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Designation <span className="text-danger"> *</span></label>
-                          {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/designations")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Designation
-                              </button>
-                              <small className="text-muted d-block mt-2">No designations available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <CommonSelect
-                                className="select"
-                                options={designation}
-                                disabled={isDesignationDisabled}
-                                isLoading={loadingDesignations}
-                                defaultValue={designation.find((opt) => opt.value === formData.designationId)}
-                                onChange={(option: any) => {
-                                  if (option) {
-                                    setFormData((prev) => ({ ...prev, designationId: option.value }));
-                                    clearFieldError("designationId");
-                                    handleFieldBlur("designationId", option.value);
-                                  }
-                                }}
-                              />
-                              {fieldErrors.designationId && <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Reporting Manager <span className="text-muted">(Optional)</span></label>
-                          <CommonSelect
-                            className="select"
-                            options={managers}
-                            defaultValue={managers.find((opt) => opt.value === formData.reportingTo)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setFormData((prev) => ({ ...prev, reportingTo: option.value }));
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Shift Assignment <span className="text-danger">*</span></label>
-                          {shiftAssignmentOptions.directShifts.filter(opt => opt.value !== '').length === 0 &&
-                           shiftAssignmentOptions.shiftBatches.filter(opt => opt.value !== '').length === 0 ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/shifts-management")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Shift
-                              </button>
-                              <small className="text-muted d-block mt-2">No shifts available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <select
-                                className={`form-control ${fieldErrors.shiftAssignment ? 'is-invalid' : ''}`}
-                                value={selectedShiftAssignment.type ? `${selectedShiftAssignment.type}-${selectedShiftAssignment.value}` : 'no-shift'}
-                                onChange={(e) => {
-                                  if (e.target.value === 'no-shift') {
-                                    setSelectedShiftAssignment({ type: 'none', value: '' });
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      shiftId: '',
-                                      batchId: '',
-                                    }));
-                                    clearFieldError('shiftAssignment');
-                                  } else {
-                                    const [type, value] = e.target.value.split('-');
-                                    setSelectedShiftAssignment({ type: type as 'shift' | 'batch', value });
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      shiftId: type === 'shift' ? value : '',
-                                      batchId: type === 'batch' ? value : '',
-                                    }));
-                                    clearFieldError('shiftAssignment');
-                                  }
-                                }}
-                                onBlur={() => {
-                                  if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !formData.shiftId && !formData.batchId) {
-                                    setFieldErrors(prev => ({ ...prev, shiftAssignment: 'Shift assignment is required' }));
-                                  }
-                                }}
-                              >
-                                <option value="no-shift">No Shift Assignment</option>
-                                <optgroup label="Direct Shifts">
-                                  {shiftAssignmentOptions.directShifts
-                                    .filter(opt => opt.value !== '')
-                                    .map(opt => (
-                                      <option key={opt.value} value={`shift-${opt.value}`}>{opt.label}</option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Shift Batches">
-                                  {shiftAssignmentOptions.shiftBatches
-                                    .filter(opt => opt.value !== '')
-                                    .map(opt => (
-                                      <option key={opt.value} value={`batch-${opt.value}`}>{opt.label}</option>
-                                    ))}
-                                </optgroup>
-                              </select>
-                              {fieldErrors.shiftAssignment && <div className="invalid-feedback d-block">{fieldErrors.shiftAssignment}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Employment Type</label>
-                          <select
-                            className="form-control"
-                            value={formData.employmentType}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, employmentType: e.target.value as any }))}
+                          <button
+                            type="button"
+                            className="btn btn-light btn-sm"
+                            onClick={() => setFormData((prev) => ({ ...prev, avatarUrl: "assets/img/profiles/profile.png" }))}
+                            disabled={loading}
                           >
-                            <option value="Full-time">Full-time</option>
-                            <option value="Part-time">Part-time</option>
-                            <option value="Contract">Contract</option>
-                            <option value="Intern">Intern</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="col-md-12">
-                        <div className="mb-3">
-                          <label className="form-label">About</label>
-                          <textarea
-                            className="form-control"
-                            rows={4}
-                            value={formData.about}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, about: e.target.value }))}
-                            placeholder="Write something about the employee..."
-                          />
+                            Cancel
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <div className="modal-footer">
-                    <button
-                      type="button"
-                      className="btn btn-outline-light border me-2"
-                      data-bs-dismiss="modal"
-                      onClick={handleResetFormData}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={isValidating || loading}
-                      onClick={handleSubmit}
-                    >
-                      {isValidating ? "Adding..." : `Add ${formData.account.role || "Employee"}`}
-                    </button>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">First Name <span className="text-danger"> *</span></label>
+                      <input
+                        type="text"
+                        className={`form-control ${fieldErrors.firstName ? "is-invalid" : ""}`}
+                        name="firstName"
+                        value={formData.firstName}
+                        onChange={handleChange}
+                        onFocus={() => clearFieldError("firstName")}
+                        onBlur={(e) => handleFieldBlur("firstName", e.target.value)}
+                      />
+                      {fieldErrors.firstName && <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>}
+                    </div>
                   </div>
-                </form>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Last Name <span className="text-danger"> *</span></label>
+                      <input
+                        type="text"
+                        className={`form-control ${fieldErrors.lastName ? "is-invalid" : ""}`}
+                        name="lastName"
+                        value={formData.lastName}
+                        onChange={handleChange}
+                        onFocus={() => clearFieldError("lastName")}
+                        onBlur={(e) => handleFieldBlur("lastName", e.target.value)}
+                      />
+                      {fieldErrors.lastName && <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Employee ID <span className="text-danger"> *</span></label>
+                      <input type="text" className="form-control" value={formData.employeeId} readOnly />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Joining Date <span className="text-danger"> *</span></label>
+                      <div className="input-icon-end position-relative">
+                        <DatePicker
+                          className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? "is-invalid" : ""}`}
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
+                          getPopupContainer={getModalContainer}
+                          placeholder="DD-MM-YYYY"
+                          name="dateOfJoining"
+                          value={toDayjsDate(formData.dateOfJoining)}
+                          onFocus={() => clearFieldError("dateOfJoining")}
+                          onChange={(date, dateString) => {
+                            handleDateChange(date, dateString as string);
+                            handleFieldBlur("dateOfJoining", dateString as string);
+                          }}
+                        />
+                        <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
+                      </div>
+                      {fieldErrors.dateOfJoining && <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Role <span className="text-danger"> *</span></label>
+                      <CommonSelect
+                        className={`select ${fieldErrors.role ? "is-invalid" : ""}`}
+                        options={roleOptions}
+                        defaultValue={roleOptions.find((opt) => opt.value === formData.account.role)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setFormData((prev) => ({ ...prev, account: { ...prev.account, role: option.value } }));
+                            clearFieldError("role");
+                            handleFieldBlur("role", option.value);
+                          }
+                        }}
+                      />
+                      {fieldErrors.role && <div className="invalid-feedback d-block">{fieldErrors.role}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Email <span className="text-danger"> *</span></label>
+                      <div className="position-relative">
+                        <input
+                          type="email"
+                          className={`form-control ${fieldErrors.email || emailValidation.error ? "is-invalid" : ""} ${emailValidation.available ? "is-valid" : ""}`}
+                          name="email"
+                          value={formData.email}
+                          onChange={(e) => handleEmailInputChange(e.target.value)}
+                          onBlur={(e) => handleFieldBlur("email", e.target.value)}
+                        />
+                        {formData.email && formData.email.trim() && (
+                          <div className="position-absolute" style={{ right: '35px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
+                            {emailValidation.checking && <span className="spinner-border spinner-border-sm text-muted" />}
+                            {!emailValidation.checking && emailValidation.available && <i className="fas fa-check-circle text-success" />}
+                            {!emailValidation.checking && !emailValidation.available && emailValidation.error && <i className="fas fa-times-circle text-danger" />}
+                          </div>
+                        )}
+                      </div>
+                      {fieldErrors.email && <div className="invalid-feedback d-block">{fieldErrors.email}</div>}
+                      {!fieldErrors.email && formData.email && formData.email.trim() && (
+                        <div className={`form-text ${emailValidation.available ? 'text-success' : emailValidation.error ? 'text-danger' : 'text-muted'}`}>
+                          {emailValidation.checking && 'Checking email availability...'}
+                          {!emailValidation.checking && emailValidation.available && 'Email is available'}
+                          {!emailValidation.checking && !emailValidation.available && emailValidation.error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
+                      <div className="row g-2">
+                        <div className="col-4">
+                          <CommonSelect
+                            options={phoneCodeOptions}
+                            value={phoneCodeOptions.find(opt => opt.value === formData.phoneCode)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setFormData((prev) => ({ ...prev, phoneCode: option.value }));
+                                clearFieldError("phoneCode");
+                                handleFieldBlur("phoneCode", option.value);
+                              }
+                            }}
+                            className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
+                          />
+                        </div>
+                        <div className="col-8">
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
+                            name="phone"
+                            placeholder="Enter phone number"
+                            value={formData.phone}
+                            onChange={(e) => {
+                              setFormData((prev) => ({ ...prev, phone: e.target.value }));
+                              clearFieldError("phone");
+                            }}
+                            onBlur={(e) => handleFieldBlur("phone", e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
+                      {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Gender <span className="text-danger"> *</span></label>
+                      <CommonSelect
+                        className={`select ${fieldErrors.gender ? "is-invalid" : ""}`}
+                        options={genderOptions}
+                        defaultValue={genderOptions.find((opt) => opt.value === formData.gender)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setFormData((prev) => ({ ...prev, gender: option.value }));
+                            clearFieldError("gender");
+                            handleFieldBlur("gender", option.value);
+                          }
+                        }}
+                      />
+                      {fieldErrors.gender && <div className="invalid-feedback d-block">{fieldErrors.gender}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Birthday <span className="text-danger"> *</span></label>
+                      <div className="input-icon-end position-relative">
+                        <DatePicker
+                          className={`form-control datetimepicker ${fieldErrors.birthday ? "is-invalid" : ""}`}
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
+                          getPopupContainer={getModalContainer}
+                          placeholder="DD-MM-YYYY"
+                          name="birthday"
+                          value={formData.dateOfBirth ? toDayjsDate(formData.dateOfBirth) : null}
+                          maxDate={dayjs().subtract(15, 'year')}
+                          onFocus={() => clearFieldError("birthday")}
+                          onChange={(_date, dateString) => {
+                            const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                            setFormData((prev) => ({ ...prev, dateOfBirth: dateValue || "" }));
+                            handleFieldBlur("birthday", dateValue || "");
+                          }}
+                        />
+                        <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
+                      </div>
+                      {fieldErrors.birthday && <div className="invalid-feedback d-block">{fieldErrors.birthday}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">Address</label>
+                      <div className="mb-3">
+                        <label className="form-label">Street</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Enter street address"
+                          name="street"
+                          value={formData.address?.street || ""}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              address: { ...prev.address, street: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">City</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Enter city"
+                              name="city"
+                              value={formData.address?.city || ""}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  address: { ...prev.address, city: e.target.value },
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Country</label>
+                            <div className="input-icon-end position-relative">
+                              <select
+                                className="form-select"
+                                value={selectedCountryId || ""}
+                                onChange={(e) => {
+                                  const countryId = e.target.value ? parseInt(e.target.value) : null;
+                                  setSelectedCountryId(countryId);
+                                  const selectedCountry = countries.find((c) => c.id === countryId);
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    address: { ...prev.address, country: selectedCountry?.name || "", state: "" },
+                                  }));
+                                  // Load states for selected country
+                                  if (countryId) {
+                                    GetState(countryId).then((result: any) => {
+                                      setStates(result);
+                                    });
+                                  } else {
+                                    setStates([]);
+                                  }
+                                }}
+                              >
+                                <option value="">Select Country</option>
+                                {countries.map((country) => (
+                                  <option key={country.id} value={country.id}>
+                                    {country.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="input-icon-addon">
+                                <i className="ti ti-chevron-down text-gray-7" />
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">State</label>
+                            <div className="input-icon-end position-relative">
+                              <select
+                                className="form-select"
+                                value={formData.address?.state || ""}
+                                disabled={!selectedCountryId}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    address: { ...prev.address, state: e.target.value },
+                                  }))
+                                }
+                              >
+                                <option value="">Select State</option>
+                                {states.map((state) => (
+                                  <option key={state.id} value={state.name}>
+                                    {state.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="input-icon-addon">
+                                <i className="ti ti-chevron-down text-gray-7" />
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Postal Code</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Enter postal code"
+                              name="postalCode"
+                              value={formData.address?.postalCode || ""}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  address: { ...prev.address, postalCode: e.target.value },
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Nationality <span className="text-danger"> *</span></label>
+                            <input
+                              type="text"
+                              className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
+                              placeholder="Enter nationality"
+                              name="nationality"
+                              value={formData.personal?.nationality || ""}
+                              onChange={(e) => {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  personal: { ...prev.personal, nationality: e.target.value }
+                                }));
+                                clearFieldError("nationality");
+                              }}
+                              onBlur={(e) => handleFieldBlur("nationality", e.target.value)}
+                            />
+                            {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Passport No</label>
+                            <input
+                              type="text"
+                              className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
+                              placeholder="Enter passport number"
+                              name="passportNo"
+                              value={formData.personal?.passport?.number || ""}
+                              onChange={(e) => {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  personal: {
+                                    ...prev.personal,
+                                    passport: { ...prev.personal?.passport, number: e.target.value }
+                                  },
+                                }));
+                                clearFieldError("passportNo");
+                              }}
+                              onBlur={(e) => handleFieldBlur("passportNo", e.target.value)}
+                            />
+                            {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Passport Expiry Date
+                              {formData.personal?.passport?.number && <span className="text-danger"> *</span>}
+                            </label>
+                            <div className="input-icon-end position-relative">
+                              <DatePicker
+                                className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
+                                format={{ format: "DD-MM-YYYY", type: "mask" }}
+                                getPopupContainer={getModalContainer}
+                                placeholder="DD-MM-YYYY"
+                                value={formData.personal?.passport?.expiryDate ? toDayjsDate(formData.personal.passport.expiryDate) : null}
+                                onChange={(_date, dateString) => {
+                                  const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    personal: {
+                                      ...prev.personal,
+                                      passport: { ...prev.personal?.passport, expiryDate: dateValue || null }
+                                    },
+                                  }));
+                                  clearFieldError("passportExpiryDate");
+                                }}
+                                disabled={!formData.personal?.passport?.number}
+                              />
+                              <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
+                            </div>
+                            {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Department <span className="text-danger"> *</span></label>
+                      {department.length === 0 ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/departments")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Department
+                          </button>
+                          <small className="text-muted d-block mt-2">No departments available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <CommonSelect
+                            className="select"
+                            options={department}
+                            defaultValue={department.find((opt) => opt.value === formData.departmentId)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setFormData((prev) => ({ ...prev, departmentId: option.value, designationId: "" }));
+                                setSelectedDepartment(option.value);
+                                setIsDesignationDisabled(false);
+                                if (option.value) {
+                                  setLoadingDesignations(true);
+                                  setDesignation([]);
+                                  fetchDesignations({ departmentId: option.value });
+                                }
+                              }
+                            }}
+                          />
+                          {fieldErrors.departmentId && <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Designation <span className="text-danger"> *</span></label>
+                      {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/designations")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Designation
+                          </button>
+                          <small className="text-muted d-block mt-2">No designations available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <CommonSelect
+                            className="select"
+                            options={designation}
+                            disabled={isDesignationDisabled}
+                            isLoading={loadingDesignations}
+                            defaultValue={designation.find((opt) => opt.value === formData.designationId)}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setFormData((prev) => ({ ...prev, designationId: option.value }));
+                                clearFieldError("designationId");
+                                handleFieldBlur("designationId", option.value);
+                              }
+                            }}
+                          />
+                          {fieldErrors.designationId && <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Reporting Manager <span className="text-muted">(Optional)</span></label>
+                      <CommonSelect
+                        className="select"
+                        options={managers}
+                        defaultValue={managers.find((opt) => opt.value === formData.reportingTo)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setFormData((prev) => ({ ...prev, reportingTo: option.value }));
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Shift Assignment <span className="text-danger">*</span></label>
+                      {shiftAssignmentOptions.directShifts.filter(opt => opt.value !== '').length === 0 &&
+                        shiftAssignmentOptions.shiftBatches.filter(opt => opt.value !== '').length === 0 ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/shifts-management")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Shift
+                          </button>
+                          <small className="text-muted d-block mt-2">No shifts available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <select
+                            className={`form-control ${fieldErrors.shiftAssignment ? 'is-invalid' : ''}`}
+                            value={selectedShiftAssignment.type ? `${selectedShiftAssignment.type}-${selectedShiftAssignment.value}` : 'no-shift'}
+                            onChange={(e) => {
+                              if (e.target.value === 'no-shift') {
+                                setSelectedShiftAssignment({ type: 'none', value: '' });
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  shiftId: '',
+                                  batchId: '',
+                                }));
+                                clearFieldError('shiftAssignment');
+                              } else {
+                                const [type, value] = e.target.value.split('-');
+                                setSelectedShiftAssignment({ type: type as 'shift' | 'batch', value });
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  shiftId: type === 'shift' ? value : '',
+                                  batchId: type === 'batch' ? value : '',
+                                }));
+                                clearFieldError('shiftAssignment');
+                              }
+                            }}
+                            onBlur={() => {
+                              if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !formData.shiftId && !formData.batchId) {
+                                setFieldErrors(prev => ({ ...prev, shiftAssignment: 'Shift assignment is required' }));
+                              }
+                            }}
+                          >
+                            <option value="no-shift">No Shift Assignment</option>
+                            <optgroup label="Direct Shifts">
+                              {shiftAssignmentOptions.directShifts
+                                .filter(opt => opt.value !== '')
+                                .map(opt => (
+                                  <option key={opt.value} value={`shift-${opt.value}`}>{opt.label}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="Shift Batches">
+                              {shiftAssignmentOptions.shiftBatches
+                                .filter(opt => opt.value !== '')
+                                .map(opt => (
+                                  <option key={opt.value} value={`batch-${opt.value}`}>{opt.label}</option>
+                                ))}
+                            </optgroup>
+                          </select>
+                          {fieldErrors.shiftAssignment && <div className="invalid-feedback d-block">{fieldErrors.shiftAssignment}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Employment Type</label>
+                      <select
+                        className="form-control"
+                        value={formData.employmentType}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, employmentType: e.target.value as any }))}
+                      >
+                        <option value="Full-time">Full-time</option>
+                        <option value="Part-time">Part-time</option>
+                        <option value="Contract">Contract</option>
+                        <option value="Intern">Intern</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">About</label>
+                      <textarea
+                        className="form-control"
+                        rows={4}
+                        value={formData.about}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, about: e.target.value }))}
+                        placeholder="Write something about the employee..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-light border me-2"
+                  data-bs-dismiss="modal"
+                  onClick={handleResetFormData}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={isValidating || loading}
+                  onClick={handleSubmit}
+                >
+                  {isValidating ? "Adding..." : `Add ${formData.account.role || "Employee"}`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

@@ -69,6 +69,7 @@ import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
 import auditRoutes from './routes/api/audit.js';
 import timesheetRoutes from './routes/api/timesheets.js';
+import emailChangeRoutes from './routes/api/emailChange.routes.js';
 
 // RBAC Routes
 import adminUsersRoutes from "./routes/api/admin.users.js";
@@ -214,6 +215,7 @@ const initializeServer = async () => {
 
     // REST API Routes (Socket.IO to REST Migration)
     app.use('/api/employees', employeeRoutes);
+    app.use('/api/employees', emailChangeRoutes);
     app.use('/api/projects', projectRoutes);
     app.use('/api/projectcontracts', projectContractRoutes);
     app.use('/api/subcontracts', subcontractRoutes);

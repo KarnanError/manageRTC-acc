@@ -6,6 +6,8 @@
  * for the native MongoDB driver (following the multi-tenant db.js pattern in this project).
  *
  * Collection: 'changeRequests' (stored in each company's tenant database)
+ *
+ * REDESIGNED: Now supports multiple fields per request with individual field-level approval.
  */
 
 /**
@@ -19,22 +21,44 @@
  *   employeeName: String - display name at time of request,
  *
  *   requestType: String (required) - one of:
- *     'bankDetails' | 'name' | 'phone' | 'address' | 'emergencyContact' | 'other',
+ *     'bankDetails' | 'name' | 'phone' | 'address' | 'emergencyContact' | 'other' | 'multiple',
  *
- *   fieldChanged: String (required) - dot-notation path, e.g. "bankDetails.accountNumber",
- *   fieldLabel: String - human-readable label, e.g. "Account Number",
+ *   // NEW: Array of fields in this request (replaces single fieldChanged)
+ *   fields: [
+ *     {
+ *       field: String (required) - dot-notation path, e.g. "bankDetails.accountNumber",
+ *       label: String - human-readable label, e.g. "Account Number",
+ *       oldValue: Mixed - snapshot of current value at time of request,
+ *       newValue: Mixed (required) - the requested new value,
+ *       status: String (default: 'pending') - 'pending' | 'approved' | 'rejected',
+ *       reviewNote: String - HR review note for this specific field,
+ *       reviewedAt: Date - when this field was reviewed
+ *     }
+ *   ],
  *
- *   oldValue: Mixed - snapshot of current value at time of request,
- *   newValue: Mixed (required) - the requested new value,
+ *   // Legacy fields (kept for backward compatibility, populated from first field)
+ *   fieldChanged: String - populated from fields[0].field,
+ *   fieldLabel: String - populated from fields[0].label,
+ *   oldValue: Mixed - populated from fields[0].oldValue,
+ *   newValue: Mixed - populated from fields[0].newValue,
+ *
  *   reason: String (required) - employee-provided reason for the change,
  *
- *   status: String (default: 'pending') - one of: 'pending' | 'approved' | 'rejected',
+ *   // Overall request status (computed from field statuses)
+ *   status: String (default: 'pending') - one of: 'pending' | 'partially_approved' | 'completed' | 'cancelled',
  *   requestedAt: Date (default: now),
  *
- *   reviewedBy: ObjectId - _id of HR/admin who reviewed,
+ *   // Request-level review info
+ *   reviewedBy: ObjectId - _id of HR/admin who last reviewed,
  *   reviewerName: String - display name of reviewer,
  *   reviewedAt: Date,
- *   reviewNote: String - HR rejection or approval note,
+ *   reviewNote: String - overall review note,
+ *
+ *   // Cancellation
+ *   cancelledBy: ObjectId - _id of user who cancelled (employee or HR),
+ *   cancelledByName: String,
+ *   cancelledAt: Date,
+ *   cancellationReason: String,
  *
  *   isDeleted: Boolean (default: false),
  *   createdAt: Date,
@@ -49,12 +73,36 @@ export const CHANGE_REQUEST_TYPES = [
   'address',
   'emergencyContact',
   'other',
+  'multiple', // New type for requests with multiple fields
 ];
 
-export const CHANGE_REQUEST_STATUSES = ['pending', 'approved', 'rejected'];
+export const CHANGE_REQUEST_STATUSES = ['pending', 'partially_approved', 'completed', 'cancelled'];
+
+export const FIELD_STATUSES = ['pending', 'approved', 'rejected'];
+
+/**
+ * Compute overall request status based on field statuses
+ * - pending: All fields are pending
+ * - partially_approved: Some fields approved/rejected, some pending
+ * - completed: All fields approved or rejected (no pending fields)
+ * - cancelled: Request was cancelled
+ */
+export function computeRequestStatus(fields, isCancelled = false) {
+  if (isCancelled) return 'cancelled';
+  if (!fields || fields.length === 0) return 'pending';
+
+  const pendingCount = fields.filter(f => f.status === 'pending').length;
+  const approvedCount = fields.filter(f => f.status === 'approved').length;
+  const rejectedCount = fields.filter(f => f.status === 'rejected').length;
+
+  if (pendingCount === fields.length) return 'pending';
+  if (pendingCount === 0) return 'completed';
+  return 'partially_approved';
+}
 
 /**
  * Build a new change request document for insertion into MongoDB.
+ * Supports both single field (legacy) and multiple fields (new).
  *
  * @param {object} params
  * @param {string} params.companyId
@@ -62,10 +110,7 @@ export const CHANGE_REQUEST_STATUSES = ['pending', 'approved', 'rejected'];
  * @param {import('mongodb').ObjectId} params.employeeObjectId
  * @param {string} params.employeeName
  * @param {string} params.requestType
- * @param {string} params.fieldChanged - dot-notation path of the changed field
- * @param {string} params.fieldLabel - human-readable field name
- * @param {*} params.oldValue - current value snapshot
- * @param {*} params.newValue - requested new value
+ * @param {Array} params.fields - Array of { field, label, oldValue, newValue }
  * @param {string} params.reason - employee reason for the change
  * @returns {object} MongoDB document ready to insert
  */
@@ -75,32 +120,84 @@ export function buildChangeRequestDocument({
   employeeObjectId,
   employeeName,
   requestType,
+  fields = [],
+  reason,
+  // Legacy single field support (for backward compatibility)
   fieldChanged,
   fieldLabel,
   oldValue,
   newValue,
-  reason,
 }) {
   const now = new Date();
+
+  // Support legacy single-field requests
+  let requestFields = fields;
+  if (!requestFields.length && fieldChanged) {
+    requestFields = [{
+      field: fieldChanged,
+      label: fieldLabel || fieldChanged,
+      oldValue: oldValue ?? null,
+      newValue,
+      status: 'pending',
+      reviewNote: null,
+      reviewedAt: null,
+    }];
+  }
+
+  // Initialize all fields with pending status
+  requestFields = requestFields.map(f => ({
+    field: f.field,
+    label: f.label || f.field,
+    oldValue: f.oldValue ?? null,
+    newValue: f.newValue,
+    status: f.status || 'pending',
+    reviewNote: f.reviewNote || null,
+    reviewedAt: f.reviewedAt || null,
+  }));
+
+  // Populate legacy fields from first field
+  const firstField = requestFields[0];
+
   return {
     companyId,
     employeeId,
     employeeObjectId,
     employeeName: employeeName || '',
-    requestType,
-    fieldChanged,
-    fieldLabel: fieldLabel || fieldChanged,
-    oldValue: oldValue ?? null,
-    newValue,
+    requestType: requestType || (requestFields.length > 1 ? 'multiple' : 'other'),
+    fields: requestFields,
+    // Legacy fields
+    fieldChanged: firstField?.field || null,
+    fieldLabel: firstField?.label || null,
+    oldValue: firstField?.oldValue || null,
+    newValue: firstField?.newValue || null,
     reason,
-    status: 'pending',
+    status: computeRequestStatus(requestFields),
     requestedAt: now,
     reviewedBy: null,
     reviewerName: null,
     reviewedAt: null,
     reviewNote: null,
+    // Cancellation
+    cancelledBy: null,
+    cancelledByName: null,
+    cancelledAt: null,
+    cancellationReason: null,
     isDeleted: false,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+/**
+ * Update the overall status of a change request based on field statuses
+ */
+export function updateRequestStatus(changeRequest) {
+  const isCancelled = !!changeRequest.cancelledAt;
+  const newStatus = computeRequestStatus(changeRequest.fields, isCancelled);
+
+  return {
+    ...changeRequest,
+    status: newStatus,
+    updatedAt: new Date(),
   };
 }

@@ -3,12 +3,19 @@
  * Handles employee-submitted change requests for sensitive profile fields.
  * Critical fields (bank details, name) go through HR approval before being applied.
  *
+ * REDESIGNED: Now supports multiple fields per request with individual field-level approval.
+ *
  * Routes:
- *   POST   /api/change-requests             → createChangeRequest      (employee)
- *   GET    /api/change-requests/my          → getMyChangeRequests      (employee)
- *   GET    /api/change-requests             → getAllChangeRequests      (HR/admin)
- *   PATCH  /api/change-requests/:id/approve → approveChangeRequest     (HR/admin)
- *   PATCH  /api/change-requests/:id/reject  → rejectChangeRequest      (HR/admin)
+ *   POST   /api/change-requests                     → createChangeRequest       (employee)
+ *   GET    /api/change-requests/my                  → getMyChangeRequests       (employee)
+ *   GET    /api/change-requests                     → getAllChangeRequests      (HR/admin)
+ *   PATCH  /api/change-requests/:id/approve         → approveChangeRequest      (HR/admin) - approves all pending fields
+ *   PATCH  /api/change-requests/:id/reject          → rejectChangeRequest       (HR/admin) - rejects all pending fields
+ *   PATCH  /api/change-requests/:id/field/:fieldIdx/approve → approveField      (HR/admin)
+ *   PATCH  /api/change-requests/:id/field/:fieldIdx/reject  → rejectField       (HR/admin)
+ *   PATCH  /api/change-requests/:id/cancel          → cancelChangeRequest       (employee/HR)
+ *   PATCH  /api/change-requests/:id/bulk-approve    → bulkApproveFields        (HR/admin)
+ *   PATCH  /api/change-requests/:id/bulk-reject     → bulkRejectFields         (HR/admin)
  */
 
 import { ObjectId } from 'mongodb';
@@ -29,11 +36,15 @@ import logger from '../../utils/logger.js';
 import {
   buildChangeRequestDocument,
   CHANGE_REQUEST_TYPES,
+  FIELD_STATUSES,
+  updateRequestStatus,
 } from '../../models/changeRequest/changeRequest.schema.js';
 
 // Fields that are allowed to be changed via change request
 const ALLOWED_CHANGE_FIELDS = {
   bankDetails: [
+    'bankDetails', // Allow entire bankDetails object for complete bank account changes
+    'bankDetails.accountHolderName',
     'bankDetails.bankName',
     'bankDetails.accountNumber',
     'bankDetails.ifscCode',
@@ -43,6 +54,7 @@ const ALLOWED_CHANGE_FIELDS = {
   name: ['firstName', 'lastName'],
   phone: ['phone'],
   address: [
+    'address', // Allow entire address object for complete address changes
     'address.street',
     'address.city',
     'address.state',
@@ -50,6 +62,7 @@ const ALLOWED_CHANGE_FIELDS = {
     'address.postalCode',
   ],
   emergencyContact: [
+    'emergencyContact', // Allow entire emergencyContact object for complete contact changes
     'emergencyContact.name',
     'emergencyContact.phone',
     'emergencyContact.relationship',
@@ -76,12 +89,24 @@ function getNestedValue(obj, path) {
   return path.split('.').reduce((curr, key) => curr?.[key], obj);
 }
 
+/**
+ * Set nested value using dot-notation path
+ */
+function setNestedValue(obj, path, value) {
+  const keys = path.split('.');
+  const lastKey = keys.pop();
+  const target = keys.reduce((curr, key) => curr[key] = curr[key] || {}, obj);
+  target[lastKey] = value;
+  return obj;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. CREATE CHANGE REQUEST (Employee submits a request)
+// 1. CREATE CHANGE REQUEST (Employee submits a request - can include multiple fields)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * @desc    Employee submits a change request for a sensitive profile field
+ * @desc    Employee submits a change request for sensitive profile fields
+ *          Supports both single field (legacy) and multiple fields in one request
  * @route   POST /api/change-requests
  * @access  Private (All authenticated users)
  */
@@ -92,68 +117,123 @@ export const createChangeRequest = asyncHandler(async (req, res) => {
     throw buildValidationError('companyId', 'Company ID is required');
   }
 
-  const { requestType, fieldChanged, fieldLabel, newValue, reason } = req.body;
+  const { requestType, fields, reason, fieldChanged, fieldLabel, oldValue, newValue } = req.body;
 
-  // Validate required fields
-  if (!requestType) throw buildValidationError('requestType', 'Request type is required');
-  if (!CHANGE_REQUEST_TYPES.includes(requestType)) {
-    throw buildValidationError('requestType', `Invalid request type. Must be one of: ${CHANGE_REQUEST_TYPES.join(', ')}`);
+  // Support both new (fields array) and legacy (single field) formats
+  let requestFields = fields;
+
+  // Legacy format: single field
+  if (!requestFields?.length && fieldChanged) {
+    requestFields = [{
+      field: fieldChanged,
+      label: fieldLabel || fieldChanged,
+      oldValue: oldValue ?? null,
+      newValue,
+    }];
   }
-  if (!fieldChanged) throw buildValidationError('fieldChanged', 'fieldChanged is required');
-  if (newValue === undefined || newValue === null) {
-    throw buildValidationError('newValue', 'New value is required');
+
+  // Validate fields array
+  if (!requestFields || !Array.isArray(requestFields) || requestFields.length === 0) {
+    throw buildValidationError('fields', 'At least one field must be provided');
   }
+
+  // Validate each field
+  for (const fieldData of requestFields) {
+    if (!fieldData.field) {
+      throw buildValidationError('fields.field', 'Each field must have a "field" property');
+    }
+    if (fieldData.newValue === undefined || fieldData.newValue === null) {
+      throw buildValidationError('fields.newValue', `New value is required for field: ${fieldData.field}`);
+    }
+
+    // Validate complex object fields
+    if (fieldData.field === 'bankDetails' && typeof fieldData.newValue === 'object') {
+      if (!fieldData.newValue.bankName || !fieldData.newValue.accountNumber ||
+          !fieldData.newValue.ifscCode || !fieldData.newValue.branch) {
+        throw buildValidationError('fields.newValue', 'Bank details must include: bankName, accountNumber, ifscCode, and branch');
+      }
+    }
+    if (fieldData.field === 'address' && typeof fieldData.newValue === 'object') {
+      if (!fieldData.newValue.city || !fieldData.newValue.state ||
+          !fieldData.newValue.country || !fieldData.newValue.postalCode) {
+        throw buildValidationError('fields.newValue', 'Address must include: city, state, country, and postalCode');
+      }
+    }
+    if (fieldData.field === 'emergencyContact' && typeof fieldData.newValue === 'object') {
+      if (!fieldData.newValue.name || !fieldData.newValue.phone || !fieldData.newValue.relationship) {
+        throw buildValidationError('fields.newValue', 'Emergency contact must include: name, phone, and relationship');
+      }
+    }
+
+    // Validate that the field is in the allowed list (unless requestType is 'other')
+    const actualRequestType = requestType || (requestFields.length > 1 ? 'multiple' : 'other');
+    if (actualRequestType !== 'other' && !ALL_ALLOWED_FIELDS.includes(fieldData.field)) {
+      throw buildValidationError('fields.field', `Field '${fieldData.field}' is not allowed for change requests`);
+    }
+  }
+
   if (!reason || reason.trim().length < 5) {
     throw buildValidationError('reason', 'Reason is required (minimum 5 characters)');
   }
 
-  // Validate that the field is in the allowed list (unless requestType is 'other')
-  if (requestType !== 'other' && !ALL_ALLOWED_FIELDS.includes(fieldChanged)) {
-    throw buildValidationError('fieldChanged', `Field '${fieldChanged}' is not allowed for change requests`);
-  }
-
   const collections = getTenantCollections(user.companyId);
 
-  // Find the employee record to get current value + ObjectId
+  // Find the employee record to get current values + ObjectId
   const employee = await collections.employees.findOne(
     { clerkUserId: user.userId, isDeleted: { $ne: true } },
-    { projection: { _id: 1, employeeId: 1, firstName: 1, lastName: 1, bankDetails: 1, phone: 1, address: 1, emergencyContact: 1 } }
+    {
+      projection: {
+        _id: 1,
+        employeeId: 1,
+        firstName: 1,
+        lastName: 1,
+        bankDetails: 1,
+        phone: 1,
+        address: 1,
+        emergencyContact: 1,
+      }
+    }
   );
 
   if (!employee) {
     throw buildNotFoundError('Employee', user.userId);
   }
 
-  // Check for duplicate pending request for the same field
+  // Check for duplicate pending requests for the same fields
+  const fieldPaths = requestFields.map(f => f.field);
   const existingPending = await collections.changeRequests.findOne({
     employeeObjectId: employee._id,
-    fieldChanged,
-    status: 'pending',
+    'fields.field': { $in: fieldPaths },
+    'fields.status': 'pending',
     isDeleted: { $ne: true },
   });
 
   if (existingPending) {
+    const duplicateFields = existingPending.fields
+      .filter(f => f.status === 'pending' && fieldPaths.includes(f.field))
+      .map(f => f.label || f.field);
     throw buildValidationError(
-      'fieldChanged',
-      `A pending change request for '${fieldLabel || fieldChanged}' already exists. Please wait for HR to review it.`
+      'fields',
+      `Pending change requests already exist for: ${duplicateFields.join(', ')}. Please wait for HR to review them.`
     );
   }
 
-  // Capture the current (old) value from the employee document
-  const oldValue = getNestedValue(employee, fieldChanged);
+  // Capture the current (old) values from the employee document for each field
+  const fieldsWithOldValues = requestFields.map(fieldData => ({
+    ...fieldData,
+    oldValue: getNestedValue(employee, fieldData.field),
+  }));
 
   const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+  const actualRequestType = requestType || (fieldsWithOldValues.length > 1 ? 'multiple' : 'other');
 
   const doc = buildChangeRequestDocument({
     companyId: user.companyId,
     employeeId: employee.employeeId || user.employeeId,
     employeeObjectId: employee._id,
     employeeName,
-    requestType,
-    fieldChanged,
-    fieldLabel: fieldLabel || fieldChanged,
-    oldValue,
-    newValue,
+    requestType: actualRequestType,
+    fields: fieldsWithOldValues,
     reason: reason.trim(),
   });
 
@@ -162,11 +242,11 @@ export const createChangeRequest = asyncHandler(async (req, res) => {
   logger.info('[ChangeRequest] Created change request', {
     id: result.insertedId,
     employeeId: doc.employeeId,
-    field: fieldChanged,
+    fieldCount: doc.fields.length,
     status: 'pending',
   });
 
-  return sendCreated(res, { ...doc, _id: result.insertedId }, 'Change request submitted successfully. HR will review it shortly.');
+  return sendCreated(res, { ...doc, _id: result.insertedId }, `Change request submitted successfully with ${doc.fields.length} field(s). HR will review it shortly.`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +304,7 @@ export const getMyChangeRequests = asyncHandler(async (req, res) => {
 
   const pagination = buildPagination(pageNum, limitNum, total);
 
-  return sendSuccess(res, requests, 'Change requests retrieved successfully', pagination);
+  return sendSuccess(res, requests, 'Change requests retrieved successfully', 200, pagination);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,19 +353,289 @@ export const getAllChangeRequests = asyncHandler(async (req, res) => {
 
   const pagination = buildPagination(pageNum, limitNum, total);
 
-  return sendSuccess(res, requests, 'Change requests retrieved successfully', pagination);
+  return sendSuccess(res, requests, 'Change requests retrieved successfully', 200, pagination);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. APPROVE CHANGE REQUEST (HR applies the change to the employee document)
+// 4. FIELD-LEVEL APPROVE/REJECT
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * @desc    Approve a change request — applies newValue to the employee document
- * @route   PATCH /api/change-requests/:id/approve
+ * Approve a specific field within a change request
+ */
+async function approveFieldInRequest(collections, requestId, fieldIndex, reviewer, reviewNote) {
+  const changeRequest = await collections.changeRequests.findOne({
+    _id: new ObjectId(requestId),
+    isDeleted: { $ne: true },
+  });
+
+  if (!changeRequest) {
+    throw buildNotFoundError('Change Request', requestId);
+  }
+
+  if (changeRequest.status === 'cancelled') {
+    throw buildValidationError('status', 'This request has been cancelled');
+  }
+
+  if (!changeRequest.fields[fieldIndex]) {
+    throw buildValidationError('fieldIndex', `Field at index ${fieldIndex} not found`);
+  }
+
+  if (changeRequest.fields[fieldIndex].status !== 'pending') {
+    throw buildValidationError('status', `Field is already ${changeRequest.fields[fieldIndex].status}`);
+  }
+
+  const field = changeRequest.fields[fieldIndex];
+
+  // Apply the newValue to the employee document
+  let valueToApply = field.newValue;
+  if (typeof valueToApply === 'string' && ['bankDetails', 'address', 'emergencyContact'].includes(field.field)) {
+    try {
+      valueToApply = JSON.parse(valueToApply);
+    } catch (e) {
+      // If parsing fails, use the original value
+    }
+  }
+
+  // Convert IFSC code to uppercase before saving
+  if (field.field === 'bankDetails.ifscCode' && typeof valueToApply === 'string') {
+    valueToApply = valueToApply.toUpperCase();
+  }
+
+  await collections.employees.updateOne(
+    { _id: changeRequest.employeeObjectId, isDeleted: { $ne: true } },
+    { $set: { [field.field]: valueToApply, updatedAt: new Date() } }
+  );
+
+  // Update field status
+  const fieldUpdatePath = `fields.${fieldIndex}.status`;
+  const fieldReviewNotePath = `fields.${fieldIndex}.reviewNote`;
+  const fieldReviewedAtPath = `fields.${fieldIndex}.reviewedAt`;
+
+  const now = new Date();
+  await collections.changeRequests.updateOne(
+    { _id: new ObjectId(requestId) },
+    {
+      $set: {
+        [fieldUpdatePath]: 'approved',
+        [fieldReviewNotePath]: reviewNote?.trim() || null,
+        [fieldReviewedAtPath]: now,
+        reviewedBy: reviewer._id,
+        reviewerName: reviewer.name,
+        reviewedAt: now,
+        updatedAt: now,
+      },
+    }
+  );
+
+  // Fetch updated request to compute new status
+  const updatedRequest = await collections.changeRequests.findOne({
+    _id: new ObjectId(requestId),
+  });
+
+  const updatedWithStatus = updateRequestStatus(updatedRequest);
+
+  // Update overall status if needed
+  if (updatedWithStatus.status !== updatedRequest.status) {
+    await collections.changeRequests.updateOne(
+      { _id: new ObjectId(requestId) },
+      { $set: { status: updatedWithStatus.status, updatedAt: now } }
+    );
+  }
+
+  logger.info('[ChangeRequest] Approved field in change request', {
+    id: requestId,
+    fieldIndex,
+    field: field.field,
+    employeeId: changeRequest.employeeId,
+  });
+
+  return { ...updatedRequest, _id: updatedRequest._id };
+}
+
+/**
+ * Reject a specific field within a change request
+ */
+async function rejectFieldInRequest(collections, requestId, fieldIndex, reviewer, reviewNote) {
+  const changeRequest = await collections.changeRequests.findOne({
+    _id: new ObjectId(requestId),
+    isDeleted: { $ne: true },
+  });
+
+  if (!changeRequest) {
+    throw buildNotFoundError('Change Request', requestId);
+  }
+
+  if (changeRequest.status === 'cancelled') {
+    throw buildValidationError('status', 'This request has been cancelled');
+  }
+
+  if (!changeRequest.fields[fieldIndex]) {
+    throw buildValidationError('fieldIndex', `Field at index ${fieldIndex} not found`);
+  }
+
+  if (changeRequest.fields[fieldIndex].status !== 'pending') {
+    throw buildValidationError('status', `Field is already ${changeRequest.fields[fieldIndex].status}`);
+  }
+
+  if (!reviewNote || reviewNote.trim().length < 5) {
+    throw buildValidationError('reviewNote', 'Rejection reason is required (minimum 5 characters)');
+  }
+
+  const field = changeRequest.fields[fieldIndex];
+
+  // Update field status to rejected (don't apply to employee)
+  const fieldUpdatePath = `fields.${fieldIndex}.status`;
+  const fieldReviewNotePath = `fields.${fieldIndex}.reviewNote`;
+  const fieldReviewedAtPath = `fields.${fieldIndex}.reviewedAt`;
+
+  const now = new Date();
+  await collections.changeRequests.updateOne(
+    { _id: new ObjectId(requestId) },
+    {
+      $set: {
+        [fieldUpdatePath]: 'rejected',
+        [fieldReviewNotePath]: reviewNote.trim(),
+        [fieldReviewedAtPath]: now,
+        reviewedBy: reviewer._id,
+        reviewerName: reviewer.name,
+        reviewedAt: now,
+        updatedAt: now,
+      },
+    }
+  );
+
+  // Fetch updated request to compute new status
+  const updatedRequest = await collections.changeRequests.findOne({
+    _id: new ObjectId(requestId),
+  });
+
+  const updatedWithStatus = updateRequestStatus(updatedRequest);
+
+  // Update overall status if needed
+  if (updatedWithStatus.status !== updatedRequest.status) {
+    await collections.changeRequests.updateOne(
+      { _id: new ObjectId(requestId) },
+      { $set: { status: updatedWithStatus.status, updatedAt: now } }
+    );
+  }
+
+  logger.info('[ChangeRequest] Rejected field in change request', {
+    id: requestId,
+    fieldIndex,
+    field: field.field,
+    employeeId: changeRequest.employeeId,
+  });
+
+  return { ...updatedRequest, _id: updatedRequest._id };
+}
+
+/**
+ * @desc    Approve a specific field within a change request
+ * @route   PATCH /api/change-requests/:id/field/:fieldIdx/approve
  * @access  Private (HR, Admin, Superadmin)
  */
-export const approveChangeRequest = asyncHandler(async (req, res) => {
+export const approveField = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!isHROrAdmin(user.role)) {
+    throw buildForbiddenError('Only HR or Admin can approve change requests');
+  }
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const { id, fieldIdx } = req.params;
+  const { reviewNote } = req.body;
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid change request ID');
+  }
+
+  const fieldIndex = parseInt(fieldIdx);
+  if (isNaN(fieldIndex) || fieldIndex < 0) {
+    throw buildValidationError('fieldIdx', 'Invalid field index');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Get the reviewer's employee record
+  const reviewerDoc = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, firstName: 1, lastName: 1 } }
+  );
+  const reviewer = {
+    _id: reviewerDoc?._id || null,
+    name: reviewerDoc ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() : user.email || 'HR',
+  };
+
+  const updatedRequest = await approveFieldInRequest(collections, id, fieldIndex, reviewer, reviewNote);
+
+  const field = updatedRequest.fields[fieldIndex];
+  return sendSuccess(res, updatedRequest, `Field "${field.label}" approved successfully.`);
+});
+
+/**
+ * @desc    Reject a specific field within a change request
+ * @route   PATCH /api/change-requests/:id/field/:fieldIdx/reject
+ * @access  Private (HR, Admin, Superadmin)
+ */
+export const rejectField = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!isHROrAdmin(user.role)) {
+    throw buildForbiddenError('Only HR or Admin can reject change requests');
+  }
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const { id, fieldIdx } = req.params;
+  const { reviewNote } = req.body;
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid change request ID');
+  }
+
+  const fieldIndex = parseInt(fieldIdx);
+  if (isNaN(fieldIndex) || fieldIndex < 0) {
+    throw buildValidationError('fieldIdx', 'Invalid field index');
+  }
+
+  if (!reviewNote || reviewNote.trim().length < 5) {
+    throw buildValidationError('reviewNote', 'Rejection reason is required (minimum 5 characters)');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  // Get the reviewer's employee record
+  const reviewerDoc = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, firstName: 1, lastName: 1 } }
+  );
+  const reviewer = {
+    _id: reviewerDoc?._id || null,
+    name: reviewerDoc ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() : user.email || 'HR',
+  };
+
+  const updatedRequest = await rejectFieldInRequest(collections, id, fieldIndex, reviewer, reviewNote);
+
+  const field = updatedRequest.fields[fieldIndex];
+  return sendSuccess(res, updatedRequest, `Field "${field.label}" rejected.`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. BULK APPROVE/REJECT ALL PENDING FIELDS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Approve all pending fields in a change request
+ * @route   PATCH /api/change-requests/:id/bulk-approve
+ * @access  Private (HR, Admin, Superadmin)
+ */
+export const bulkApproveFields = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
   if (!isHROrAdmin(user.role)) {
@@ -305,7 +655,6 @@ export const approveChangeRequest = asyncHandler(async (req, res) => {
 
   const collections = getTenantCollections(user.companyId);
 
-  // Find the change request
   const changeRequest = await collections.changeRequests.findOne({
     _id: new ObjectId(id),
     isDeleted: { $ne: true },
@@ -315,70 +664,48 @@ export const approveChangeRequest = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Change Request', id);
   }
 
-  if (changeRequest.status !== 'pending') {
-    throw buildValidationError('status', `This change request is already ${changeRequest.status}`);
+  if (changeRequest.status === 'cancelled') {
+    throw buildValidationError('status', 'This request has been cancelled');
   }
 
-  // Get the reviewer's employee record for their name
-  const reviewer = await collections.employees.findOne(
+  // Get the reviewer's employee record
+  const reviewerDoc = await collections.employees.findOne(
     { clerkUserId: user.userId, isDeleted: { $ne: true } },
     { projection: { _id: 1, firstName: 1, lastName: 1 } }
   );
-  const reviewerName = reviewer
-    ? `${reviewer.firstName || ''} ${reviewer.lastName || ''}`.trim()
-    : user.email || 'HR';
-
-  // Apply the newValue to the employee document using dot-notation field path
-  const updateSet = {
-    [changeRequest.fieldChanged]: changeRequest.newValue,
-    updatedAt: new Date(),
+  const reviewer = {
+    _id: reviewerDoc?._id || null,
+    name: reviewerDoc ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() : user.email || 'HR',
   };
 
-  const employeeUpdateResult = await collections.employees.updateOne(
-    { _id: changeRequest.employeeObjectId, isDeleted: { $ne: true } },
-    { $set: updateSet }
-  );
+  const pendingFields = changeRequest.fields
+    .map((f, idx) => ({ ...f, index: idx }))
+    .filter(f => f.status === 'pending');
 
-  if (employeeUpdateResult.matchedCount === 0) {
-    throw buildNotFoundError('Employee', changeRequest.employeeId);
+  if (pendingFields.length === 0) {
+    throw buildValidationError('status', 'No pending fields to approve');
   }
 
-  // Mark the change request as approved
-  const now = new Date();
-  await collections.changeRequests.updateOne(
-    { _id: new ObjectId(id) },
-    {
-      $set: {
-        status: 'approved',
-        reviewedBy: reviewer?._id || null,
-        reviewerName,
-        reviewedAt: now,
-        reviewNote: reviewNote?.trim() || null,
-        updatedAt: now,
-      },
-    }
-  );
+  // Approve each pending field
+  for (const field of pendingFields) {
+    await approveFieldInRequest(collections, id, field.index, reviewer, reviewNote);
+  }
 
-  logger.info('[ChangeRequest] Approved change request', {
+  logger.info('[ChangeRequest] Bulk approved fields', {
     id,
-    field: changeRequest.fieldChanged,
+    count: pendingFields.length,
     employeeId: changeRequest.employeeId,
-    reviewedBy: user.userId,
   });
 
-  return sendSuccess(res, { id, status: 'approved' }, `Change request approved. Employee's ${changeRequest.fieldLabel || changeRequest.fieldChanged} has been updated.`);
+  return sendSuccess(res, { id, approvedCount: pendingFields.length }, `Approved ${pendingFields.length} field(s) successfully.`);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. REJECT CHANGE REQUEST (HR declines the change)
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
- * @desc    Reject a change request — no change applied to employee document
- * @route   PATCH /api/change-requests/:id/reject
+ * @desc    Reject all pending fields in a change request
+ * @route   PATCH /api/change-requests/:id/bulk-reject
  * @access  Private (HR, Admin, Superadmin)
  */
-export const rejectChangeRequest = asyncHandler(async (req, res) => {
+export const bulkRejectFields = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
   if (!isHROrAdmin(user.role)) {
@@ -411,41 +738,156 @@ export const rejectChangeRequest = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Change Request', id);
   }
 
-  if (changeRequest.status !== 'pending') {
-    throw buildValidationError('status', `This change request is already ${changeRequest.status}`);
+  if (changeRequest.status === 'cancelled') {
+    throw buildValidationError('status', 'This request has been cancelled');
   }
 
-  // Get the reviewer's name
-  const reviewer = await collections.employees.findOne(
+  // Get the reviewer's employee record
+  const reviewerDoc = await collections.employees.findOne(
     { clerkUserId: user.userId, isDeleted: { $ne: true } },
     { projection: { _id: 1, firstName: 1, lastName: 1 } }
   );
-  const reviewerName = reviewer
-    ? `${reviewer.firstName || ''} ${reviewer.lastName || ''}`.trim()
-    : user.email || 'HR';
+  const reviewer = {
+    _id: reviewerDoc?._id || null,
+    name: reviewerDoc ? `${reviewerDoc.firstName || ''} ${reviewerDoc.lastName || ''}`.trim() : user.email || 'HR',
+  };
+
+  const pendingFields = changeRequest.fields
+    .map((f, idx) => ({ ...f, index: idx }))
+    .filter(f => f.status === 'pending');
+
+  if (pendingFields.length === 0) {
+    throw buildValidationError('status', 'No pending fields to reject');
+  }
+
+  // Reject each pending field
+  for (const field of pendingFields) {
+    await rejectFieldInRequest(collections, id, field.index, reviewer, reviewNote);
+  }
+
+  logger.info('[ChangeRequest] Bulk rejected fields', {
+    id,
+    count: pendingFields.length,
+    employeeId: changeRequest.employeeId,
+  });
+
+  return sendSuccess(res, { id, rejectedCount: pendingFields.length }, `Rejected ${pendingFields.length} field(s).`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CANCEL REQUEST (Employee or HR can cancel pending request)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Cancel a pending change request
+ * @route   PATCH /api/change-requests/:id/cancel
+ * @access  Private (Employee can cancel own, HR can cancel any)
+ */
+export const cancelChangeRequest = asyncHandler(async (req, res) => {
+  const user = extractUser(req);
+
+  if (!user.companyId) {
+    throw buildValidationError('companyId', 'Company ID is required');
+  }
+
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid change request ID');
+  }
+
+  if (!reason || reason.trim().length < 5) {
+    throw buildValidationError('reason', 'Cancellation reason is required (minimum 5 characters)');
+  }
+
+  const collections = getTenantCollections(user.companyId);
+
+  const changeRequest = await collections.changeRequests.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true },
+  });
+
+  if (!changeRequest) {
+    throw buildNotFoundError('Change Request', id);
+  }
+
+  // Check if user owns this request or is HR
+  const employee = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1 } }
+  );
+
+  const isOwner = employee && employee._id.equals(changeRequest.employeeObjectId);
+  const isHR = isHROrAdmin(user.role);
+
+  if (!isOwner && !isHR) {
+    throw buildForbiddenError('You can only cancel your own change requests');
+  }
+
+  if (changeRequest.status === 'cancelled') {
+    throw buildValidationError('status', 'This request is already cancelled');
+  }
+
+  // Check if any fields are already approved (cannot cancel if any field is approved)
+  const hasApprovedFields = changeRequest.fields.some(f => f.status === 'approved');
+  if (hasApprovedFields) {
+    throw buildValidationError('status', 'Cannot cancel request: some fields have already been approved');
+  }
+
+  // Get the canceller's info
+  const cancellerDoc = await collections.employees.findOne(
+    { clerkUserId: user.userId, isDeleted: { $ne: true } },
+    { projection: { _id: 1, firstName: 1, lastName: 1 } }
+  );
+  const cancellerName = cancellerDoc
+    ? `${cancellerDoc.firstName || ''} ${cancellerDoc.lastName || ''}`.trim()
+    : user.email || 'User';
 
   const now = new Date();
   await collections.changeRequests.updateOne(
     { _id: new ObjectId(id) },
     {
       $set: {
-        status: 'rejected',
-        reviewedBy: reviewer?._id || null,
-        reviewerName,
-        reviewedAt: now,
-        reviewNote: reviewNote.trim(),
+        status: 'cancelled',
+        cancelledBy: cancellerDoc?._id || null,
+        cancelledByName: cancellerName,
+        cancelledAt: now,
+        cancellationReason: reason.trim(),
         updatedAt: now,
       },
     }
   );
 
-  logger.info('[ChangeRequest] Rejected change request', {
+  logger.info('[ChangeRequest] Cancelled change request', {
     id,
-    field: changeRequest.fieldChanged,
     employeeId: changeRequest.employeeId,
-    reviewedBy: user.userId,
-    reviewNote: reviewNote.trim(),
+    cancelledBy: user.userId,
   });
 
-  return sendSuccess(res, { id, status: 'rejected' }, 'Change request rejected.');
+  return sendSuccess(res, { id, status: 'cancelled' }, 'Change request cancelled successfully.');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. LEGACY APPROVE/REJECT ENDPOINTS (for backward compatibility - approve all fields)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Approve a change request — approves all pending fields and applies to employee
+ * @route   PATCH /api/change-requests/:id/approve
+ * @access  Private (HR, Admin, Superadmin)
+ */
+export const approveChangeRequest = asyncHandler(async (req, res) => {
+  // Redirect to bulk approve
+  return bulkApproveFields(req, res);
+});
+
+/**
+ * @desc    Reject a change request — rejects all pending fields
+ * @route   PATCH /api/change-requests/:id/reject
+ * @access  Private (HR, Admin, Superadmin)
+ */
+export const rejectChangeRequest = asyncHandler(async (req, res) => {
+  // Redirect to bulk reject
+  return bulkRejectFields(req, res);
 });

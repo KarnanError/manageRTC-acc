@@ -10,14 +10,14 @@ import leaveEncashmentController from '../../controllers/leaves/leaveEncashment.
 import leaveLedgerController from '../../controllers/leaves/leaveLedger.controller.js';
 import leaveAttendanceSyncController from '../../controllers/leaves/leaveAttendanceSync.controller.js';
 import leaveController from '../../controllers/rest/leave.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requireEmployeeActive, requireRole } from '../../middleware/auth.js';
 import { clockInOutRateLimiter, bulkRateLimiter } from '../../middleware/rateLimiter.js';
 import { sanitizeBody, sanitizeQuery } from '../../utils/sanitize.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
+// All routes require authentication AND active employee status
+router.use(authenticate, requireEmployeeActive);
 
 /**
  * @route   GET /api/leaves
