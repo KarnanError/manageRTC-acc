@@ -7,11 +7,11 @@ import CollapseHeader from '../../../core/common/collapse-header/collapse-header
 import CommonSelect from '../../../core/common/commonSelect';
 import Footer from '../../../core/common/footer';
 import ImageWithBasePath from '../../../core/common/imageWithBasePath';
+import { ChangeRequestsModal } from '../../../core/modals/ChangeRequestsModal';
 import EditEmployeeModal from '../../../core/modals/EditEmployeeModal';
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
-import { ChangeRequestsModal } from '../../../core/modals/ChangeRequestsModal';
 import { useSocket } from '../../../SocketContext';
 import { all_routes } from '../../router/all_routes';
 // REST API Hooks for HRM operations
@@ -20,6 +20,7 @@ import { useBatchesREST } from '../../../hooks/useBatchesREST';
 import { useChangeRequestREST } from '../../../hooks/useChangeRequestREST';
 import { useDepartmentsREST } from '../../../hooks/useDepartmentsREST';
 import { useDesignationsREST } from '../../../hooks/useDesignationsREST';
+import { useEmailChange } from '../../../hooks/useEmailChange';
 import { useEmployeesREST } from '../../../hooks/useEmployeesREST';
 import {
   usePoliciesREST,
@@ -30,7 +31,6 @@ import { usePromotionsREST, type Promotion } from '../../../hooks/usePromotionsR
 import { useResignationsREST, type Resignation } from '../../../hooks/useResignationsREST';
 import { useShiftsREST } from '../../../hooks/useShiftsREST';
 import { useTerminationsREST, type Termination } from '../../../hooks/useTerminationsREST';
-import { useEmailChange } from '../../../hooks/useEmailChange';
 import { resolveDesignation } from '../../../utils/designationUtils';
 
 import type { Dayjs } from 'dayjs';
@@ -186,6 +186,7 @@ interface PersonalInfo {
   noOfChildren: number;
   passport: Passport;
   address: Address;
+  nationality?: string;
 }
 
 interface ContactInfo {
@@ -301,6 +302,8 @@ export interface Employee {
   dateOfBirth?: string;
   address?: Address;
   passport?: Passport;
+  personal?: PersonalInfo;
+  nationality?: string;
   account?: AccountInfo;
   emergencyContacts?: EmergencyContact | EmergencyContact[]; // legacy array format
   emergencyContact?: EmergencyContact; // canonical flat format
@@ -4985,10 +4988,9 @@ const EmployeeDetails = () => {
                   <label className="form-label">New Email Address</label>
                   <input
                     type="email"
-                    className={`form-control ${
-                      emailVerification.available === false ? 'is-invalid' :
+                    className={`form-control ${emailVerification.available === false ? 'is-invalid' :
                       emailVerification.available === true ? 'is-valid' : ''
-                    }`}
+                      }`}
                     placeholder="Enter new email address"
                     value={emailChangeData.newEmail}
                     onChange={(e) => handleEmailInputChange(e.target.value)}
@@ -4998,11 +5000,10 @@ const EmployeeDetails = () => {
 
                 {/* Verification Status Message */}
                 {emailVerification.message && (
-                  <div className={`small mb-3 p-2 rounded ${
-                    emailVerification.available === true ? 'text-success bg-success-subtle' :
+                  <div className={`small mb-3 p-2 rounded ${emailVerification.available === true ? 'text-success bg-success-subtle' :
                     emailVerification.available === false ? 'text-danger bg-danger-subtle' :
-                    'text-muted bg-light'
-                  }`}>
+                      'text-muted bg-light'
+                    }`}>
                     {emailVerification.available === true && <i className="ti ti-check me-1"></i>}
                     {emailVerification.available === false && <i className="ti ti-x me-1"></i>}
                     {emailVerification.message}
@@ -5100,7 +5101,7 @@ const EmployeeDetails = () => {
                           toast.success('Email updated successfully! Please check your new email for login credentials.');
                           // Refresh employee data
                           if (employeeId) {
-                            employeesREST.getEmployeeById(employeeId).then(setEmployee);
+                            employeesREST.getEmployeeById(employeeId).then((emp) => setEmployee(emp as unknown as Employee));
                           }
                         }
                       }}
