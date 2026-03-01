@@ -292,12 +292,25 @@ const normalizeExperiencePayload = (experienceData: any) =>
     currentlyWorking: entry?.currentlyWorking ?? entry?.current ?? false
   }));
 
-const normalizeEmergencyContactsPayload = (emergencyContacts: any) =>
-  toArray(emergencyContacts).map((entry) => ({
-    name: entry?.name || '',
-    relationship: entry?.relationship || '',
-    phone: Array.isArray(entry?.phone) ? entry.phone : entry?.phone ? [entry.phone] : []
-  }));
+/**
+ * Normalize emergency contact to canonical flat format.
+ * Accepts either the old array format [{name, phone: [p1,p2], relationship}]
+ * or the new flat format {name, phone, phone2, relationship}.
+ * Always returns the flat format as the single source of truth.
+ */
+const normalizeEmergencyContactPayload = (input: any): { name: string; phone: string; phone2: string; relationship: string } => {
+  // Handle array input (old employeedetails format)
+  const entry = Array.isArray(input) ? input[0] : input;
+  if (!entry) return { name: '', phone: '', phone2: '', relationship: '' };
+  // phone may be stored as string or array
+  const phoneArr = Array.isArray(entry.phone) ? entry.phone : entry.phone ? [entry.phone] : [];
+  return {
+    name: entry.name || '',
+    relationship: entry.relationship || '',
+    phone: phoneArr[0] || entry.phone1 || '',
+    phone2: phoneArr[1] || entry.phone2 || '',
+  };
+};
 
 /**
  * Employees REST API Hook
@@ -704,6 +717,9 @@ export const useEmployeesREST = () => {
   /**
    * Update employee bank details
    * REST API: PUT /api/employees/:id
+   *
+   * NOTE: Uses canonical field name 'bankDetails' to match database schema
+   * Legacy 'bank' field is no longer supported
    */
   const updateBankDetails = useCallback(async (
     employeeId: string,
@@ -712,8 +728,9 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
+      // Use canonical field name 'bankDetails' (not 'bank') to match database schema
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        bank: bankData
+        bankDetails: bankData
       });
 
       if (response.success) {
@@ -798,9 +815,10 @@ export const useEmployeesREST = () => {
     setLoading(true);
     setError(null);
     try {
-      const normalizedEmergencyContacts = normalizeEmergencyContactsPayload(emergencyContacts);
+      // Canonical format: emergencyContact (singular flat object, phone as strings)
+      const normalizedEmergencyContacts = normalizeEmergencyContactPayload(emergencyContacts);
       const response: ApiResponse = await put(`/employees/${employeeId}`, {
-        emergencyContacts: normalizedEmergencyContacts
+        emergencyContact: normalizedEmergencyContacts
       });
 
       if (response.success) {
@@ -1200,6 +1218,43 @@ export const useEmployeesREST = () => {
     fetchEmployeesWithStats();
   }, []);
 
+  // Send credentials email to employee (generates new password)
+  const sendCredentials = useCallback(async (employeeId: string): Promise<boolean> => {
+    try {
+      const response: ApiResponse = await post(`/employees/${employeeId}/send-credentials`, {});
+      if (response.success) {
+        message.success('Credentials sent to employee email successfully');
+        return true;
+      } else {
+        message.error(response.error?.message || 'Failed to send credentials');
+        return false;
+      }
+    } catch (err) {
+      message.error('Failed to send credentials. Please try again.');
+      return false;
+    }
+  }, []);
+
+  // HR/Admin changes employee password (no current password required)
+  const changeEmployeePassword = useCallback(async (
+    employeeId: string,
+    data: { newPassword: string; confirmPassword: string }
+  ): Promise<boolean> => {
+    try {
+      const response: ApiResponse = await post(`/employees/${employeeId}/change-password`, data);
+      if (response.success) {
+        message.success('Password updated and notification sent to employee');
+        return true;
+      } else {
+        message.error(response.error?.message || 'Failed to change password');
+        return false;
+      }
+    } catch (err) {
+      message.error('Failed to change password. Please try again.');
+      return false;
+    }
+  }, []);
+
   return {
     employees,
     stats,
@@ -1230,7 +1285,9 @@ export const useEmployeesREST = () => {
     checkEmailAvailability,
     checkLifecycleStatus,
     uploadProfileImage,
-    deleteProfileImage
+    deleteProfileImage,
+    sendCredentials,
+    changeEmployeePassword,
   };
 };
 

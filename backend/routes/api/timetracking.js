@@ -100,7 +100,8 @@ router.get(
 );
 
 /**
- * Admin/HR Routes (Restricted access)
+ * Manager-Level Routes (Admin/HR/Superadmin + Project Managers + Team Leaders)
+ * Role authorization is handled inside the controller via getUserProjectScope().
  * IMPORTANT: These static routes must be defined BEFORE /:id to avoid being swallowed by the param route
  */
 
@@ -109,7 +110,6 @@ router.get(
   '/',
   authenticate,
   requireCompany,
-  requireRole('admin', 'hr', 'superadmin'),
   getTimeEntries
 );
 
@@ -118,7 +118,6 @@ router.get(
   '/stats',
   authenticate,
   requireCompany,
-  requireRole('admin', 'hr', 'superadmin'),
   getTimeTrackingStats
 );
 
@@ -127,7 +126,6 @@ router.post(
   '/approve',
   authenticate,
   requireCompany,
-  requireRole('admin', 'hr', 'superadmin'),
   approveTimesheet
 );
 
@@ -136,7 +134,6 @@ router.post(
   '/reject',
   authenticate,
   requireCompany,
-  requireRole('admin', 'hr', 'superadmin'),
   rejectTimesheet
 );
 

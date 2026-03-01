@@ -26,11 +26,12 @@ const employeeDashboardController = (socket, io) => {
             );
             throw new Error("Unauthorized: Company ID mismatch");
         }
-        // Case-insensitive role check (metadata role may be capitalized)
+        // Case-insensitive role check — HR/admin/manager are also employees and can view their own dashboard
         const userRole = (socket.userMetadata?.role || '').toLowerCase();
-        if (userRole !== "employee") {
-            devError(`[Employee] Unauthorized role: ${socket.userMetadata?.role}, employee role required`);
-            throw new Error("Unauthorized: Employee role required");
+        const allowedRoles = ["employee", "hr", "admin", "manager"];
+        if (!allowedRoles.includes(userRole)) {
+            devError(`[Employee] Unauthorized role: ${socket.userMetadata?.role}, one of ${allowedRoles.join("|")} required`);
+            throw new Error("Unauthorized: Employee dashboard access required");
         }
         return { companyId: socket.companyId, employeeId: socket.user?.sub };
     };

@@ -5,13 +5,13 @@
 
 import express from 'express';
 import resignationController from '../../controllers/rest/resignation.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requireEmployeeActive, requireRole } from '../../middleware/auth.js';
 import { commonSchemas, resignationSchemas, validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
+// All routes require authentication AND active employee status
+router.use(authenticate, requireEmployeeActive);
 
 /**
  * @route   GET /api/resignations/stats

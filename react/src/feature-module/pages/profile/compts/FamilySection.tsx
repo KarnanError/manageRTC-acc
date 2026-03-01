@@ -63,9 +63,9 @@ export const FamilySection: React.FC<FamilySectionProps> = ({
             <div className="col-md-6 mb-3" key={index}>
               <div className="card bg-light">
                 <div className="card-body">
-                  <p className="mb-1 fw-medium">{fam.name || 'N/A'}</p>
+                  <p className="mb-1 fw-medium">{fam.name || '--'}</p>
                   <p className="mb-0 text-muted small">
-                    {fam.relationship || 'N/A'} {fam.phone && `• ${fam.phone}`}
+                    {fam.relationship || '--'} {fam.phone && `• ${fam.phone}`}
                   </p>
                 </div>
               </div>

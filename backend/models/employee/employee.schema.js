@@ -39,7 +39,9 @@ const addressSchema = new mongoose.Schema({
 
 /**
  * Personal Information Sub-schema
- * Additional personal details for employee profile
+ * Additional personal details stored at root level for API convenience
+ * This contains fields that are not part of the core employee record but are still personal in nature
+ * Core fields (gender, dateOfBirth, address) are kept at root level for easier access
  */
 const personalInfoSchema = new mongoose.Schema({
   passport: {
@@ -380,9 +382,11 @@ const employeeSchema = new mongoose.Schema({
 
   // Bank Details
   bankDetails: {
+    accountHolderName: String,
     bankName: String,
     accountNumber: String,
     ifscCode: String,
+    branch: String,
     accountType: {
       type: String,
       enum: ['Savings', 'Current']
@@ -422,7 +426,26 @@ const employeeSchema = new mongoose.Schema({
     sparse: true
   },
 
-  // User Role
+  // Account Information (for internal auth, password storage)
+  // Note: Primary authentication is via Clerk, but we store credentials here for reference
+  account: {
+    userName: {
+      type: String,
+      trim: true
+    },
+    password: {
+      type: String,
+      trim: true
+    },
+    role: {
+      type: String,
+      enum: ['superadmin', 'admin', 'hr', 'manager', 'leads', 'employee'],
+      default: 'employee'
+    }
+  },
+
+  // User Role (root level for backward compatibility and quick access)
+  // This is a duplicate of account.role for easier querying
   role: {
     type: String,
     enum: ['superadmin', 'admin', 'hr', 'manager', 'leads', 'employee'],

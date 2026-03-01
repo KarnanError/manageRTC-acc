@@ -50,6 +50,11 @@ interface Passport {
   country?: string;
 }
 
+interface PersonalInfo {
+  nationality?: string;
+  passport?: Passport;
+}
+
 interface Employee {
   _id: string;
   employeeId: string;
@@ -66,8 +71,7 @@ interface Employee {
   gender?: string;
   dateOfBirth?: string;
   address?: Address;
-  nationality?: string;
-  passport?: Passport;
+  personal?: PersonalInfo;
   companyName: string;
   departmentId: string;
   designationId: string;
@@ -310,7 +314,28 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       const reportingTo = employee.reportingTo || "";
       const phoneCode = employee.phoneCode || "+1"; // Default to +1 if not set
 
-      setEditingEmployee({ ...employee, departmentId, designationId, reportingTo, phoneCode });
+      // Backend returns flattened personal fields at root level for compatibility
+      // We need to move them into the personal object for the form
+      const personalData = {
+        nationality: employee.nationality || employee.personal?.nationality || "",
+        religion: employee.religion || employee.personal?.religion || "",
+        maritalStatus: employee.maritalStatus || employee.personal?.maritalStatus || "",
+        employmentOfSpouse: employee.employmentOfSpouse || employee.personal?.employmentOfSpouse || "",
+        noOfChildren: employee.noOfChildren ?? employee.personal?.noOfChildren ?? 0,
+        passport: employee.passport || employee.personal?.passport || { number: "", expiryDate: null, country: "" }
+      };
+
+      // Create transformed employee with personal fields in the correct location
+      const transformedEmployee = {
+        ...employee,
+        departmentId,
+        designationId,
+        reportingTo,
+        phoneCode,
+        personal: personalData
+      };
+
+      setEditingEmployee(transformedEmployee);
       setSelectedDepartment(departmentId);
       if (departmentId) {
         setIsDesignationDisabled(false);
@@ -592,7 +617,6 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       errors.lastName = "Last name cannot exceed 50 characters";
     }
 
-    if (!editingEmployee.email?.trim()) errors.email = "Email is required";
     if (!editingEmployee.phoneCode?.trim()) errors.phoneCode = "Phone code is required";
     if (!editingEmployee.phone?.trim()) errors.phone = "Phone number is required";
     if (!editingEmployee.account?.role) errors.role = "Role is required";
@@ -601,22 +625,16 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     if (!editingEmployee.dateOfJoining) errors.dateOfJoining = "Date of joining is required";
     if (!editingEmployee.gender) errors.gender = "Gender is required";
     if (!editingEmployee.dateOfBirth) errors.birthday = "Date of birth is required";
-    if (!editingEmployee.nationality?.trim()) errors.nationality = "Nationality is required";
+    if (!editingEmployee.personal?.nationality?.trim()) errors.nationality = "Nationality is required";
 
     // Passport expiry date is required only if passport number is filled
-    if (editingEmployee.passport?.number?.trim() && !editingEmployee.passport?.expiryDate) {
+    if (editingEmployee.personal?.passport?.number?.trim() && !editingEmployee.personal?.passport?.expiryDate) {
       errors.passportExpiryDate = "Passport expiry date is required when passport number is provided";
     }
 
     // Shift assignment validation (only if not explicitly set to 'none')
     if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !editingEmployee.shiftId && !editingEmployee.batchId) {
       errors.shiftAssignment = "Shift assignment is required";
-    }
-
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (editingEmployee.email && !emailRegex.test(editingEmployee.email)) {
-      errors.email = "Please enter a valid email address";
     }
 
     // Phone format validation
@@ -950,25 +968,6 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Email <span className="text-danger"> *</span></label>
-                          <input
-                            type="email"
-                            className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
-                            value={editingEmployee?.email || ""}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? {
-                                  ...prev,
-                                  email: e.target.value,
-                                } : prev
-                              );
-                            }}
-                          />
-                          {fieldErrors.email && <div className="invalid-feedback d-block">{fieldErrors.email}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
                           <label className="form-label">Gender <span className="text-danger"> *</span></label>
                           <CommonSelect
                             className="select"
@@ -1158,12 +1157,15 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                   type="text"
                                   className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
                                   placeholder="Enter nationality"
-                                  value={editingEmployee?.nationality || ""}
+                                  value={editingEmployee?.personal?.nationality || ""}
                                   onChange={(e) => {
                                     setEditingEmployee((prev) =>
                                       prev ? {
                                         ...prev,
-                                        nationality: e.target.value,
+                                        personal: {
+                                          ...prev.personal,
+                                          nationality: e.target.value,
+                                        },
                                       } : prev
                                     );
                                   }}
@@ -1178,14 +1180,17 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                   type="text"
                                   className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
                                   placeholder="Enter passport number"
-                                  value={editingEmployee?.passport?.number || ""}
+                                  value={editingEmployee?.personal?.passport?.number || ""}
                                   onChange={(e) => {
                                     setEditingEmployee((prev) =>
                                       prev ? {
                                         ...prev,
-                                        passport: {
-                                          ...(prev.passport || { number: "", expiryDate: null, country: "" }),
-                                          number: e.target.value,
+                                        personal: {
+                                          ...prev.personal,
+                                          passport: {
+                                            ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
+                                            number: e.target.value,
+                                          },
                                         },
                                       } : prev
                                     );
@@ -1200,7 +1205,7 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                               <div className="mb-3">
                                 <label className="form-label">
                                   Passport Expiry Date
-                                  {editingEmployee?.passport?.number && <span className="text-danger"> *</span>}
+                                  {editingEmployee?.personal?.passport?.number && <span className="text-danger"> *</span>}
                                 </label>
                                 <div className="input-icon-end position-relative">
                                   <DatePicker
@@ -1210,20 +1215,23 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                       document.getElementById("edit_employee") || document.body
                                     }
                                     placeholder="DD-MM-YYYY"
-                                    value={editingEmployee?.passport?.expiryDate ? toDayjsDate(editingEmployee.passport.expiryDate) : null}
+                                    value={editingEmployee?.personal?.passport?.expiryDate ? toDayjsDate(editingEmployee.personal.passport.expiryDate) : null}
                                     onChange={(_date, dateString) => {
                                       const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
                                       setEditingEmployee((prev) =>
                                         prev ? {
                                           ...prev,
-                                          passport: {
-                                            ...(prev.passport || { number: "", expiryDate: null, country: "" }),
-                                            expiryDate: dateValue || null,
+                                          personal: {
+                                            ...prev.personal,
+                                            passport: {
+                                              ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
+                                              expiryDate: dateValue || null,
+                                            },
                                           },
                                         } : prev
                                       );
                                     }}
-                                    disabled={!editingEmployee?.passport?.number}
+                                    disabled={!editingEmployee?.personal?.passport?.number}
                                   />
                                   <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
                                 </div>

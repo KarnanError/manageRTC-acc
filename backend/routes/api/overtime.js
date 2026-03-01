@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requireEmployeeActive, requireRole } from '../../middleware/auth.js';
 import { validate, validateBody, validateQuery } from '../../middleware/validate.js';
 import { overtimeSchemas } from '../../middleware/validate.js';
 import overtimeController from '../../controllers/rest/overtime.controller.js';
@@ -13,8 +13,8 @@ import { sanitizeBody, sanitizeQuery } from '../../utils/sanitize.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
+// All routes require authentication AND active employee status
+router.use(authenticate, requireEmployeeActive);
 
 /**
  * @route   GET /api/overtime

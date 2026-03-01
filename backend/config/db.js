@@ -191,6 +191,9 @@ export const getTenantCollections = (tenantDbName) => {
     subcontracts: db.collection('subcontracts'),
     // Project contracts (worker assignments)
     projectcontracts: db.collection('projectcontracts'),
+
+    // Change Requests (employee-submitted requests for HR approval)
+    changeRequests: db.collection('changeRequests'),
   };
 };
 

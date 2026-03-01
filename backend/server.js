@@ -36,6 +36,7 @@ import assetCategoryRoutes from './routes/api/asset-categories.js';
 import assetRoutes from './routes/api/assets.js';
 import assetUserRoutes from './routes/api/assetUsers.js';
 import attendanceRoutes from './routes/api/attendance.js';
+import employeeDashboardRoutes from './routes/api/employee-dashboard.js';
 import batchRoutes from './routes/api/batches.js';
 import clientRoutes from './routes/api/clients.js';
 import departmentRoutes from './routes/api/departments.js';
@@ -63,10 +64,12 @@ import terminationRoutes from './routes/api/terminations.js';
 import timetrackingRoutes from './routes/api/timetracking.js';
 import trainingRoutes from './routes/api/training.js';
 import userProfileRoutes from './routes/api/user-profile.js';
+import changeRequestRoutes from './routes/api/changeRequest.js';
 import healthRoutes from './routes/health.js';
 import clerkWebhookRoutes from './routes/webhooks/clerk.routes.js';
 import auditRoutes from './routes/api/audit.js';
 import timesheetRoutes from './routes/api/timesheets.js';
+import emailChangeRoutes from './routes/api/emailChange.routes.js';
 
 // RBAC Routes
 import adminUsersRoutes from "./routes/api/admin.users.js";
@@ -212,6 +215,7 @@ const initializeServer = async () => {
 
     // REST API Routes (Socket.IO to REST Migration)
     app.use('/api/employees', employeeRoutes);
+    app.use('/api/employees', emailChangeRoutes);
     app.use('/api/projects', projectRoutes);
     app.use('/api/projectcontracts', projectContractRoutes);
     app.use('/api/subcontracts', subcontractRoutes);
@@ -219,6 +223,7 @@ const initializeServer = async () => {
     app.use('/api/leads', leadRoutes);
     app.use('/api/clients', clientRoutes);
     app.use('/api/attendance', attendanceRoutes);
+    app.use('/api/employee/dashboard', employeeDashboardRoutes);
     app.use('/api/leaves', leaveRoutes);
     app.use('/api/leave-types', leaveTypeRoutes);
     app.use('/api/assets', assetRoutes);
@@ -240,6 +245,7 @@ const initializeServer = async () => {
     app.use('/api/hr-dashboard', hrDashboardRoutes);
     app.use('/api/admin-dashboard', adminDashboardRoutes);
     app.use('/api/user-profile', userProfileRoutes);
+    app.use('/api/change-requests', changeRequestRoutes);
     app.use('/api/timetracking', timetrackingRoutes);
     app.use('/api/overtime', overtimeRoutes);
     app.use('/api/timesheets', timesheetRoutes);
