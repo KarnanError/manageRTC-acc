@@ -6,10 +6,10 @@
  * Table Layout: Field | Existing Value | New Value | Status (read-only, no action buttons)
  */
 
-import { Modal, Button, Tag, Space, Alert, Empty, Progress, Tooltip, message } from 'antd';
-import { ClockCircleOutlined, CloseCircleOutlined, CheckCircleOutlined, StopOutlined } from '@ant-design/icons';
-import React, { useCallback, useEffect, useState } from 'react';
-import { useChangeRequestREST, ChangeRequest, FieldStatus } from '../../hooks/useChangeRequestREST';
+import { CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { Alert, Button, Empty, message, Modal, Progress, Tag, Tooltip } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { ChangeRequest, FieldStatus, useChangeRequestREST } from '../../hooks/useChangeRequestREST';
 
 interface MyChangeRequestsModalProps {
   visible: boolean;
@@ -117,12 +117,13 @@ export const MyChangeRequestsModal: React.FC<MyChangeRequestsModalProps> = ({
     const fields = request.fields && request.fields.length > 0
       ? request.fields
       : [{
-          field: request.fieldChanged || 'unknown',
-          label: request.fieldLabel || request.fieldChanged || 'Unknown',
-          oldValue: request.oldValue,
-          newValue: request.newValue,
-          status: 'pending' as FieldStatus,
-        }];
+        field: request.fieldChanged || 'unknown',
+        label: request.fieldLabel || request.fieldChanged || 'Unknown',
+        oldValue: request.oldValue,
+        newValue: request.newValue,
+        status: 'pending' as FieldStatus,
+        reviewNote: null,
+      }];
 
     const pendingCount = fields.filter(f => f.status === 'pending').length;
     const approvedCount = fields.filter(f => f.status === 'approved').length;
@@ -208,11 +209,10 @@ export const MyChangeRequestsModal: React.FC<MyChangeRequestsModalProps> = ({
                     <code className="small">{maskSensitiveValue(field.oldValue, field.field)}</code>
                   </td>
                   <td>
-                    <code className={`small ${
-                      field.status === 'approved' ? 'text-success' :
-                      field.status === 'rejected' ? 'text-danger' :
-                      'text-primary'
-                    }`}>
+                    <code className={`small ${field.status === 'approved' ? 'text-success' :
+                        field.status === 'rejected' ? 'text-danger' :
+                          'text-primary'
+                      }`}>
                       {maskSensitiveValue(field.newValue, field.field)}
                     </code>
                   </td>
