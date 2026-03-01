@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
-import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
-import { useCandidates, Candidate } from "../../../hooks/useCandidates";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import { Candidate, useCandidates } from "../../../hooks/useCandidates";
+import { useSocket } from "../../../SocketContext";
+import { all_routes } from "../../router/all_routes";
 import AddCandidate from "./add_candidate";
-import EditCandidate from "./edit_candidate";
 import DeleteCandidate from "./delete_candidate";
-import { message } from "antd";
+import EditCandidate from "./edit_candidate";
 
 // Define status columns for Kanban
 const STATUS_COLUMNS = [
@@ -24,7 +23,7 @@ const STATUS_COLUMNS = [
 
 
 const CandidateKanban = () => {
-  const socket = useSocket() as Socket | null;
+  const _socket = useSocket() as Socket | null;
 
   // State management using the custom hook
   const {
@@ -40,7 +39,7 @@ const CandidateKanban = () => {
   } = useCandidates();
 
   const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
-  
+
   // Filter states
   const [selectedRole, setSelectedRole] = useState("");
   const [selectedExperience, setSelectedExperience] = useState("");
@@ -49,10 +48,10 @@ const CandidateKanban = () => {
 
   // Extract unique roles for filters
   const [roles, setRoles] = useState<string[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [_selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
   // Group candidates by status
-  const [candidatesByStatus, setCandidatesByStatus] = useState<{[key: string]: Candidate[]}>({});
+  const [candidatesByStatus, setCandidatesByStatus] = useState<{ [key: string]: Candidate[] }>({});
 
   // Initialize data fetch
   useEffect(() => {
@@ -128,13 +127,13 @@ const CandidateKanban = () => {
         const appliedRole = candidate.applicationInfo?.appliedRole?.toLowerCase() || '';
         const currentRole = candidate.professionalInfo?.currentRole?.toLowerCase() || '';
         const skills = candidate.professionalInfo?.skills?.join(' ').toLowerCase() || '';
-        
+
         return fullName.includes(query) ||
-               email.includes(query) ||
-               phone.includes(query) ||
-               appliedRole.includes(query) ||
-               currentRole.includes(query) ||
-               skills.includes(query);
+          email.includes(query) ||
+          phone.includes(query) ||
+          appliedRole.includes(query) ||
+          currentRole.includes(query) ||
+          skills.includes(query);
       });
     }
 
@@ -146,7 +145,7 @@ const CandidateKanban = () => {
     const grouped = STATUS_COLUMNS.reduce((acc, column) => {
       acc[column.key] = filteredCandidates.filter(candidate => candidate.status === column.key);
       return acc;
-    }, {} as {[key: string]: Candidate[]});
+    }, {} as { [key: string]: Candidate[] });
 
     setCandidatesByStatus(grouped);
   }, [filteredCandidates]);
@@ -202,12 +201,6 @@ const CandidateKanban = () => {
   const handleExportExcel = useCallback(() => {
     exportExcel();
   }, [exportExcel]);
-
-  // Get status badge class
-  const getStatusBadgeClass = (status: string) => {
-    const column = STATUS_COLUMNS.find(col => col.key === status);
-    return `badge bg-${column?.color || 'light'}`;
-  };
 
   // Get experience level badge
   const getExperienceBadge = (years: number) => {
@@ -500,19 +493,19 @@ const CandidateKanban = () => {
                   searchQuery ||
                   dateRange.start ||
                   dateRange.end) && (
-                  <div className="mb-3">
-                    <Link
-                      to="#"
-                      className="btn btn-outline-danger"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleClearFilters();
-                      }}
-                    >
-                      Clear Filters
-                    </Link>
-                  </div>
-                )}
+                    <div className="mb-3">
+                      <Link
+                        to="#"
+                        className="btn btn-outline-danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleClearFilters();
+                        }}
+                      >
+                        Clear Filters
+                      </Link>
+                    </div>
+                  )}
 
                 {/* Filter Summary */}
                 <div className="mb-3 ms-auto">
@@ -550,13 +543,13 @@ const CandidateKanban = () => {
               ) : (
                 <div className="d-flex overflow-auto" style={kanbanStyles.kanbanContainer}>
                   {STATUS_COLUMNS.map((column) => (
-                    <div 
-                      key={column.key} 
-                      className="kanban-column flex-shrink-0 border-end" 
+                    <div
+                      key={column.key}
+                      className="kanban-column flex-shrink-0 border-end"
                       style={kanbanStyles.kanbanColumn}
                     >
                       {/* Column Header */}
-                      <div 
+                      <div
                         className={`kanban-column-header p-3 border-bottom`}
                         style={{
                           ...kanbanStyles.kanbanColumnHeader,
@@ -579,8 +572,8 @@ const CandidateKanban = () => {
                           {candidatesByStatus[column.key]?.map((candidate) => {
                             const experienceBadge = getExperienceBadge(candidate.professionalInfo?.experienceYears || 0);
                             return (
-                              <div 
-                                key={candidate._id} 
+                              <div
+                                key={candidate._id}
                                 className="kanban-card card border shadow-sm h-auto"
                                 style={kanbanStyles.kanbanCard}
                                 onMouseEnter={(e) => {
@@ -674,7 +667,7 @@ const CandidateKanban = () => {
                                         </span>
                                       </div>
                                     )}
-                                    
+
                                     {candidate.personalInfo?.phone && (
                                       <div className="d-flex align-items-center mb-1">
                                         <i className="ti ti-phone me-2 text-muted fs-12"></i>

@@ -1,21 +1,19 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
-import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
-import { useCandidates, Candidate } from "../../../hooks/useCandidates";
-import Table from "../../../core/common/dataTable/index";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import Table from "../../../core/common/dataTable/index";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import { Candidate, useCandidates } from "../../../hooks/useCandidates";
+import { useSocket } from "../../../SocketContext";
+import { all_routes } from "../../router/all_routes";
 import AddCandidate from "./add_candidate";
-import EditCandidate from "./edit_candidate";
 import DeleteCandidate from "./delete_candidate";
-import { message } from "antd";
-import Footer from "../../../core/common/footer";
+import EditCandidate from "./edit_candidate";
 
 const CandidatesList = () => {
-  const socket = useSocket() as Socket | null;
-  
+  const _socket = useSocket() as Socket | null;
+
   // State management using the custom hook
   const {
     candidates,
@@ -30,7 +28,7 @@ const CandidatesList = () => {
   } = useCandidates();
 
   const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
-  
+
   // Filter states
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
@@ -41,9 +39,9 @@ const CandidatesList = () => {
 
   // Extract unique roles and recruiters for filters
   const [roles, setRoles] = useState<string[]>([]);
-  const [recruiters, setRecruiters] = useState<string[]>([]);
+  const [_recruiters, setRecruiters] = useState<string[]>([]);
 
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [_selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
   // Initialize data fetch
   useEffect(() => {
@@ -60,7 +58,7 @@ const CandidatesList = () => {
           .map(c => c.applicationInfo?.appliedRole)
           .filter((role): role is string => Boolean(role))
       ));
-      
+
       const uniqueRecruiters = Array.from(new Set(
         candidates
           .map(c => c.applicationInfo?.recruiterName)
@@ -150,13 +148,13 @@ const CandidatesList = () => {
         const appliedRole = candidate.applicationInfo?.appliedRole?.toLowerCase() || '';
         const currentRole = candidate.professionalInfo?.currentRole?.toLowerCase() || '';
         const skills = candidate.professionalInfo?.skills?.join(' ').toLowerCase() || '';
-        
+
         return fullName.includes(query) ||
-               email.includes(query) ||
-               phone.includes(query) ||
-               appliedRole.includes(query) ||
-               currentRole.includes(query) ||
-               skills.includes(query);
+          email.includes(query) ||
+          phone.includes(query) ||
+          appliedRole.includes(query) ||
+          currentRole.includes(query) ||
+          skills.includes(query);
       });
       console.log("[CandidatesList] After search filter:", result.length);
     }
@@ -166,7 +164,7 @@ const CandidatesList = () => {
       result.sort((a, b) => {
         const dateA = new Date(a.applicationInfo?.appliedDate || a.createdAt);
         const dateB = new Date(b.applicationInfo?.appliedDate || b.createdAt);
-        
+
         switch (selectedSort) {
           case "name_asc":
             return a.fullName.localeCompare(b.fullName);
@@ -216,11 +214,6 @@ const CandidatesList = () => {
   const handleSearchChange = (query: string) => {
     console.log("[CandidatesList] Search query changed to:", query);
     setSearchQuery(query);
-  };
-
-  const handleDateRangeChange = (start: string, end: string) => {
-    console.log("[CandidatesList] Date range changed:", { start, end });
-    setDateRange({ start, end });
   };
 
   const handleClearFilters = () => {
@@ -297,7 +290,7 @@ const CandidatesList = () => {
           {record.applicationNumber || record._id.slice(-8).toUpperCase()}
         </span>
       ),
-      sorter: (a: Candidate, b: Candidate) => 
+      sorter: (a: Candidate, b: Candidate) =>
         (a.applicationNumber || '').localeCompare(b.applicationNumber || ''),
     },
     {
@@ -332,7 +325,7 @@ const CandidatesList = () => {
     {
       title: "Phone",
       dataIndex: "phone",
-      render: (text: string, record: Candidate) => 
+      render: (text: string, record: Candidate) =>
         record.personalInfo?.phone || "N/A",
       sorter: (a: Candidate, b: Candidate) =>
         (a.personalInfo?.phone || '').localeCompare(b.personalInfo?.phone || ''),
@@ -350,7 +343,7 @@ const CandidatesList = () => {
       title: "Applied Date",
       dataIndex: "appliedDate",
       render: (text: string, record: Candidate) => {
-        const date = record.applicationInfo?.appliedDate 
+        const date = record.applicationInfo?.appliedDate
           ? new Date(record.applicationInfo.appliedDate)
           : null;
         return date ? date.toLocaleDateString() : "N/A";
@@ -399,7 +392,7 @@ const CandidatesList = () => {
     {
       title: "Recruiter",
       dataIndex: "recruiter",
-      render: (text: string, record: Candidate) => 
+      render: (text: string, record: Candidate) =>
         record.applicationInfo?.recruiterName || "N/A",
       sorter: (a: Candidate, b: Candidate) =>
         (a.applicationInfo?.recruiterName || '').localeCompare(b.applicationInfo?.recruiterName || ''),
@@ -739,19 +732,18 @@ const CandidatesList = () => {
                     data-bs-auto-close="outside"
                   >
                     {selectedSort
-                      ? `Sort: ${
-                          selectedSort === "name_asc"
-                            ? "Name A-Z"
-                            : selectedSort === "name_desc"
-                            ? "Name Z-A"
-                            : selectedSort === "date_recent"
+                      ? `Sort: ${selectedSort === "name_asc"
+                        ? "Name A-Z"
+                        : selectedSort === "name_desc"
+                          ? "Name Z-A"
+                          : selectedSort === "date_recent"
                             ? "Recent First"
                             : selectedSort === "date_oldest"
-                            ? "Oldest First"
-                            : selectedSort === "experience"
-                            ? "Experience"
-                            : "Role"
-                        }`
+                              ? "Oldest First"
+                              : selectedSort === "experience"
+                                ? "Experience"
+                                : "Role"
+                      }`
                       : "Sort By"}
                   </Link>
                   <div className="dropdown-menu dropdown-menu-end p-3">
@@ -821,19 +813,19 @@ const CandidatesList = () => {
                   searchQuery ||
                   dateRange.start ||
                   dateRange.end) && (
-                  <div className="mb-3">
-                    <Link
-                      to="#"
-                      className="btn btn-outline-danger"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleClearFilters();
-                      }}
-                    >
-                      Clear Filters
-                    </Link>
-                  </div>
-                )}
+                    <div className="mb-3">
+                      <Link
+                        to="#"
+                        className="btn btn-outline-danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleClearFilters();
+                        }}
+                      >
+                        Clear Filters
+                      </Link>
+                    </div>
+                  )}
               </div>
             </div>
 
@@ -872,16 +864,16 @@ const CandidatesList = () => {
                         searchQuery ||
                         dateRange.start ||
                         dateRange.end) && (
-                        <div className="text-muted small">
-                          Filters applied:
-                          {selectedStatus && ` Status: ${selectedStatus}`}
-                          {selectedRole && ` Role: ${selectedRole}`}
-                          {selectedExperience && ` Experience: ${selectedExperience}`}
-                          {selectedSort && ` Sort: ${selectedSort}`}
-                          {searchQuery && ` Search: "${searchQuery}"`}
-                          {(dateRange.start || dateRange.end) && ` Date Range Applied`}
-                        </div>
-                      )}
+                          <div className="text-muted small">
+                            Filters applied:
+                            {selectedStatus && ` Status: ${selectedStatus}`}
+                            {selectedRole && ` Role: ${selectedRole}`}
+                            {selectedExperience && ` Experience: ${selectedExperience}`}
+                            {selectedSort && ` Sort: ${selectedSort}`}
+                            {searchQuery && ` Search: "${searchQuery}"`}
+                            {(dateRange.start || dateRange.end) && ` Date Range Applied`}
+                          </div>
+                        )}
                     </div>
                   </div>
 
