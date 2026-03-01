@@ -1,8 +1,7 @@
-import { message, Modal, Badge, Button, Space, Table, Tag, Tooltip, Alert, Progress } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Badge, Button, message, Modal, Progress, Space, Tag } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ClockCircleOutlined, CloseCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { get, patch } from '../../services/api';
-import { handleApiError } from '../../services/api';
+import { get, handleApiError, patch } from '../../services/api';
 
 interface FieldChange {
   field: string;
@@ -227,12 +226,13 @@ export const ChangeRequestsModal: React.FC<ChangeRequestsModalProps> = ({
           const fields = request.fields && request.fields.length > 0
             ? request.fields
             : [{
-                field: request.fieldChanged || 'unknown',
-                label: request.fieldLabel || request.fieldChanged || 'Unknown',
-                oldValue: request.oldValue,
-                newValue: request.newValue,
-                status: 'pending',
-              }];
+              field: request.fieldChanged || 'unknown',
+              label: request.fieldLabel || request.fieldChanged || 'Unknown',
+              oldValue: request.oldValue,
+              newValue: request.newValue,
+              status: 'pending' as const,
+              reviewNote: null,
+            }];
 
           const pendingCount = fields.filter(f => f.status === 'pending').length;
           const approvedCount = fields.filter(f => f.status === 'approved').length;
