@@ -212,7 +212,7 @@ export const EducationModal: React.FC<EducationModalProps> = ({
                         type="date"
                         name="startDate"
                         className={`form-control ${errors.startDate ? 'is-invalid' : ''}`}
-                        value={formData.startDate}
+                        value={formData.startDate as string}
                         onChange={handleChange}
                         disabled={loading}
                       />
@@ -230,7 +230,7 @@ export const EducationModal: React.FC<EducationModalProps> = ({
                         type="date"
                         name="endDate"
                         className={`form-control ${errors.endDate ? 'is-invalid' : ''}`}
-                        value={formData.endDate}
+                        value={formData.endDate as string}
                         onChange={handleChange}
                         disabled={loading}
                       />
