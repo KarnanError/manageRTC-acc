@@ -52,6 +52,10 @@ interface Passport {
 
 interface PersonalInfo {
   nationality?: string;
+  religion?: string;
+  maritalStatus?: string;
+  employmentOfSpouse?: string;
+  noOfChildren?: number;
   passport?: Passport;
 }
 
@@ -1500,8 +1504,8 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                           >
                             <span
                               className={`badge ${editingEmployee?.status === "Active"
-                                  ? "badge-success"
-                                  : "badge-danger"
+                                ? "badge-success"
+                                : "badge-danger"
                                 } d-inline-flex align-items-center`}
                             >
                               <i className="ti ti-point-filled me-1" />
