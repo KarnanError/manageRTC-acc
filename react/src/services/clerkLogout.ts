@@ -44,4 +44,5 @@ export const signOutAndClear = async () => {
   window.location.href = '/login?error=account_locked';
 };
 
-export default { initGlobalSignOut, signOutAndClear };
+const clerkLogoutUtils = { initGlobalSignOut, signOutAndClear };
+export default clerkLogoutUtils;

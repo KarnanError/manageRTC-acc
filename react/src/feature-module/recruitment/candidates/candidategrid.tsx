@@ -1,19 +1,17 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
-import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
-import { useCandidates, Candidate } from "../../../hooks/useCandidates";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import { Candidate, useCandidates } from "../../../hooks/useCandidates";
+import { useSocket } from "../../../SocketContext";
+import { all_routes } from "../../router/all_routes";
 import AddCandidate from "./add_candidate";
-import EditCandidate from "./edit_candidate";
 import DeleteCandidate from "./delete_candidate";
-import { message } from "antd";
-import Footer from "../../../core/common/footer";
+import EditCandidate from "./edit_candidate";
 
 const CandidateGrid = () => {
-  const socket = useSocket() as Socket | null;
+  const _socket = useSocket() as Socket | null;
 
   // State management using the custom hook
   const {
@@ -29,7 +27,7 @@ const CandidateGrid = () => {
   } = useCandidates();
 
   const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
-  
+
   // Filter states
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
@@ -40,7 +38,7 @@ const CandidateGrid = () => {
 
   // Extract unique roles for filters
   const [roles, setRoles] = useState<string[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [_selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
   // Initialize data fetch
   useEffect(() => {
@@ -129,13 +127,13 @@ const CandidateGrid = () => {
         const appliedRole = candidate.applicationInfo?.appliedRole?.toLowerCase() || '';
         const currentRole = candidate.professionalInfo?.currentRole?.toLowerCase() || '';
         const skills = candidate.professionalInfo?.skills?.join(' ').toLowerCase() || '';
-        
+
         return fullName.includes(query) ||
-               email.includes(query) ||
-               phone.includes(query) ||
-               appliedRole.includes(query) ||
-               currentRole.includes(query) ||
-               skills.includes(query);
+          email.includes(query) ||
+          phone.includes(query) ||
+          appliedRole.includes(query) ||
+          currentRole.includes(query) ||
+          skills.includes(query);
       });
     }
 
@@ -144,7 +142,7 @@ const CandidateGrid = () => {
       result.sort((a, b) => {
         const dateA = new Date(a.applicationInfo?.appliedDate || a.createdAt);
         const dateB = new Date(b.applicationInfo?.appliedDate || b.createdAt);
-        
+
         switch (selectedSort) {
           case "name_asc":
             return a.fullName.localeCompare(b.fullName);
@@ -281,7 +279,7 @@ const CandidateGrid = () => {
               </nav>
             </div>
             <div className="d-flex my-xl-auto right-content align-items-center flex-wrap">
-               <div className="me-2 mb-2">
+              <div className="me-2 mb-2">
                 <div className="d-flex align-items-center border bg-white rounded p-1 me-2 icon-list">
                   <Link
                     to={all_routes.candidateskanban}
@@ -558,17 +556,16 @@ const CandidateGrid = () => {
                     data-bs-toggle="dropdown"
                   >
                     {selectedSort
-                      ? `Sort: ${
-                          selectedSort === "name_asc"
-                            ? "A-Z"
-                            : selectedSort === "name_desc"
-                            ? "Z-A"
-                            : selectedSort === "date_recent"
+                      ? `Sort: ${selectedSort === "name_asc"
+                        ? "A-Z"
+                        : selectedSort === "name_desc"
+                          ? "Z-A"
+                          : selectedSort === "date_recent"
                             ? "Recent"
                             : selectedSort === "date_oldest"
-                            ? "Oldest"
-                            : "Experience"
-                        }`
+                              ? "Oldest"
+                              : "Experience"
+                      }`
                       : "Sort By"}
                   </Link>
                   <div className="dropdown-menu dropdown-menu-end p-3">
@@ -638,19 +635,19 @@ const CandidateGrid = () => {
                   searchQuery ||
                   dateRange.start ||
                   dateRange.end) && (
-                  <div className="mb-3">
-                    <Link
-                      to="#"
-                      className="btn btn-outline-danger"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleClearFilters();
-                      }}
-                    >
-                      Clear Filters
-                    </Link>
-                  </div>
-                )}
+                    <div className="mb-3">
+                      <Link
+                        to="#"
+                        className="btn btn-outline-danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleClearFilters();
+                        }}
+                      >
+                        Clear Filters
+                      </Link>
+                    </div>
+                  )}
               </div>
             </div>
 
@@ -668,15 +665,15 @@ const CandidateGrid = () => {
                     searchQuery ||
                     dateRange.start ||
                     dateRange.end) && (
-                    <div className="text-muted small">
-                      Filters applied:
-                      {selectedStatus && ` Status: ${selectedStatus}`}
-                      {selectedRole && ` Role: ${selectedRole}`}
-                      {selectedExperience && ` Experience: ${selectedExperience}`}
-                      {selectedSort && ` Sort: ${selectedSort}`}
-                      {searchQuery && ` Search: "${searchQuery}"`}
-                    </div>
-                  )}
+                      <div className="text-muted small">
+                        Filters applied:
+                        {selectedStatus && ` Status: ${selectedStatus}`}
+                        {selectedRole && ` Role: ${selectedRole}`}
+                        {selectedExperience && ` Experience: ${selectedExperience}`}
+                        {selectedSort && ` Sort: ${selectedSort}`}
+                        {searchQuery && ` Search: "${searchQuery}"`}
+                      </div>
+                    )}
                 </div>
               )}
 
@@ -793,7 +790,7 @@ const CandidateGrid = () => {
                                   <span className="fs-13 text-muted">{candidate.personalInfo.email}</span>
                                 </div>
                               )}
-                              
+
                               {candidate.personalInfo?.phone && (
                                 <div className="d-flex align-items-center mb-2">
                                   <i className="ti ti-phone me-2 text-muted"></i>
@@ -824,7 +821,7 @@ const CandidateGrid = () => {
                                   <i className="ti ti-user me-2 text-muted"></i>
                                   <span className="fs-13 text-muted">
                                     {candidate.professionalInfo.currentRole}
-                                    {candidate.professionalInfo.currentCompany && 
+                                    {candidate.professionalInfo.currentCompany &&
                                       ` at ${candidate.professionalInfo.currentCompany}`
                                     }
                                   </span>

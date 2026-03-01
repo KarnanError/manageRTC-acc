@@ -72,7 +72,7 @@ const Tickets = () => {
     priority: '',
     sortBy: 'recently'
   });
-  const [exportLoading, setExportLoading] = useState(false);
+  const [_exportLoading, setExportLoading] = useState(false);
 
   // State for categories
   const [categories, setCategories] = useState([]);
@@ -426,11 +426,11 @@ const Tickets = () => {
       const currentYear = new Date().getFullYear();
 
       // Company colors (based on website theme)
-      const primaryColor = [242, 101, 34]; // Orange - primary brand color
-      const secondaryColor = [59, 112, 128]; // Blue-gray - secondary color
+      const _primaryColor = [242, 101, 34]; // Orange - primary brand color
+      const _secondaryColor = [59, 112, 128]; // Blue-gray - secondary color
       const textColor = [33, 37, 41]; // Dark gray - main text
       const lightGray = [248, 249, 250]; // Light background
-      const borderColor = [222, 226, 230]; // Border color
+      const _borderColor = [222, 226, 230]; // Border color
 
       // Add company logo with multiple fallback options
       const addCompanyLogo = async () => {
@@ -682,7 +682,7 @@ const Tickets = () => {
   const handleExportExcel = () => {
     try {
       setExportLoading(true);
-      const currentDate = new Date().toLocaleDateString();
+      const _currentDate = new Date().toLocaleDateString();
       const wb = XLSX.utils.book_new();
 
       // Prepare tickets data for Excel
@@ -873,7 +873,7 @@ const Tickets = () => {
   };
 
   // Dynamic chart data that updates with ticketsStats
-  const Areachart = {
+  const _Areachart = {
     series: [
       {
         name: "Tickets",
@@ -959,7 +959,7 @@ const Tickets = () => {
       },
     },
   };
-  const Areachart1 = {
+  const _Areachart1 = {
     series: [
       {
         name: "Tickets",
@@ -1045,7 +1045,7 @@ const Tickets = () => {
       },
     },
   };
-  const Areachart2 = {
+  const _Areachart2 = {
     series: [
       {
         name: "Tickets",
@@ -1131,7 +1131,7 @@ const Tickets = () => {
       },
     },
   };
-  const Areachart3 = {
+  const _Areachart3 = {
     series: [
       {
         name: "Tickets",

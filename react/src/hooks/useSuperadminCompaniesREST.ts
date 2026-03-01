@@ -6,7 +6,7 @@
  */
 
 import { useAuth } from '@clerk/clerk-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 // API base URL
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
@@ -69,7 +69,8 @@ export interface CompanyDetails {
   _id: string;
 }
 
-interface ApiResponse<T> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface _ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;

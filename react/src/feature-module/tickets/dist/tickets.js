@@ -118,7 +118,7 @@ var Tickets = function () {
         priority: '',
         sortBy: 'recently'
     }), filters = _k[0], setFilters = _k[1];
-    var _l = react_1.useState(false), exportLoading = _l[0], setExportLoading = _l[1];
+    var _l = react_1.useState(false), _exportLoading = _l[0], setExportLoading = _l[1];
     // State for categories
     var _m = react_1.useState([]), categories = _m[0], setCategories = _m[1];
     var _o = react_1.useState(false), loadingCategories = _o[0], setLoadingCategories = _o[1];
@@ -412,7 +412,7 @@ var Tickets = function () {
     };
     // Handle PDF export
     var handleExportPDF = function () { return __awaiter(void 0, void 0, void 0, function () {
-        var doc_1, currentDate, currentTime, currentYear, primaryColor, secondaryColor, textColor_1, lightGray_1, borderColor, addCompanyLogo, logoAdded, yPosition_1, pageCount, i, error_1;
+        var doc_1, currentDate, currentTime, currentYear, _primaryColor, _secondaryColor, textColor_1, lightGray_1, _borderColor, addCompanyLogo, logoAdded, yPosition_1, pageCount, i, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -422,11 +422,11 @@ var Tickets = function () {
                     currentDate = new Date().toLocaleDateString();
                     currentTime = new Date().toLocaleTimeString();
                     currentYear = new Date().getFullYear();
-                    primaryColor = [242, 101, 34];
-                    secondaryColor = [59, 112, 128];
+                    _primaryColor = [242, 101, 34];
+                    _secondaryColor = [59, 112, 128];
                     textColor_1 = [33, 37, 41];
                     lightGray_1 = [248, 249, 250];
-                    borderColor = [222, 226, 230];
+                    _borderColor = [222, 226, 230];
                     addCompanyLogo = function () { return __awaiter(void 0, void 0, void 0, function () {
                         var logoPaths, _loop_1, _i, logoPaths_1, logoPath, state_1;
                         return __generator(this, function (_a) {
@@ -704,7 +704,7 @@ var Tickets = function () {
     var handleExportExcel = function () {
         try {
             setExportLoading(true);
-            var currentDate = new Date().toLocaleDateString();
+            var _currentDate = new Date().toLocaleDateString();
             var wb = XLSX.utils.book_new();
             // Prepare tickets data for Excel
             var ticketsDataForExcel = filteredTickets.map(function (ticket) {
@@ -816,7 +816,7 @@ var Tickets = function () {
                                 React.createElement("i", { className: "ti ti-phone" }))))))));
     };
     // Dynamic chart data that updates with ticketsStats
-    var Areachart = {
+    var _Areachart = {
         series: [
             {
                 name: "Tickets",
@@ -900,7 +900,7 @@ var Tickets = function () {
             }
         }
     };
-    var Areachart1 = {
+    var _Areachart1 = {
         series: [
             {
                 name: "Tickets",
@@ -984,7 +984,7 @@ var Tickets = function () {
             }
         }
     };
-    var Areachart2 = {
+    var _Areachart2 = {
         series: [
             {
                 name: "Tickets",
@@ -1068,7 +1068,7 @@ var Tickets = function () {
             }
         }
     };
-    var Areachart3 = {
+    var _Areachart3 = {
         series: [
             {
                 name: "Tickets",

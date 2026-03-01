@@ -20,7 +20,8 @@ import { initGlobalSignOut } from './clerkLogout';
  */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { getToken, isSignedIn, isLoaded, signOut } = useAuth();
-  const [tokenReady, setTokenReady] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_tokenReady, setTokenReady] = useState(false);
 
   // Create a stable callback for token refresh
   const refreshToken = useCallback(async () => {

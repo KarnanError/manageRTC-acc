@@ -72,6 +72,13 @@ interface Employee {
   dateOfBirth?: string;
   address?: Address;
   personal?: PersonalInfo;
+  // Backend returns flattened personal fields at root level for compatibility
+  nationality?: string;
+  religion?: string;
+  maritalStatus?: string;
+  employmentOfSpouse?: string;
+  noOfChildren?: number;
+  passport?: Passport;
   companyName: string;
   departmentId: string;
   designationId: string;
@@ -83,12 +90,12 @@ interface Employee {
   batchName?: string;
   employmentType?: "Full-time" | "Part-time" | "Contract" | "Intern";
   status:
-    | "Active"
-    | "Inactive"
-    | "On Notice"
-    | "Resigned"
-    | "Terminated"
-    | "On Leave";
+  | "Active"
+  | "Inactive"
+  | "On Notice"
+  | "Resigned"
+  | "Terminated"
+  | "On Leave";
   dateOfJoining: string | null;
   about: string;
   role: string;
@@ -819,729 +826,728 @@ const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
             />
             <form onSubmit={(e) => e.preventDefault()}>
               <div className="modal-body pb-0">
-                    <div className="row">
-                      <div className="col-md-12">
-                        <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                          {editingEmployee?.avatarUrl ? (
-                            <img
-                              src={editingEmployee.avatarUrl}
-                              alt="Profile"
-                              className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
-                            />
-                          ) : (
-                            <ImageWithBasePath
-                              src="assets/img/profiles/profile.png"
-                              alt="img"
-                              className="rounded-circle"
-                            />
-                          )}
-                          <div className="profile-upload">
-                            <div className="mb-2">
-                              <h6 className="mb-1">Upload Profile Image</h6>
-                              <p className="fs-12">Image should be below 4 mb</p>
-                            </div>
-                            <div className="profile-uploader d-flex align-items-center">
-                              <div className={`drag-upload-btn btn btn-sm btn-primary me-2 ${imageUpload ? 'disabled' : ''}`} style={{ position: 'relative' }}>
-                                {imageUpload ? (
-                                  <>
-                                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                    Uploading...
-                                  </>
-                                ) : (
-                                  <>
-                                    Upload
-                                    <input
-                                      type="file"
-                                      className="form-control image-sign"
-                                      accept=".png,.jpeg,.jpg,.ico"
-                                      onChange={handleImageUpload}
-                                      disabled={imageUpload}
-                                      style={{ cursor: imageUpload ? "not-allowed" : "pointer", opacity: 0, position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
-                                    />
-                                  </>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                className="btn btn-light btn-sm"
-                                disabled={imageUpload}
-                                onClick={() =>
-                                  setEditingEmployee((prev) =>
-                                    prev ? { ...prev, avatarUrl: "assets/img/profiles/profile.png", profileImage: "assets/img/profiles/profile.png" } : prev
-                                  )
-                                }
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
+                <div className="row">
+                  <div className="col-md-12">
+                    <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
+                      {editingEmployee?.avatarUrl ? (
+                        <img
+                          src={editingEmployee.avatarUrl}
+                          alt="Profile"
+                          className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
+                        />
+                      ) : (
+                        <ImageWithBasePath
+                          src="assets/img/profiles/profile.png"
+                          alt="img"
+                          className="rounded-circle"
+                        />
+                      )}
+                      <div className="profile-upload">
+                        <div className="mb-2">
+                          <h6 className="mb-1">Upload Profile Image</h6>
+                          <p className="fs-12">Image should be below 4 mb</p>
                         </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">First Name <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.firstName ? 'is-invalid' : ''}`}
-                            value={editingEmployee?.firstName || ""}
-                            onChange={(e) => {
+                        <div className="profile-uploader d-flex align-items-center">
+                          <div className={`drag-upload-btn btn btn-sm btn-primary me-2 ${imageUpload ? 'disabled' : ''}`} style={{ position: 'relative' }}>
+                            {imageUpload ? (
+                              <>
+                                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                Upload
+                                <input
+                                  type="file"
+                                  className="form-control image-sign"
+                                  accept=".png,.jpeg,.jpg,.ico"
+                                  onChange={handleImageUpload}
+                                  disabled={imageUpload}
+                                  style={{ cursor: imageUpload ? "not-allowed" : "pointer", opacity: 0, position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+                                />
+                              </>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-light btn-sm"
+                            disabled={imageUpload}
+                            onClick={() =>
                               setEditingEmployee((prev) =>
-                                prev ? { ...prev, firstName: e.target.value } : prev
-                              );
-                            }}
-                          />
-                          {fieldErrors.firstName && <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>}
+                                prev ? { ...prev, avatarUrl: "assets/img/profiles/profile.png", profileImage: "assets/img/profiles/profile.png" } : prev
+                              )
+                            }
+                          >
+                            Cancel
+                          </button>
                         </div>
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Last Name <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className={`form-control ${fieldErrors.lastName ? 'is-invalid' : ''}`}
-                            value={editingEmployee?.lastName || ""}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? { ...prev, lastName: e.target.value } : prev
-                              );
-                            }}
-                          />
-                          {fieldErrors.lastName && <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>}
-                        </div>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">First Name <span className="text-danger"> *</span></label>
+                      <input
+                        type="text"
+                        className={`form-control ${fieldErrors.firstName ? 'is-invalid' : ''}`}
+                        value={editingEmployee?.firstName || ""}
+                        onChange={(e) => {
+                          setEditingEmployee((prev) =>
+                            prev ? { ...prev, firstName: e.target.value } : prev
+                          );
+                        }}
+                      />
+                      {fieldErrors.firstName && <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Last Name <span className="text-danger"> *</span></label>
+                      <input
+                        type="text"
+                        className={`form-control ${fieldErrors.lastName ? 'is-invalid' : ''}`}
+                        value={editingEmployee?.lastName || ""}
+                        onChange={(e) => {
+                          setEditingEmployee((prev) =>
+                            prev ? { ...prev, lastName: e.target.value } : prev
+                          );
+                        }}
+                      />
+                      {fieldErrors.lastName && <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Employee ID <span className="text-danger"> *</span></label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editingEmployee?.employeeId || ""}
+                        readOnly
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Joining Date <span className="text-danger"> *</span></label>
+                      <div className={`input-icon-end position-relative ${fieldErrors.dateOfJoining ? 'has-error' : ''}`}>
+                        <DatePicker
+                          className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? 'is-invalid' : ''}`}
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
+                          getPopupContainer={getModalContainer}
+                          placeholder="DD-MM-YYYY"
+                          value={editingEmployee?.dateOfJoining ? toDayjsDate(editingEmployee.dateOfJoining) : null}
+                          onChange={(_date, dateString) => {
+                            const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                            setEditingEmployee((prev) =>
+                              prev ? { ...prev, dateOfJoining: dateValue || "" } : prev
+                            );
+                          }}
+                        />
+                        <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Employee ID <span className="text-danger"> *</span></label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            value={editingEmployee?.employeeId || ""}
-                            readOnly
-                          />
-                        </div>
+                      {fieldErrors.dateOfJoining && <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Role <span className="text-danger"> *</span></label>
+                      <CommonSelect
+                        className="select"
+                        options={roleOptions}
+                        defaultValue={roleOptions.find((opt) => opt.value === editingEmployee?.account?.role)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setEditingEmployee((prev) =>
+                              prev ? {
+                                ...prev,
+                                account: {
+                                  ...prev.account,
+                                  role: option.value,
+                                },
+                              } : prev
+                            );
+                          }
+                        }}
+                      />
+                      {fieldErrors.role && <div className="invalid-feedback d-block">{fieldErrors.role}</div>}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Gender <span className="text-danger"> *</span></label>
+                      <CommonSelect
+                        className="select"
+                        options={genderOptions}
+                        defaultValue={genderOptions.find((opt) => opt.value === editingEmployee?.gender)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setEditingEmployee((prev) =>
+                              prev ? {
+                                ...prev,
+                                gender: option.value,
+                              } : prev
+                            );
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Birthday <span className="text-danger"> *</span></label>
+                      <div className="input-icon-end position-relative">
+                        <DatePicker
+                          className="form-control datetimepicker"
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
+                          getPopupContainer={getModalContainer}
+                          placeholder="DD-MM-YYYY"
+                          value={editingEmployee?.dateOfBirth ? toDayjsDate(editingEmployee.dateOfBirth) : null}
+                          maxDate={dayjs().subtract(15, 'year')}
+                          onChange={(_date, dateString) => {
+                            const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
+                            setEditingEmployee((prev) =>
+                              prev ? {
+                                ...prev,
+                                dateOfBirth: dateValue || "",
+                              } : prev
+                            );
+                          }}
+                        />
+                        <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Joining Date <span className="text-danger"> *</span></label>
-                          <div className={`input-icon-end position-relative ${fieldErrors.dateOfJoining ? 'has-error' : ''}`}>
-                            <DatePicker
-                              className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? 'is-invalid' : ''}`}
-                              format={{ format: "DD-MM-YYYY", type: "mask" }}
-                              getPopupContainer={getModalContainer}
-                              placeholder="DD-MM-YYYY"
-                              value={editingEmployee?.dateOfJoining ? toDayjsDate(editingEmployee.dateOfJoining) : null}
-                              onChange={(_date, dateString) => {
-                                const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
-                                setEditingEmployee((prev) =>
-                                  prev ? { ...prev, dateOfJoining: dateValue || "" } : prev
-                                );
-                              }}
-                            />
-                            <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                          </div>
-                          {fieldErrors.dateOfJoining && <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>}
-                        </div>
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">Address</label>
+                      <div className="mb-3">
+                        <label className="form-label">Street</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Enter street address"
+                          value={editingEmployee?.address?.street || ""}
+                          onChange={(e) => {
+                            setEditingEmployee((prev) =>
+                              prev ? {
+                                ...prev,
+                                address: {
+                                  ...prev.address,
+                                  street: e.target.value,
+                                },
+                              } : prev
+                            );
+                          }}
+                        />
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Role <span className="text-danger"> *</span></label>
-                          <CommonSelect
-                            className="select"
-                            options={roleOptions}
-                            defaultValue={roleOptions.find((opt) => opt.value === editingEmployee?.account?.role)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setEditingEmployee((prev) =>
-                                  prev ? {
-                                    ...prev,
-                                    account: {
-                                      ...prev.account,
-                                      role: option.value,
-                                    },
-                                  } : prev
-                                );
-                              }
-                            }}
-                          />
-                          {fieldErrors.role && <div className="invalid-feedback d-block">{fieldErrors.role}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Gender <span className="text-danger"> *</span></label>
-                          <CommonSelect
-                            className="select"
-                            options={genderOptions}
-                            defaultValue={genderOptions.find((opt) => opt.value === editingEmployee?.gender)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setEditingEmployee((prev) =>
-                                  prev ? {
-                                    ...prev,
-                                    gender: option.value,
-                                  } : prev
-                                );
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Birthday <span className="text-danger"> *</span></label>
-                          <div className="input-icon-end position-relative">
-                            <DatePicker
-                              className="form-control datetimepicker"
-                              format={{ format: "DD-MM-YYYY", type: "mask" }}
-                              getPopupContainer={getModalContainer}
-                              placeholder="DD-MM-YYYY"
-                              value={editingEmployee?.dateOfBirth ? toDayjsDate(editingEmployee.dateOfBirth) : null}
-                              maxDate={dayjs().subtract(15, 'year')}
-                              onChange={(_date, dateString) => {
-                                const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
-                                setEditingEmployee((prev) =>
-                                  prev ? {
-                                    ...prev,
-                                    dateOfBirth: dateValue || "",
-                                  } : prev
-                                );
-                              }}
-                            />
-                            <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-md-12">
-                        <div className="mb-3">
-                          <label className="form-label">Address</label>
+                      <div className="row">
+                        <div className="col-md-6">
                           <div className="mb-3">
-                            <label className="form-label">Street</label>
+                            <label className="form-label">City</label>
                             <input
                               type="text"
                               className="form-control"
-                              placeholder="Enter street address"
-                              value={editingEmployee?.address?.street || ""}
+                              placeholder="Enter city"
+                              value={editingEmployee?.address?.city || ""}
                               onChange={(e) => {
                                 setEditingEmployee((prev) =>
                                   prev ? {
                                     ...prev,
                                     address: {
                                       ...prev.address,
-                                      street: e.target.value,
+                                      city: e.target.value,
                                     },
                                   } : prev
                                 );
                               }}
                             />
                           </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">City</label>
-                                <input
-                                  type="text"
-                                  className="form-control"
-                                  placeholder="Enter city"
-                                  value={editingEmployee?.address?.city || ""}
-                                  onChange={(e) => {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        address: {
-                                          ...prev.address,
-                                          city: e.target.value,
-                                        },
-                                      } : prev
-                                    );
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Country</label>
-                                <select
-                                  className="form-control"
-                                  value={selectedCountryId || ""}
-                                  onChange={(e) => {
-                                    const countryId = e.target.value ? parseInt(e.target.value) : null;
-                                    setSelectedCountryId(countryId);
-                                    const selectedCountry = countries.find((c) => c.id === countryId);
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        address: {
-                                          ...prev.address,
-                                          country: selectedCountry?.name || "",
-                                          state: "",
-                                        },
-                                      } : prev
-                                    );
-                                    // Load states for selected country
-                                    if (countryId) {
-                                      GetState(countryId).then((result: any) => {
-                                        setStates(result);
-                                      });
-                                    } else {
-                                      setStates([]);
-                                    }
-                                  }}
-                                >
-                                  <option value="">Select Country</option>
-                                  {countries.map((country) => (
-                                    <option key={country.id} value={country.id}>
-                                      {country.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">State</label>
-                                <select
-                                  className="form-control"
-                                  value={editingEmployee?.address?.state || ""}
-                                  onChange={(e) => {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        address: {
-                                          ...prev.address,
-                                          state: e.target.value,
-                                        },
-                                      } : prev
-                                    );
-                                  }}
-                                  disabled={!selectedCountryId}
-                                >
-                                  <option value="">Select State</option>
-                                  {states.map((state) => (
-                                    <option key={state.id} value={state.name}>
-                                      {state.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Postal Code</label>
-                                <input
-                                  type="text"
-                                  className="form-control"
-                                  placeholder="Enter postal code"
-                                  value={editingEmployee?.address?.postalCode || ""}
-                                  onChange={(e) => {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        address: {
-                                          ...prev.address,
-                                          postalCode: e.target.value,
-                                        },
-                                      } : prev
-                                    );
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Nationality <span className="text-danger"> *</span></label>
-                                <input
-                                  type="text"
-                                  className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
-                                  placeholder="Enter nationality"
-                                  value={editingEmployee?.personal?.nationality || ""}
-                                  onChange={(e) => {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        personal: {
-                                          ...prev.personal,
-                                          nationality: e.target.value,
-                                        },
-                                      } : prev
-                                    );
-                                  }}
-                                />
-                                {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
-                              </div>
-                            </div>
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">Passport No</label>
-                                <input
-                                  type="text"
-                                  className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
-                                  placeholder="Enter passport number"
-                                  value={editingEmployee?.personal?.passport?.number || ""}
-                                  onChange={(e) => {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        personal: {
-                                          ...prev.personal,
-                                          passport: {
-                                            ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
-                                            number: e.target.value,
-                                          },
-                                        },
-                                      } : prev
-                                    );
-                                  }}
-                                />
-                                {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="row">
-                            <div className="col-md-6">
-                              <div className="mb-3">
-                                <label className="form-label">
-                                  Passport Expiry Date
-                                  {editingEmployee?.personal?.passport?.number && <span className="text-danger"> *</span>}
-                                </label>
-                                <div className="input-icon-end position-relative">
-                                  <DatePicker
-                                    className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
-                                    format={{ format: "DD-MM-YYYY", type: "mask" }}
-                                    getPopupContainer={() =>
-                                      document.getElementById("edit_employee") || document.body
-                                    }
-                                    placeholder="DD-MM-YYYY"
-                                    value={editingEmployee?.personal?.passport?.expiryDate ? toDayjsDate(editingEmployee.personal.passport.expiryDate) : null}
-                                    onChange={(_date, dateString) => {
-                                      const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
-                                      setEditingEmployee((prev) =>
-                                        prev ? {
-                                          ...prev,
-                                          personal: {
-                                            ...prev.personal,
-                                            passport: {
-                                              ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
-                                              expiryDate: dateValue || null,
-                                            },
-                                          },
-                                        } : prev
-                                      );
-                                    }}
-                                    disabled={!editingEmployee?.personal?.passport?.number}
-                                  />
-                                  <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
-                                </div>
-                                {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
-                              </div>
-                            </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Country</label>
+                            <select
+                              className="form-control"
+                              value={selectedCountryId || ""}
+                              onChange={(e) => {
+                                const countryId = e.target.value ? parseInt(e.target.value) : null;
+                                setSelectedCountryId(countryId);
+                                const selectedCountry = countries.find((c) => c.id === countryId);
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    address: {
+                                      ...prev.address,
+                                      country: selectedCountry?.name || "",
+                                      state: "",
+                                    },
+                                  } : prev
+                                );
+                                // Load states for selected country
+                                if (countryId) {
+                                  GetState(countryId).then((result: any) => {
+                                    setStates(result);
+                                  });
+                                } else {
+                                  setStates([]);
+                                }
+                              }}
+                            >
+                              <option value="">Select Country</option>
+                              {countries.map((country) => (
+                                <option key={country.id} value={country.id}>
+                                  {country.name}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                       </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
-                          <div className="row g-2">
-                            <div className="col-4">
-                              <CommonSelect
-                                options={phoneCodeOptions}
-                                value={phoneCodeOptions.find(opt => opt.value === (editingEmployee?.phoneCode || "+1"))}
-                                onChange={(option: any) => {
-                                  if (option) {
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        phoneCode: option.value,
-                                      } : prev
-                                    );
-                                  }
-                                }}
-                                className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
-                              />
-                            </div>
-                            <div className="col-8">
-                              <input
-                                type="text"
-                                className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
-                                placeholder="Enter phone number"
-                                value={editingEmployee?.phone || ""}
-                                onChange={(e) => {
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">State</label>
+                            <select
+                              className="form-control"
+                              value={editingEmployee?.address?.state || ""}
+                              onChange={(e) => {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    address: {
+                                      ...prev.address,
+                                      state: e.target.value,
+                                    },
+                                  } : prev
+                                );
+                              }}
+                              disabled={!selectedCountryId}
+                            >
+                              <option value="">Select State</option>
+                              {states.map((state) => (
+                                <option key={state.id} value={state.name}>
+                                  {state.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Postal Code</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Enter postal code"
+                              value={editingEmployee?.address?.postalCode || ""}
+                              onChange={(e) => {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    address: {
+                                      ...prev.address,
+                                      postalCode: e.target.value,
+                                    },
+                                  } : prev
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Nationality <span className="text-danger"> *</span></label>
+                            <input
+                              type="text"
+                              className={`form-control ${fieldErrors.nationality ? "is-invalid" : ""}`}
+                              placeholder="Enter nationality"
+                              value={editingEmployee?.personal?.nationality || ""}
+                              onChange={(e) => {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    personal: {
+                                      ...prev.personal,
+                                      nationality: e.target.value,
+                                    },
+                                  } : prev
+                                );
+                              }}
+                            />
+                            {fieldErrors.nationality && <div className="invalid-feedback d-block">{fieldErrors.nationality}</div>}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">Passport No</label>
+                            <input
+                              type="text"
+                              className={`form-control ${fieldErrors.passportNo ? "is-invalid" : ""}`}
+                              placeholder="Enter passport number"
+                              value={editingEmployee?.personal?.passport?.number || ""}
+                              onChange={(e) => {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    personal: {
+                                      ...prev.personal,
+                                      passport: {
+                                        ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
+                                        number: e.target.value,
+                                      },
+                                    },
+                                  } : prev
+                                );
+                              }}
+                            />
+                            {fieldErrors.passportNo && <div className="invalid-feedback d-block">{fieldErrors.passportNo}</div>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Passport Expiry Date
+                              {editingEmployee?.personal?.passport?.number && <span className="text-danger"> *</span>}
+                            </label>
+                            <div className="input-icon-end position-relative">
+                              <DatePicker
+                                className={`form-control datetimepicker ${fieldErrors.passportExpiryDate ? "is-invalid" : ""}`}
+                                format={{ format: "DD-MM-YYYY", type: "mask" }}
+                                getPopupContainer={() =>
+                                  document.getElementById("edit_employee") || document.body
+                                }
+                                placeholder="DD-MM-YYYY"
+                                value={editingEmployee?.personal?.passport?.expiryDate ? toDayjsDate(editingEmployee.personal.passport.expiryDate) : null}
+                                onChange={(_date, dateString) => {
+                                  const dateValue = Array.isArray(dateString) ? dateString[0] : dateString;
                                   setEditingEmployee((prev) =>
                                     prev ? {
                                       ...prev,
-                                      phone: e.target.value,
+                                      personal: {
+                                        ...prev.personal,
+                                        passport: {
+                                          ...(prev.personal?.passport || { number: "", expiryDate: null, country: "" }),
+                                          expiryDate: dateValue || null,
+                                        },
+                                      },
                                     } : prev
                                   );
                                 }}
+                                disabled={!editingEmployee?.personal?.passport?.number}
                               />
+                              <span className="input-icon-addon"><i className="ti ti-calendar text-gray-7" /></span>
                             </div>
+                            {fieldErrors.passportExpiryDate && <div className="invalid-feedback d-block">{fieldErrors.passportExpiryDate}</div>}
                           </div>
-                          {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
-                          {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Department <span className="text-danger"> *</span></label>
-                          {department.length === 0 ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/departments")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Department
-                              </button>
-                              <small className="text-muted d-block mt-2">No departments available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <CommonSelect
-                                className="select"
-                                options={department}
-                                defaultValue={department.find((opt) => opt.value === editingEmployee?.departmentId)}
-                                onChange={handleDepartmentChange}
-                              />
-                              {fieldErrors.departmentId && <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Designation <span className="text-danger"> *</span></label>
-                          {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/designations")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Designation
-                              </button>
-                              <small className="text-muted d-block mt-2">No designations available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <CommonSelect
-                                className="select"
-                                options={designation}
-                                disabled={isDesignationDisabled}
-                                isLoading={loadingDesignations}
-                                defaultValue={designation.find((opt) => opt.value === editingEmployee?.designationId)}
-                                onChange={handleDesignationChange}
-                              />
-                              {fieldErrors.designationId && <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Reporting Manager <span className="text-muted">(Optional)</span></label>
-                          <CommonSelect
-                            className="select"
-                            options={managers}
-                            defaultValue={managers.find((opt) => opt.value === editingEmployee?.reportingTo)}
-                            onChange={(option: any) => {
-                              if (option) {
-                                setEditingEmployee((prev) =>
-                                  prev ? { ...prev, reportingTo: option.value } : prev
-                                );
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Shift Assignment <span className="text-danger">*</span></label>
-                          {shiftAssignmentOptions.directShifts.filter(opt => opt.value !== '').length === 0 &&
-                           shiftAssignmentOptions.shiftBatches.filter(opt => opt.value !== '').length === 0 ? (
-                            <div>
-                              <button
-                                type="button"
-                                className="btn btn-primary w-100"
-                                onClick={() => navigate("/shifts-management")}
-                              >
-                                <i className="ti ti-plus me-2" />
-                                Create New Shift
-                              </button>
-                              <small className="text-muted d-block mt-2">No shifts available. Click to create one.</small>
-                            </div>
-                          ) : (
-                            <>
-                              <select
-                                className={`form-control ${fieldErrors.shiftAssignment ? 'is-invalid' : ''}`}
-                                value={selectedShiftAssignment.type ? `${selectedShiftAssignment.type}-${selectedShiftAssignment.value}` : 'no-shift'}
-                                onChange={(e) => {
-                                  if (e.target.value === 'no-shift') {
-                                    setSelectedShiftAssignment({ type: 'none', value: '' });
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        shiftId: '',
-                                        batchId: '',
-                                      } : prev
-                                    );
-                                    clearFieldError('shiftAssignment');
-                                  } else {
-                                    const [type, value] = e.target.value.split('-');
-                                    setSelectedShiftAssignment({ type: type as 'shift' | 'batch', value });
-                                    setEditingEmployee((prev) =>
-                                      prev ? {
-                                        ...prev,
-                                        shiftId: type === 'shift' ? value : '',
-                                        batchId: type === 'batch' ? value : '',
-                                      } : prev
-                                    );
-                                    clearFieldError('shiftAssignment');
-                                  }
-                                }}
-                                onBlur={() => {
-                                  if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !editingEmployee?.shiftId && !editingEmployee?.batchId) {
-                                    setFieldErrors(prev => ({ ...prev, shiftAssignment: 'Shift assignment is required' }));
-                                  }
-                                }}
-                              >
-                                <option value="no-shift">No Shift Assignment</option>
-                                <optgroup label="Direct Shifts">
-                                  {shiftAssignmentOptions.directShifts
-                                    .filter(opt => opt.value !== '')
-                                    .map(opt => (
-                                      <option key={opt.value} value={`shift-${opt.value}`}>{opt.label}</option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Shift Batches">
-                                  {shiftAssignmentOptions.shiftBatches
-                                    .filter(opt => opt.value !== '')
-                                    .map(opt => (
-                                      <option key={opt.value} value={`batch-${opt.value}`}>{opt.label}</option>
-                                    ))}
-                                </optgroup>
-                              </select>
-                              {fieldErrors.shiftAssignment && <div className="invalid-feedback d-block">{fieldErrors.shiftAssignment}</div>}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Employment Type</label>
-                          <select
-                            className="form-control"
-                            value={editingEmployee?.employmentType || "Full-time"}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? { ...prev, employmentType: e.target.value as any } : prev
-                              );
-                            }}
-                          >
-                            <option value="Full-time">Full-time</option>
-                            <option value="Part-time">Part-time</option>
-                            <option value="Contract">Contract</option>
-                            <option value="Intern">Intern</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Status <span className="text-danger">*</span></label>
-                          <div>
-                            <div className="form-check form-switch">
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                role="switch"
-                                id="editStatusSwitch"
-                                checked={editingEmployee?.status === "Active"}
-                                disabled={
-                                  lifecycleStatus?.hasLifecycleRecord &&
-                                  !lifecycleStatus?.canChangeStatus
-                                }
-                                onChange={(e) => {
-                                  if (
-                                    lifecycleStatus?.hasLifecycleRecord &&
-                                    !lifecycleStatus?.canChangeStatus
-                                  ) {
-                                    toast.error(
-                                      lifecycleStatus?.message ||
-                                      "Cannot change status due to existing lifecycle record"
-                                    );
-                                    return;
-                                  }
-                                  setEditingEmployee((prev) =>
-                                    prev ? { ...prev, status: e.target.checked ? "Active" : "Inactive" } : prev
-                                  );
-                                }}
-                              />
-                              <label
-                                className="form-check-label"
-                                htmlFor="editStatusSwitch"
-                                style={{
-                                  opacity:
-                                    lifecycleStatus?.hasLifecycleRecord &&
-                                    !lifecycleStatus?.canChangeStatus
-                                      ? 0.6
-                                      : 1,
-                                }}
-                              >
-                                <span
-                                  className={`badge ${
-                                    editingEmployee?.status === "Active"
-                                      ? "badge-success"
-                                      : "badge-danger"
-                                  } d-inline-flex align-items-center`}
-                                >
-                                  <i className="ti ti-point-filled me-1" />
-                                  {editingEmployee?.status || "Active"}
-                                </span>
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-md-12">
-                        <div className="mb-3">
-                          <label className="form-label">About</label>
-                          <textarea
-                            className="form-control"
-                            rows={4}
-                            value={typeof editingEmployee?.about === 'string' ? editingEmployee.about : ""}
-                            onChange={(e) => {
-                              setEditingEmployee((prev) =>
-                                prev ? { ...prev, about: e.target.value } : prev
-                              );
-                            }}
-                            placeholder="Write something about the employee..."
-                          />
                         </div>
                       </div>
                     </div>
                   </div>
-                  <div className="modal-footer">
-                    <button
-                      type="button"
-                      className="btn btn-outline-light border me-2"
-                      data-bs-dismiss="modal"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={loading}
-                      onClick={handleEditSubmit}
-                    >
-                      {loading ? "Updating..." : `Update ${editingEmployee?.account?.role || "Employee"}`}
-                    </button>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Phone Number <span className="text-danger"> *</span></label>
+                      <div className="row g-2">
+                        <div className="col-4">
+                          <CommonSelect
+                            options={phoneCodeOptions}
+                            value={phoneCodeOptions.find(opt => opt.value === (editingEmployee?.phoneCode || "+1"))}
+                            onChange={(option: any) => {
+                              if (option) {
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    phoneCode: option.value,
+                                  } : prev
+                                );
+                              }
+                            }}
+                            className={`select ${fieldErrors.phoneCode ? "is-invalid" : ""}`}
+                          />
+                        </div>
+                        <div className="col-8">
+                          <input
+                            type="text"
+                            className={`form-control ${fieldErrors.phone ? "is-invalid" : ""}`}
+                            placeholder="Enter phone number"
+                            value={editingEmployee?.phone || ""}
+                            onChange={(e) => {
+                              setEditingEmployee((prev) =>
+                                prev ? {
+                                  ...prev,
+                                  phone: e.target.value,
+                                } : prev
+                              );
+                            }}
+                          />
+                        </div>
+                      </div>
+                      {fieldErrors.phoneCode && <div className="invalid-feedback d-block">{fieldErrors.phoneCode}</div>}
+                      {fieldErrors.phone && <div className="invalid-feedback d-block">{fieldErrors.phone}</div>}
+                    </div>
                   </div>
-                </form>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Department <span className="text-danger"> *</span></label>
+                      {department.length === 0 ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/departments")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Department
+                          </button>
+                          <small className="text-muted d-block mt-2">No departments available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <CommonSelect
+                            className="select"
+                            options={department}
+                            defaultValue={department.find((opt) => opt.value === editingEmployee?.departmentId)}
+                            onChange={handleDepartmentChange}
+                          />
+                          {fieldErrors.departmentId && <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Designation <span className="text-danger"> *</span></label>
+                      {designation.length === 0 && !isDesignationDisabled && !loadingDesignations ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/designations")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Designation
+                          </button>
+                          <small className="text-muted d-block mt-2">No designations available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <CommonSelect
+                            className="select"
+                            options={designation}
+                            disabled={isDesignationDisabled}
+                            isLoading={loadingDesignations}
+                            defaultValue={designation.find((opt) => opt.value === editingEmployee?.designationId)}
+                            onChange={handleDesignationChange}
+                          />
+                          {fieldErrors.designationId && <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Reporting Manager <span className="text-muted">(Optional)</span></label>
+                      <CommonSelect
+                        className="select"
+                        options={managers}
+                        defaultValue={managers.find((opt) => opt.value === editingEmployee?.reportingTo)}
+                        onChange={(option: any) => {
+                          if (option) {
+                            setEditingEmployee((prev) =>
+                              prev ? { ...prev, reportingTo: option.value } : prev
+                            );
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Shift Assignment <span className="text-danger">*</span></label>
+                      {shiftAssignmentOptions.directShifts.filter(opt => opt.value !== '').length === 0 &&
+                        shiftAssignmentOptions.shiftBatches.filter(opt => opt.value !== '').length === 0 ? (
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-primary w-100"
+                            onClick={() => navigate("/shifts-management")}
+                          >
+                            <i className="ti ti-plus me-2" />
+                            Create New Shift
+                          </button>
+                          <small className="text-muted d-block mt-2">No shifts available. Click to create one.</small>
+                        </div>
+                      ) : (
+                        <>
+                          <select
+                            className={`form-control ${fieldErrors.shiftAssignment ? 'is-invalid' : ''}`}
+                            value={selectedShiftAssignment.type ? `${selectedShiftAssignment.type}-${selectedShiftAssignment.value}` : 'no-shift'}
+                            onChange={(e) => {
+                              if (e.target.value === 'no-shift') {
+                                setSelectedShiftAssignment({ type: 'none', value: '' });
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    shiftId: '',
+                                    batchId: '',
+                                  } : prev
+                                );
+                                clearFieldError('shiftAssignment');
+                              } else {
+                                const [type, value] = e.target.value.split('-');
+                                setSelectedShiftAssignment({ type: type as 'shift' | 'batch', value });
+                                setEditingEmployee((prev) =>
+                                  prev ? {
+                                    ...prev,
+                                    shiftId: type === 'shift' ? value : '',
+                                    batchId: type === 'batch' ? value : '',
+                                  } : prev
+                                );
+                                clearFieldError('shiftAssignment');
+                              }
+                            }}
+                            onBlur={() => {
+                              if (selectedShiftAssignment.type !== 'none' && !selectedShiftAssignment.type && !editingEmployee?.shiftId && !editingEmployee?.batchId) {
+                                setFieldErrors(prev => ({ ...prev, shiftAssignment: 'Shift assignment is required' }));
+                              }
+                            }}
+                          >
+                            <option value="no-shift">No Shift Assignment</option>
+                            <optgroup label="Direct Shifts">
+                              {shiftAssignmentOptions.directShifts
+                                .filter(opt => opt.value !== '')
+                                .map(opt => (
+                                  <option key={opt.value} value={`shift-${opt.value}`}>{opt.label}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="Shift Batches">
+                              {shiftAssignmentOptions.shiftBatches
+                                .filter(opt => opt.value !== '')
+                                .map(opt => (
+                                  <option key={opt.value} value={`batch-${opt.value}`}>{opt.label}</option>
+                                ))}
+                            </optgroup>
+                          </select>
+                          {fieldErrors.shiftAssignment && <div className="invalid-feedback d-block">{fieldErrors.shiftAssignment}</div>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Employment Type</label>
+                      <select
+                        className="form-control"
+                        value={editingEmployee?.employmentType || "Full-time"}
+                        onChange={(e) => {
+                          setEditingEmployee((prev) =>
+                            prev ? { ...prev, employmentType: e.target.value as any } : prev
+                          );
+                        }}
+                      >
+                        <option value="Full-time">Full-time</option>
+                        <option value="Part-time">Part-time</option>
+                        <option value="Contract">Contract</option>
+                        <option value="Intern">Intern</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="mb-3">
+                      <label className="form-label">Status <span className="text-danger">*</span></label>
+                      <div>
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            id="editStatusSwitch"
+                            checked={editingEmployee?.status === "Active"}
+                            disabled={
+                              lifecycleStatus?.hasLifecycleRecord &&
+                              !lifecycleStatus?.canChangeStatus
+                            }
+                            onChange={(e) => {
+                              if (
+                                lifecycleStatus?.hasLifecycleRecord &&
+                                !lifecycleStatus?.canChangeStatus
+                              ) {
+                                toast.error(
+                                  lifecycleStatus?.message ||
+                                  "Cannot change status due to existing lifecycle record"
+                                );
+                                return;
+                              }
+                              setEditingEmployee((prev) =>
+                                prev ? { ...prev, status: e.target.checked ? "Active" : "Inactive" } : prev
+                              );
+                            }}
+                          />
+                          <label
+                            className="form-check-label"
+                            htmlFor="editStatusSwitch"
+                            style={{
+                              opacity:
+                                lifecycleStatus?.hasLifecycleRecord &&
+                                  !lifecycleStatus?.canChangeStatus
+                                  ? 0.6
+                                  : 1,
+                            }}
+                          >
+                            <span
+                              className={`badge ${editingEmployee?.status === "Active"
+                                  ? "badge-success"
+                                  : "badge-danger"
+                                } d-inline-flex align-items-center`}
+                            >
+                              <i className="ti ti-point-filled me-1" />
+                              {editingEmployee?.status || "Active"}
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">About</label>
+                      <textarea
+                        className="form-control"
+                        rows={4}
+                        value={typeof editingEmployee?.about === 'string' ? editingEmployee.about : ""}
+                        onChange={(e) => {
+                          setEditingEmployee((prev) =>
+                            prev ? { ...prev, about: e.target.value } : prev
+                          );
+                        }}
+                        placeholder="Write something about the employee..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-light border me-2"
+                  data-bs-dismiss="modal"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={loading}
+                  onClick={handleEditSubmit}
+                >
+                  {loading ? "Updating..." : `Update ${editingEmployee?.account?.role || "Employee"}`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

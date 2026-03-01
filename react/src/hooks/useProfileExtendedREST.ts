@@ -9,9 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { get } from '../services/api';
-import { handleApiError } from '../services/api';
-import { message } from 'antd';
+import { get, handleApiError } from '../services/api';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for Extended Profile Data
