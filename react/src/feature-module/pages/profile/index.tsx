@@ -1,17 +1,17 @@
+import { Modal, Tooltip } from 'antd';
 import React, { useEffect, useRef, useState } from 'react';
 import { GetCountries, GetState } from 'react-country-state-city';
 import { Link } from 'react-router-dom';
-import { Tooltip, Modal } from 'antd';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
 import CommonSelect from '../../../core/common/commonSelect';
 import Footer from '../../../core/common/footer';
-import { MyChangeRequestsModal } from '../../../core/modals/MyChangeRequestsModal';
 import { EducationModal } from '../../../core/modals/EducationModal';
 import { ExperienceModal } from '../../../core/modals/ExperienceModal';
 import { FamilyModal } from '../../../core/modals/FamilyModal';
-import { useChangeRequestREST, FieldStatus, ChangeRequest } from '../../../hooks/useChangeRequestREST';
+import { MyChangeRequestsModal } from '../../../core/modals/MyChangeRequestsModal';
+import { ChangeRequest, FieldStatus, useChangeRequestREST } from '../../../hooks/useChangeRequestREST';
 import { useEmailChange } from '../../../hooks/useEmailChange';
 import { useProfileExtendedREST } from '../../../hooks/useProfileExtendedREST';
 import { Profile, useProfileRest } from '../../../hooks/useProfileRest';
@@ -414,16 +414,14 @@ const FieldStatusIcon: React.FC<FieldStatusIconProps> = ({ fieldPath, getFieldSt
       }
     >
       <span
-        className={`ms-2 ${
-          status === 'pending' ? 'text-warning' : 'text-danger'
-        }`}
+        className={`ms-2 ${status === 'pending' ? 'text-warning' : 'text-danger'
+          }`}
         style={{ cursor: onClick ? 'pointer' : 'default' }}
         onClick={onClick}
       >
         <i
-          className={`ti ${
-            status === 'pending' ? 'ti-clock' : 'ti-x-circle'
-          }`}
+          className={`ti ${status === 'pending' ? 'ti-clock' : 'ti-x-circle'
+            }`}
         />
       </span>
     </Tooltip>
@@ -901,6 +899,7 @@ const BankInfoSection: React.FC<{ formData: any; isEditing: boolean; onChange: (
 }) => {
   // Validation state
   const [errors, setErrors] = useState<{
+    accountHolderName?: string;
     bankName?: string;
     accountNumber?: string;
     ifscCode?: string;
@@ -1686,8 +1685,8 @@ const WorkInfoSection: React.FC<{ workInfo: any; currentUserProfile: any; }> = (
   // Get reporting manager name
   const reportingManagerName = currentUserProfile?.reportingManager
     ? `${currentUserProfile.reportingManager.firstName || ''} ${currentUserProfile.reportingManager.lastName || ''}`.trim() ||
-      currentUserProfile.reportingManager.fullName ||
-      currentUserProfile.reportingManager.employeeId
+    currentUserProfile.reportingManager.fullName ||
+    currentUserProfile.reportingManager.employeeId
     : null;
 
   // Get shift timing from workInfo.shift
@@ -3594,7 +3593,7 @@ const ProfilePage = () => {
                 <div className="card-body">
                   {extendedLoading ? (
                     <CareerHistorySkeleton />
-                  ) : (careerHistory && careerHistory.length > 0) ? (
+                  ) : careerHistory ? (
                     <CareerHistorySection careerHistory={careerHistory} />
                   ) : (
                     <div className="text-center py-5">
